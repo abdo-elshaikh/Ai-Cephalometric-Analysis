@@ -22,7 +22,7 @@ from monai.transforms import (
 from schemas.schemas import LandmarkPoint
 
 # Import the model code
-from engines.net import UNet
+from engines.net import UNet, MONAIUNet
 from engines.func import argsoftmax, get_heatmap_stats
 from engines.mytransforms import mytransforms
 
@@ -36,7 +36,8 @@ H, W = 800, 640
 
 # MONAI Preprocessing Pipeline (Professional Clinical Standard)
 monai_pre_trans = Compose([
-    AddChannel(),
+    # monai expects [C, H, W], we pass [H, W] from numpy
+    AddChannel(), 
     Resize((H, W)),
     ScaleIntensity(), # Scales to [0,1]
     NormalizeIntensity(subtrahend=0.5, divisor=0.5), # Standard zero-mean, unit-variance style
@@ -56,10 +57,19 @@ def load_model(model_path: str, device: str):
     _device = device
     logger.info(f"Loading landmark model from {model_path} onto {device}...")
     try:
-        _model = UNet(1, 38).to(device)
-        _model.load_state_dict(torch.load(model_path, map_location=device))
+        # Use the professional MONAI UNet architecture with residual units
+        _model = MONAIUNet(out_channels=38).to(device)
+        try:
+            _model.load_state_dict(torch.load(model_path, map_location=device))
+            logger.info("MONAIUNet weights loaded successfully.")
+        except Exception as e:
+            logger.warning(f"Could not load MONAIUNet weights, trying fallback UNet: {e}")
+            from engines.net import UNet
+            _model = UNet(1, 38).to(device)
+            _model.load_state_dict(torch.load(model_path, map_location=device))
+            logger.info("Standard UNet weights loaded successfully.")
+            
         _model.eval()
-        logger.info("Model loaded successfully.")
     except Exception as e:
         logger.error(f"Failed to load real model from {model_path}. Returning fallback placeholders. Error: {e}")
         _model = "dummy_model_loaded"
@@ -211,45 +221,49 @@ def infer(image_bytes: bytes) -> Dict[str, LandmarkPoint]:
 def get_fallback_landmarks(image_bytes: bytes) -> Dict[str, LandmarkPoint]:
     try:
         with Image.open(io.BytesIO(image_bytes)) as img:
-            width, height = img.size
+            w, h = img.size
     except Exception:
-        width, height = 800, 600
+        w, h = 800, 600
+
+    def p(x, y, conf=0.85):
+        return LandmarkPoint(x=x * w, y=y * h, confidence=conf)
 
     return {
-        "S":   LandmarkPoint(x=0.55, y=0.30, confidence=0.97),
-        "N":   LandmarkPoint(x=0.75, y=0.28, confidence=0.95),
-        "Or":  LandmarkPoint(x=0.70, y=0.38, confidence=0.91),
-        "Po":  LandmarkPoint(x=0.50, y=0.38, confidence=0.89),
-        "A":   LandmarkPoint(x=0.72, y=0.52, confidence=0.91),
-        "B":   LandmarkPoint(x=0.70, y=0.65, confidence=0.89),
-        "Pog": LandmarkPoint(x=0.70, y=0.70, confidence=0.87),
-        "Gn":  LandmarkPoint(x=0.68, y=0.72, confidence=0.88),
-        "Me":  LandmarkPoint(x=0.65, y=0.75, confidence=0.86),
-        "Go":  LandmarkPoint(x=0.50, y=0.70, confidence=0.85),
-        "ANS": LandmarkPoint(x=0.72, y=0.48, confidence=0.90),
-        "PNS": LandmarkPoint(x=0.60, y=0.50, confidence=0.88),
-        "UI":  LandmarkPoint(x=0.70, y=0.58, confidence=0.86),
-        "UIR": LandmarkPoint(x=0.70, y=0.52, confidence=0.84),
-        "LI":  LandmarkPoint(x=0.68, y=0.60, confidence=0.85),
-        "LIR": LandmarkPoint(x=0.68, y=0.65, confidence=0.83),
+        "S":   p(0.55, 0.30, 0.97),
+        "N":   p(0.75, 0.28, 0.95),
+        "Or":  p(0.70, 0.38, 0.91),
+        "Po":  p(0.50, 0.38, 0.89),
+        "A":   p(0.72, 0.52, 0.91),
+        "B":   p(0.70, 0.65, 0.89),
+        "Pog": p(0.70, 0.70, 0.87),
+        "Gn":  p(0.68, 0.72, 0.88),
+        "Me":  p(0.65, 0.75, 0.86),
+        "Go":  p(0.50, 0.70, 0.85),
+        "ANS": p(0.72, 0.48, 0.90),
+        "PNS": p(0.60, 0.50, 0.88),
+        "UI":  p(0.70, 0.58, 0.86),
+        "UIR": p(0.70, 0.52, 0.84),
+        "LI":  p(0.68, 0.60, 0.85),
+        "LIR": p(0.68, 0.65, 0.83),
         
         # Profile / Soft Tissue
-        "GLA":     LandmarkPoint(x=0.80, y=0.20, confidence=0.90),
-        "SoftN":   LandmarkPoint(x=0.78, y=0.28, confidence=0.92),
-        "Prn":     LandmarkPoint(x=0.85, y=0.45, confidence=0.90),
-        "Sn":      LandmarkPoint(x=0.78, y=0.50, confidence=0.88),
-        "Ls":      LandmarkPoint(x=0.79, y=0.54, confidence=0.85), # Upper Lip
-        "Li":      LandmarkPoint(x=0.77, y=0.62, confidence=0.85), # Lower Lip
-        "SoftPog": LandmarkPoint(x=0.75, y=0.71, confidence=0.88),
-        "SoftGn":  LandmarkPoint(x=0.73, y=0.75, confidence=0.86),
+        "GLA":     p(0.80, 0.20, 0.90),
+        "SoftN":   p(0.78, 0.28, 0.92),
+        "Prn":     p(0.85, 0.45, 0.90),
+        "Sn":      p(0.78, 0.50, 0.88),
+        "Ls":      p(0.79, 0.54, 0.85), # Upper Lip
+        "Li":      p(0.77, 0.62, 0.85), # Lower Lip
+        "SoftPog": p(0.75, 0.71, 0.88),
+        "SoftGn":  p(0.73, 0.75, 0.86),
 
-        "UM":  LandmarkPoint(x=0.70, y=0.55, confidence=0.87),
-        "LM":  LandmarkPoint(x=0.68, y=0.62, confidence=0.85),
-        "U1":  LandmarkPoint(x=0.70, y=0.58, confidence=0.86),
-        "L1":  LandmarkPoint(x=0.68, y=0.60, confidence=0.85),
-        "U6":  LandmarkPoint(x=0.70, y=0.50, confidence=0.84),
-        "L6":  LandmarkPoint(x=0.68, y=0.62, confidence=0.83),
-        "Ar":  LandmarkPoint(x=0.50, y=0.45, confidence=0.85),
-        "Ba":  LandmarkPoint(x=0.45, y=0.48, confidence=0.83),
-        "Pt":  LandmarkPoint(x=0.58, y=0.40, confidence=0.85),
+        # teeth coordinates
+        "UM":  p(0.70, 0.55, 0.87),
+        "LM":  p(0.68, 0.62, 0.85),
+        "U1":  p(0.70, 0.58, 0.86),
+        "L1":  p(0.68, 0.60, 0.85),
+        "U6":  p(0.70, 0.50, 0.84),
+        "L6":  p(0.68, 0.62, 0.83),
+        "Ar":  p(0.50, 0.45, 0.85),
+        "Ba":  p(0.45, 0.48, 0.83),
+        "Pt":  p(0.58, 0.40, 0.85),
     }

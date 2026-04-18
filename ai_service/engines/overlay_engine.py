@@ -94,6 +94,7 @@ class OverlayRequest:
     date_label: str = ""
     scale_bar_mm: Optional[float] = 40.0                 # length of reference scale bar in mm
     pixel_spacing_mm: Optional[float] = None             # mm per pixel
+    analysis_method: Optional[str] = "Steiner"          # Steiner | McNamara | Tweed | Full
 
 
 # ─────────────────────────────────────────────
@@ -362,9 +363,14 @@ def render_xray_with_tracing(req: OverlayRequest,
         return _scale(lm, sx, sy)
 
     # ── Multi-Analysis Tracing (Steiner, McNamara, Tweed) ──────────────────
-    _draw_steiner_lines(draw, lms, sx, sy)
-    _draw_mcnamara_lines(draw, lms, sx, sy)
-    _draw_tweed_lines(draw, lms, sx, sy)
+    method = (req.analysis_method or "Full").lower()
+    
+    if method in ["steiner", "full"]:
+        _draw_steiner_lines(draw, lms, sx, sy)
+    if method in ["mcnamara", "full"]:
+        _draw_mcnamara_lines(draw, lms, sx, sy)
+    if method in ["tweed", "full"]:
+        _draw_tweed_lines(draw, lms, sx, sy)
     
     # ── Anatomical Tracing ──────────────────────────────────────────────────
     _draw_anatomical_outlines(draw, lms, sx, sy)
@@ -376,10 +382,11 @@ def render_xray_with_tracing(req: OverlayRequest,
     # ── Composite ────────────────────────────────────────────────────────────
     result = Image.alpha_composite(base_img.convert("RGBA"), overlay)
 
-    # Patient label + "AI Ceph" watermark
+    # Patient label + Watermark
     draw_final = ImageDraw.Draw(result)
     font_sm = _try_font(24)
-    draw_final.text((12, canvas_h-36), "AI Ceph Analysis Suite", font=font_sm, fill=C_WHITE)
+    draw_final.text((12, canvas_h-36), "AI Tracing Engine", font=font_sm, fill=C_WHITE)
+    _draw_clinical_watermark(draw_final, canvas_w, canvas_h)
 
     return _to_jpeg(result)
 
@@ -518,11 +525,13 @@ def render_xray_with_measurements(req: OverlayRequest,
     draw_final = ImageDraw.Draw(result)
     _draw_scale_bar(draw_final, canvas_w, canvas_h, req, sx, font_val)
 
-    # Patient info header
+    # Patient info header + Watermark
     if req.patient_label:
         draw_final.text((20, 20), req.patient_label, font=font_hdr, fill=(255, 255, 255, 220))
     if req.date_label:
         draw_final.text((20, 56), req.date_label,    font=font_hdr, fill=(255, 255, 255, 200))
+    
+    _draw_clinical_watermark(draw_final, canvas_w, canvas_h)
 
     return _to_jpeg(result)
 
@@ -603,12 +612,17 @@ def render_tracing_only(req: OverlayRequest,
         return _scale(lm, sx, sy)
 
     # ── Multi-Analysis Tracing (Steiner, McNamara, Tweed) ──────────────────
-    _draw_steiner_lines(draw, lms, sx, sy, alpha=255)
-    _draw_mcnamara_lines(draw, lms, sx, sy)
-    _draw_tweed_lines(draw, lms, sx, sy)
+    method = (req.analysis_method or "Full").lower()
+
+    if method in ["steiner", "full"]:
+        _draw_steiner_lines(draw, lms, sx, sy, alpha=255)
+    if method in ["mcnamara", "full"]:
+        _draw_mcnamara_lines(draw, lms, sx, sy)
+    if method in ["tweed", "full"]:
+        _draw_tweed_lines(draw, lms, sx, sy)
     
     # ── Anatomical Tracing (Black) ──────────────────────────────────────────
-    _draw_anatomical_outlines(draw, lms, sx, sy)
+    _draw_anatomical_outlines(draw, lms, sx, sy, color=(0, 0, 0))
     _draw_soft_tissue(draw, lms, sx, sy, alpha=255, color=(0, 0, 0, 255))
 
     # ── Measurement labels ────────────────────────────────────────────────────
@@ -659,8 +673,9 @@ def render_tracing_only(req: OverlayRequest,
     if req.date_label:
         draw.text((20, 56), req.date_label,    font=font_hdr, fill=C_BLACK)
 
-    # Scale bar
+    # Scale bar + Watermark
     _draw_scale_bar(draw, canvas_w, canvas_h, req, sx, font_hdr, bg_dark=False)
+    _draw_clinical_watermark(draw, canvas_w, canvas_h)
 
     return _to_jpeg(img.convert("RGB"))
 
@@ -987,65 +1002,97 @@ def _draw_soft_tissue(draw: ImageDraw.ImageDraw,
                        sx: float, sy: float,
                        alpha: int = 200,
                        color: tuple = None):
-    """Render the soft-tissue profile polyline in dark red."""
+    """
+    Render the soft-tissue profile using segmented splines for 
+    high anatomical fidelity (nose, lips, chin, throat).
+    """
     SOFT = color if color else (*ANAT_COLOR, alpha)
 
     def pt(name):
         lm = _lm(lms, name)
-        if lm is None:
-            return None
-        return _scale(lm, sx, sy)
+        return _scale(lm, sx, sy) if lm else None
 
-    chain = [
-        "upGl'", "upN'", "upPn'", "upSn'", "upSLS'", "upLs'",
-        "upUppSt'", "loLowSt'", "loLi'", "loILS'", "loPg'",
-        "loGn'", "loMe'", "loTh'"
-    ]
-    pts = [pt(n) for n in chain]
-    pts = [p for p in pts if p is not None]
-    if len(pts) >= 2:
-        _cardinal_spline(draw, pts, fill=SOFT, width=2, tension=0.5, steps=15)
+    # 1. Forehead to Nose Tip
+    upper_face = ["upGl'", "upN'", "upPn'"]
+    # 2. Subnasale to Upper Lip
+    upper_lip  = ["upSn'", "upSLS'", "upLs'", "upUppSt'"]
+    # 3. Lower Lip to Chin
+    lower_lip  = ["loLowSt'", "loLi'", "loILS'", "loPg'"]
+    # 4. Chin to Throat
+    throat     = ["loPg'", "loGn'", "loMe'", "loTh'"]
 
-    # E-line
+    for segment, tension in [(upper_face, 0.3), (upper_lip, 0.4), (lower_lip, 0.4), (throat, 0.3)]:
+        pts = [pt(n) for n in segment if pt(n) is not None]
+        if len(pts) >= 2:
+            _cardinal_spline(draw, pts, fill=SOFT, width=2, tension=tension, steps=12)
+
+    # Ricketts E-Line (Pronasale to Soft Pogonion)
     pron     = pt("Pronasale")
     soft_pog = pt("Point Soft Pogonion")
     if pron and soft_pog:
-        draw.line([pron, soft_pog], fill=SOFT, width=2)
+        # Draw with low opacity to not obscure landmarks
+        draw.line([pron, soft_pog], fill=(*SOFT[:3], 100), width=1)
+
+
+def _draw_clinical_watermark(draw: ImageDraw.ImageDraw, 
+                             canvas_w: int, canvas_h: int):
+    """Adds a professional watermark with service branding."""
+    font_sub = _try_font(20)
+    font_main = _try_font(24, bold=True)
+    
+    # Bottom right
+    margin = 20
+    text_main = "CEPHALOMETRIC AI"
+    text_sub = "Clinical Decision Support System"
+    
+    bbox_main = draw.textbbox((0, 0), text_main, font=font_main)
+    bbox_sub = draw.textbbox((0, 0), text_sub, font=font_sub)
+    
+    x_main = canvas_w - (bbox_main[2] - bbox_main[0]) - margin
+    y_main = canvas_h - (bbox_main[3] - bbox_main[1]) - margin - 25
+    
+    x_sub = canvas_w - (bbox_sub[2] - bbox_sub[0]) - margin
+    y_sub = canvas_h - (bbox_sub[3] - bbox_sub[1]) - margin
+    
+    draw.text((x_main, y_main), text_main, font=font_main, fill=(150, 150, 150, 150))
+    draw.text((x_sub, y_sub), text_sub, font=font_sub, fill=(150, 150, 150, 120))
 
 
 def _draw_anatomical_outlines(draw: ImageDraw.ImageDraw,
                               lms: dict[str, LandmarkPoint],
-                              sx: float, sy: float):
+                              sx: float, sy: float,
+                              color: tuple = ANAT_COLOR):
     """Renders basic skull, maxilla, and mandibular outlines."""
+    COL = (*color, 230)
     def pt(name: str, *aliases) -> Optional[tuple[float, float]]:
         lm = _lm(lms, name, *aliases)
         return _scale(lm, sx, sy) if lm else None
 
     # Skull / Cranial Base
     s, n, ba, orb = pt("Sella Turcica"), pt("Nasion"), pt("Basion"), pt("Orbitale")
-    if s and n: draw.line([s, n], fill=(*ANAT_COLOR, 230), width=2)
-    if s and ba: draw.line([s, ba], fill=(*ANAT_COLOR, 230), width=2)
-    if n and orb: draw.line([n, orb], fill=(*ANAT_COLOR, 230), width=2)
+    if s and n: draw.line([s, n], fill=COL, width=2)
+    if s and ba: draw.line([s, ba], fill=COL, width=2)
+    if n and orb: draw.line([n, orb], fill=COL, width=2)
 
     # Maxilla
     ans, pns = pt("Anterior Nasal Spine"), pt("Posterior Nasal Spine")
-    if ans and pns: draw.line([ans, pns], fill=(*ANAT_COLOR, 230), width=2)
+    if ans and pns: draw.line([ans, pns], fill=COL, width=2)
 
     # Mandible (Spline)
     mand_chain = ["Articulare", "P0", "Constructed Gonion (tangent)", "Menton", "Gnathion", "Pogonion"]
     mand_pts = [pt(n) for n in mand_chain if pt(n) is not None]
     if len(mand_pts) >= 2:
-        _cardinal_spline(draw, mand_pts, fill=(*ANAT_COLOR, 230), width=2, tension=0.4)
+        _cardinal_spline(draw, mand_pts, fill=COL, width=2, tension=0.4)
 
     # Teeth silhouettes
     ui_a, ui_t = pt("Apex of upper incisor"), pt("Incisal edge of upper incisor")
-    if ui_a and ui_t: _draw_incisor_upper(draw, ui_a, ui_t, lms, sx, sy)
+    if ui_a and ui_t: _draw_incisor_upper(draw, ui_a, ui_t, lms, sx, sy, color=COL)
     
     li_a, li_t = pt("Apex of lower incisor"), pt("Incisal edge of lower incisor")
-    if li_a and li_t: _draw_incisor_lower(draw, li_a, li_t, lms, sx, sy)
+    if li_a and li_t: _draw_incisor_lower(draw, li_a, li_t, lms, sx, sy, color=COL)
     
-    _draw_molar(draw, lms, sx, sy, "upper")
-    _draw_molar(draw, lms, sx, sy, "lower")
+    _draw_molar(draw, lms, sx, sy, "upper", color=COL)
+    _draw_molar(draw, lms, sx, sy, "lower", color=COL)
 
 
 def _draw_incisor_upper(draw: ImageDraw.ImageDraw,
@@ -1249,4 +1296,3 @@ def _to_jpeg(img: Image.Image, quality: int = 92) -> bytes:
     img.convert("RGB").save(buf, format="JPEG", quality=quality)
     buf.seek(0)
     return buf.read()
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            
