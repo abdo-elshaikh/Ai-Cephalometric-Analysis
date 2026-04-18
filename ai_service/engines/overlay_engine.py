@@ -48,6 +48,9 @@ C_WHITE   = (255, 255, 255)
 C_BLACK   = (0,   0,   0)
 C_GRID    = (5, 150, 105)            # #059669 (Green for Wiggle grid)
 
+# Soft-tissue profile on X-ray / tracing-only (PointNix reference: dark red, not anatomy green)
+SOFT_TISSUE_TRACE = (153, 27, 27)    # ~#991b1b
+
 # Status → colour mapping used in annotation overlays
 STATUS_COLOR = {
     "Normal":    C_GREEN,
@@ -228,6 +231,121 @@ def _draw_label_with_box(draw: ImageDraw.ImageDraw, text: str, pos: tuple, color
     draw.text(pos, text, font=font, fill=color)
 
 
+def _wiggle_display_name(m: MeasurementItem) -> str:
+    """PointNix-style row title: prefer original measurement name from the viewer."""
+    if m.name and m.name.strip():
+        return m.name.strip()
+    return m.code or "?"
+
+
+def _render_pointnix_wiggle_fullpage(
+    measurements: list[MeasurementItem],
+    canvas_w: int,
+    canvas_h: int,
+    patient_label: str = "",
+    date_label: str = "",
+) -> Image.Image:
+    """
+    PointNix / Yasmin-pack style wiggle chart:
+      • Sigma scale (-3σ…m…3σ) across the top of the plot area
+      • Green horizontal grid, vertical σ guides, red deviation polyline + markers
+      • Measurement names and three green numbers (σ·value·norm) on the right
+    """
+    GREEN = (5, 150, 105)
+    RED = (220, 38, 38)
+    GRID_H = (209, 250, 229)
+    GRID_V = (167, 243, 208)
+    TXT_DIM = (55, 65, 55)
+
+    img = Image.new("RGB", (canvas_w, canvas_h), (255, 255, 255))
+    draw = ImageDraw.Draw(img)
+
+    font_title = _try_font(34, bold=True)
+    font_pt = _try_font(24)
+    font_scale = _try_font(17)
+    font_name = _try_font(19, bold=True)
+    font_nums = _try_font(18)
+
+    n = len(measurements)
+    y = 20
+    tw, th = canvas_w, canvas_h
+    draw.text(((tw - 620) // 2, y), "Björk–Skieller Wiggle Analysis", font=font_title, fill=GREEN)
+    y += 48
+    if patient_label:
+        draw.text((40, y), f"Patient: {patient_label}", font=font_pt, fill=TXT_DIM)
+        y += 30
+    if date_label:
+        draw.text((40, y), f"Date: {date_label}", font=font_pt, fill=(120, 120, 120))
+        y += 34
+    else:
+        y += 4
+
+    chart_x0 = 36
+    chart_x1 = int(tw * 0.58)
+    label_x = chart_x1 + 20
+    cw = chart_x1 - chart_x0
+
+    if n == 0:
+        draw.text((40, y + 40), "No measurements to plot.", font=font_pt, fill=TXT_DIM)
+        return img
+
+    # σ axis labels (PointNix strip)
+    scale_y = y
+    ticks = [(-3, "-3σ"), (-2, "-2σ"), (-1, "-σ"), (0, "m"), (1, "σ"), (2, "2σ"), (3, "3σ")]
+    for sv, lab in ticks:
+        tx = chart_x0 + (sv + 3) / 6.0 * cw
+        bbox = draw.textbbox((0, 0), lab, font=font_scale)
+        twlab = bbox[2] - bbox[0]
+        draw.text((int(tx - twlab / 2), scale_y), lab, font=font_scale, fill=GREEN)
+
+    body_y0 = scale_y + 32
+    body_h = th - body_y0 - 28
+    row_h = body_h / n
+
+    pts: list[tuple[float, float]] = []
+    for i, m in enumerate(measurements):
+        y_top = body_y0 + i * row_h
+        y_mid = y_top + row_h * 0.5
+        draw.line([(chart_x0, y_top), (chart_x1, y_top)], fill=GRID_H, width=1)
+        if i == n - 1:
+            draw.line([(chart_x0, y_top + row_h), (chart_x1, y_top + row_h)], fill=GRID_H, width=1)
+
+        sd = m.std_deviation if m.std_deviation else 1.0
+        sig = m.difference / sd
+        sig_clamped = max(-3.5, min(3.5, sig))
+        x_pt = chart_x0 + (sig_clamped + 3) / 6.0 * cw
+        pts.append((x_pt, y_mid))
+
+        sig_i = int(round(max(-3, min(3, sig))))
+        triple = f"{sig_i}  {m.value:.1f}  {m.normal_value:.1f}"
+        name = _wiggle_display_name(m)
+        if len(name) > 36:
+            name = name[:33] + "…"
+        draw.text((label_x, y_top + 4), name, font=font_name, fill=GREEN)
+        draw.text((label_x, y_top + row_h * 0.52), triple, font=font_nums, fill=GREEN)
+
+    # Vertical σ guides
+    for sv in range(-3, 4):
+        gx = chart_x0 + (sv + 3) / 6.0 * cw
+        draw.line([(gx, body_y0), (gx, body_y0 + body_h)], fill=GRID_V, width=1)
+
+    # Red polyline + nodes
+    if len(pts) >= 2:
+        draw.line(pts, fill=RED, width=3)
+    for i, (px, py) in enumerate(pts):
+        m = measurements[i]
+        sd = m.std_deviation if m.std_deviation else 1.0
+        sig = m.difference / sd
+        r = 5
+        draw.ellipse([px - r, py - r, px + r, py + r], fill=RED, outline=(255, 255, 255), width=1)
+        if abs(sig) >= 2.85:
+            direction = 1 if sig > 0 else -1
+            tip = (chart_x1 + 12 * direction, py)
+            _arrowhead(draw, tip, (px, py), RED, head_len=12)
+
+    return img
+
+
 def _render_wiggle_to_image(measurements: list[MeasurementItem], width: int, height: int, dpi: int = 100, show_labels: bool = False) -> Image.Image:
     """
     Renders a professional Björk-Skieller wiggle chart using matplotlib.
@@ -338,10 +456,10 @@ def render_xray_with_tracing(req: OverlayRequest,
                               canvas_h: int = 1280) -> bytes:
     """
     Renders the X-ray with:
-      • Anatomical tracing (black lines – skull outline, dental forms, ramus)
-      • Soft-tissue profile (dark red spline-like polyline)
+      • Anatomical tracing (clinical green outlines)
+      • Soft-tissue profile (spline segments)
       • Steiner analysis skeleton lines (purple)
-      • Patient label watermark (bottom-left)
+      • PointNix branding (bottom-left)
     """
     base_img = Image.open(io.BytesIO(req.image_bytes)).convert("RGB")
     orig_w, orig_h = base_img.size
@@ -385,8 +503,7 @@ def render_xray_with_tracing(req: OverlayRequest,
     # Patient label + Watermark
     draw_final = ImageDraw.Draw(result)
     font_sm = _try_font(24)
-    draw_final.text((12, canvas_h-36), "AI Tracing Engine", font=font_sm, fill=C_WHITE)
-    _draw_clinical_watermark(draw_final, canvas_w, canvas_h)
+    draw_final.text((12, canvas_h - 36), "PointNix", font=font_sm, fill=(255, 255, 255, 240))
 
     return _to_jpeg(result)
 
@@ -419,14 +536,15 @@ def render_xray_with_measurements(req: OverlayRequest,
             return None
         return _scale(lm, sx, sy)
 
-    # Draw Steiner skeleton (same as output 1 purple lines)
+    # PointNix ref: black anatomy, purple Steiner, dark-red soft tissue (same order as clinical viewers)
+    _draw_anatomical_outlines(draw, lms, sx, sy, color=C_BLACK)
     _draw_steiner_lines(draw, lms, sx, sy)
-    # Soft tissue
-    _draw_soft_tissue(draw, lms, sx, sy)
+    _draw_soft_tissue(draw, lms, sx, sy, alpha=230, color=(*SOFT_TISSUE_TRACE, 230))
 
     # ── Measurement annotations ───────────────────────────────────────────────
     font_val = _try_font(32, bold=True)
     font_unit = _try_font(24)
+    font_hdr = _try_font(30)
 
     msr_map = {m.code: m for m in req.measurements}
 
@@ -543,39 +661,16 @@ def render_wiggle_chart(req: OverlayRequest,
                         canvas_w: int = 1200,
                         canvas_h: int = 1600) -> bytes:
     """
-    A professional "wiggle" polygon chart showing each measurement's deviation.
+    Björk–Skieller deviation polygon (PointNix / Yasmin pack layout: σ grid left,
+    names + σ·value·norm triplets on the right, red polyline).
     """
-    # Create white background
-    img = Image.new("RGB", (canvas_w, canvas_h), (255, 255, 255))
-    draw = ImageDraw.Draw(img)
-
-    # Title
-    font_title = _try_font(48, bold=True)
-    draw.text((canvas_w // 2 - 250, 40), "Björk-Skieller Wiggle Analysis", font=font_title, fill=(5, 150, 105))
-
-    # Patient details
-    font_sm = _try_font(28)
-    if req.patient_label:
-        draw.text((60, 120), f"Patient: {req.patient_label}", font=font_sm, fill=(0, 0, 0))
-    if req.date_label:
-        draw.text((60, 160), f"Date: {req.date_label}", font=font_sm, fill=(100, 100, 100))
-
-    # Render main chart using matplotlib helper
-    # Leave space for headers and labels on the sides
-    chart_w, chart_h = canvas_w - 400, canvas_h - 300
-    chart_img = _render_wiggle_to_image(req.measurements, chart_w, chart_h, show_labels=True)
-    
-    # Paste the chart (centered horizontally)
-    img.paste(chart_img, (320, 220), chart_img)
-
-    # Add Norm range labels manually on the left for extra precision
-    y_start = 245
-    row_h = (chart_h - 40) / max(len(req.measurements), 1)
-    for i, m in enumerate(req.measurements):
-        y = y_start + i * row_h
-        norm_txt = f"{m.normal_value:.1f} ± {m.std_deviation:.1f}"
-        draw.text((40, y), norm_txt, font=font_sm, fill=(5, 150, 105))
-
+    img = _render_pointnix_wiggle_fullpage(
+        req.measurements,
+        canvas_w,
+        canvas_h,
+        patient_label=req.patient_label or "",
+        date_label=req.date_label or "",
+    )
     return _to_jpeg(img)
 
 
@@ -592,7 +687,7 @@ def render_tracing_only(req: OverlayRequest,
       • Steiner analysis lines (purple)
       • Measurement value annotations
       • Patient header + scale bar
-    Matches reference images 3 & 4.
+    Matches reference image 4 (white canvas clinical tracing).
     """
     orig_img = Image.open(io.BytesIO(req.image_bytes)).convert("RGB")
     orig_w, orig_h = orig_img.size
@@ -621,9 +716,9 @@ def render_tracing_only(req: OverlayRequest,
     if method in ["tweed", "full"]:
         _draw_tweed_lines(draw, lms, sx, sy)
     
-    # ── Anatomical Tracing (Black) ──────────────────────────────────────────
-    _draw_anatomical_outlines(draw, lms, sx, sy, color=(0, 0, 0))
-    _draw_soft_tissue(draw, lms, sx, sy, alpha=255, color=(0, 0, 0, 255))
+    # ── Anatomical Tracing (Black) + dark-red soft-tissue profile (PointNix ref 4) ──
+    _draw_anatomical_outlines(draw, lms, sx, sy, color=C_BLACK)
+    _draw_soft_tissue(draw, lms, sx, sy, alpha=255, color=(*SOFT_TISSUE_TRACE, 255))
 
     # ── Measurement labels ────────────────────────────────────────────────────
     font_val = _try_font(28, bold=True)
@@ -966,7 +1061,8 @@ def _draw_mcnamara_lines(draw: ImageDraw.ImageDraw,
         vx, vy = -dy, dx
         ln_v = math.hypot(vx, vy) or 1
         n_perp_end = (n[0] + vx/ln_v*400, n[1] + vy/ln_v*400)
-        draw.line([n, n_perp_end], fill=BLUE, width=W, linestyle="--") # dashed if possible, but Pillow doesn't support easily, so solid for now
+        # Pillow ImageDraw.line has no linestyle; draw solid perpendicular
+        draw.line([n, n_perp_end], fill=BLUE, width=W)
 
     if co:
         if a: draw.line([co, a], fill=BLUE, width=W)
@@ -1014,7 +1110,12 @@ def _draw_soft_tissue(draw: ImageDraw.ImageDraw,
     Render the soft-tissue profile using segmented splines for 
     high anatomical fidelity (nose, lips, chin, throat).
     """
-    SOFT = color if color else (*ANAT_COLOR, alpha)
+    if color is None:
+        SOFT = (*ANAT_COLOR, alpha)
+    elif len(color) == 3:
+        SOFT = (*color, alpha)
+    else:
+        SOFT = color
 
     def pt(name):
         lm = _lm(lms, name)

@@ -14,8 +14,7 @@ from monai.transforms import (
     ScaleIntensity,
     ToTensor,
     EnsureType,
-    AddChannel,
-    Grayscale,
+    EnsureChannelFirst,
     NormalizeIntensity
 )
 
@@ -37,7 +36,7 @@ H, W = 800, 640
 # MONAI Preprocessing Pipeline (Professional Clinical Standard)
 monai_pre_trans = Compose([
     # monai expects [C, H, W], we pass [H, W] from numpy
-    AddChannel(), 
+    EnsureChannelFirst(channel_dim='no_channel'), 
     Resize((H, W)),
     ScaleIntensity(), # Scales to [0,1]
     NormalizeIntensity(subtrahend=0.5, divisor=0.5), # Standard zero-mean, unit-variance style
@@ -58,7 +57,7 @@ def load_model(model_path: str, device: str):
     logger.info(f"Loading landmark model from {model_path} onto {device}...")
     try:
         # Use the professional MONAI UNet architecture with residual units
-        _model = MONAIUNet(out_channels=38).to(device)
+        _model = MONAIUNet(n_classes=38).to(device)
         try:
             _model.load_state_dict(torch.load(model_path, map_location=device))
             logger.info("MONAIUNet weights loaded successfully.")

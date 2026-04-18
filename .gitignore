@@ -9,6 +9,9 @@ logs/
 uploads/
 ai_service/models/*.pth
 ai_service/models/*.pt
+# Engine checkpoints (large; deploy via artifact storage or Git LFS — not plain git)
+ai_service/engines/model/*.pth
+ai_service/engines/model/*.pt
 ai_service/__pycache__/
 ai_service/**/__pycache__/
 *.pyc
@@ -20,3 +23,5 @@ node_modules/
 dist/
 .DS_Store
 Thumbs.db
+
+.cursorrules

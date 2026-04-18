@@ -106,7 +106,7 @@ def _build_engine_request(req: OverlayRequest, image_bytes: bytes) -> EngineRequ
         date_label=req.date_label or "",
         scale_bar_mm=req.scale_bar_mm,
         pixel_spacing_mm=req.pixel_spacing_mm,
-        analysis_method=req.analysis_method or "Full",
+        analysis_method=req.analysis_method or "Steiner",
     )
 
 

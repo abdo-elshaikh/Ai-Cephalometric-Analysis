@@ -137,7 +137,7 @@ class OverlayRequest(BaseModel):
     date_label: Optional[str] = None
     scale_bar_mm: Optional[float] = 40.0
     pixel_spacing_mm: Optional[float] = None
-    analysis_method: Optional[str] = "Full"         # Steiner | McNamara | Tweed | Full
+    analysis_method: Optional[str] = "Steiner"      # Steiner | McNamara | Tweed | Full (PointNix pack uses Steiner)
     # Which outputs to generate (default: all)
     outputs: list[str] = [
         "xray_tracing",
