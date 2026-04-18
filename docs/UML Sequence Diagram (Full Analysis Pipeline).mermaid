@@ -1,0 +1,76 @@
+sequenceDiagram
+    autonumber
+    actor Doctor
+    participant UI as React Client
+    participant API as ASP.NET API
+    participant DB as PostgreSQL
+    participant Blob as S3/Blob Storage
+    participant AI as FastAPI (AI Engine)
+    participant LLM as OpenAI (LLM Engine)
+
+    Doctor->>UI: Upload X-Ray Image
+    activate UI
+    UI->>API: POST /api/studies/{id}/images (Multipart)
+    activate API
+    API->>Blob: Upload X-ray file
+    activate Blob
+    Blob-->>API: secure_URL
+    deactivate Blob
+    API->>DB: Insert XRayImage record
+    API-->>UI: 201 Created (imageId)
+    deactivate API
+    
+    Doctor->>UI: Click "Run AI Analysis"
+    UI->>API: POST /api/images/{id}/analyze
+    activate API
+    API->>DB: Create AnalysisSession (Status=Processing)
+    API-->>UI: 202 Accepted (sessionId)
+    deactivate API
+    UI-->>Doctor: Progress Indicator (Polling)
+    deactivate UI
+
+    Note over API,LLM: Background AI Pipeline Execution
+
+    API->>AI: POST /ai/detect-landmarks {imageUrl}
+    activate AI
+    AI->>Blob: Fetch image file
+    AI->>AI: Inference HRNet Model
+    AI-->>API: List[Landmarks, Confidences]
+    deactivate AI
+    API->>DB: Bulk Insert Landmarks
+
+    API->>AI: POST /ai/calculate-measurements {landmarks}
+    activate AI
+    AI->>AI: Compute Geometry (SNA, ANB, IMPA...)
+    AI-->>API: List[Measurements]
+    deactivate AI
+    API->>DB: Bulk Insert Measurements
+
+    API->>AI: POST /ai/classify-diagnosis {measurements}
+    activate AI
+    AI->>AI: Rule-based Classification Mapping
+    AI-->>API: Diagnosis Classification Output
+    deactivate AI
+    API->>DB: Insert Diagnosis Record
+
+    API->>AI: POST /ai/suggest-treatment {diagnosis}
+    activate AI
+    AI->>LLM: Request clinical justification via prompt
+    activate LLM
+    LLM-->>AI: Clinical Rationale Generation (Text Stream)
+    deactivate LLM
+    AI-->>API: TreatmentPlans Array (Primary & Alternatives)
+    deactivate AI
+    API->>DB: Insert TreatmentPlans
+
+    API->>DB: Update Session (Status=Completed)
+
+    Note over Doctor,UI: Client receives completion status
+    Doctor->>UI: View Results
+    activate UI
+    UI->>API: GET /sessions/{id}/results
+    activate API
+    API-->>UI: 200 OK (Full Analysis payload)
+    deactivate API
+    UI-->>Doctor: Render Landmarks Canvas & Measurements Table
+    deactivate UI

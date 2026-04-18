@@ -1,0 +1,30 @@
+FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS base
+WORKDIR /app
+EXPOSE 8080
+
+# Create non-root user for security
+RUN adduser --disabled-password --gecos "" appuser
+
+FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
+WORKDIR /src
+COPY ["backend/CephAnalysis.API/CephAnalysis.API.csproj", "backend/CephAnalysis.API/"]
+COPY ["backend/CephAnalysis.Application/CephAnalysis.Application.csproj", "backend/CephAnalysis.Application/"]
+COPY ["backend/CephAnalysis.Domain/CephAnalysis.Domain.csproj", "backend/CephAnalysis.Domain/"]
+COPY ["backend/CephAnalysis.Infrastructure/CephAnalysis.Infrastructure.csproj", "backend/CephAnalysis.Infrastructure/"]
+COPY ["backend/CephAnalysis.Shared/CephAnalysis.Shared.csproj", "backend/CephAnalysis.Shared/"]
+RUN dotnet restore "backend/CephAnalysis.API/CephAnalysis.API.csproj"
+COPY . .
+WORKDIR "/src/backend/CephAnalysis.API"
+RUN dotnet build "CephAnalysis.API.csproj" -c Release -o /app/build
+
+FROM build AS publish
+RUN dotnet publish "CephAnalysis.API.csproj" -c Release -o /app/publish /p:UseAppHost=false
+
+FROM base AS final
+WORKDIR /app
+RUN mkdir -p /app/uploads && chown appuser:appuser /app/uploads
+COPY --from=publish /app/publish .
+USER appuser
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+  CMD curl -f http://localhost:8080/health || exit 1
+ENTRYPOINT ["dotnet", "CephAnalysis.API.dll"]

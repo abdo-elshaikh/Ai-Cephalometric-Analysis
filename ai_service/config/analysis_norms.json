@@ -1,0 +1,1353 @@
+{
+  "description": "Cephalometric analysis norms for various analysis types. Values are typical adult norms (Caucasian) unless noted. Ranges are approximate (mean ± 1 SD). Use with clinical judgment.",
+  "analyses": {
+    "Steiner": {
+      "description": "Steiner analysis - angular and linear measurements for sagittal and vertical relationships.",
+      "measurements": [
+        {
+          "name": "SNA",
+          "normal": 82.0,
+          "unit": "degrees",
+          "range": [
+            80,
+            84
+          ]
+        },
+        {
+          "name": "SNB",
+          "normal": 80.0,
+          "unit": "degrees",
+          "range": [
+            78,
+            82
+          ]
+        },
+        {
+          "name": "ANB",
+          "normal": 2.0,
+          "unit": "degrees",
+          "range": [
+            0,
+            4
+          ]
+        },
+        {
+          "name": "SN-GoGn",
+          "normal": 32.0,
+          "unit": "degrees",
+          "range": [
+            28,
+            36
+          ]
+        },
+        {
+          "name": "FMA",
+          "normal": 25.0,
+          "unit": "degrees",
+          "range": [
+            21,
+            29
+          ]
+        },
+        {
+          "name": "IMPA",
+          "normal": 90.0,
+          "unit": "degrees",
+          "range": [
+            85,
+            95
+          ]
+        },
+        {
+          "name": "FMIA",
+          "normal": 65.0,
+          "unit": "degrees",
+          "range": [
+            60,
+            70
+          ]
+        },
+        {
+          "name": "UI to NA (mm)",
+          "normal": 4.0,
+          "unit": "mm",
+          "range": [
+            2,
+            6
+          ]
+        },
+        {
+          "name": "UI to NA (deg)",
+          "normal": 22.0,
+          "unit": "degrees",
+          "range": [
+            18,
+            26
+          ]
+        },
+        {
+          "name": "LI to NB (mm)",
+          "normal": 4.0,
+          "unit": "mm",
+          "range": [
+            2,
+            6
+          ]
+        },
+        {
+          "name": "LI to NB (deg)",
+          "normal": 25.0,
+          "unit": "degrees",
+          "range": [
+            21,
+            29
+          ]
+        },
+        {
+          "name": "Pog to NB (mm)",
+          "normal": 4.0,
+          "unit": "mm",
+          "range": [
+            2,
+            6
+          ]
+        }
+      ]
+    },
+    "McNamara": {
+      "description": "McNamara analysis - focuses on maxillary and mandibular position, facial axis, and airway.",
+      "measurements": [
+        {
+          "name": "Facial axis",
+          "normal": 90.0,
+          "unit": "degrees",
+          "range": [
+            88,
+            92
+          ]
+        },
+        {
+          "name": "Facial depth",
+          "normal": 87.0,
+          "unit": "degrees",
+          "range": [
+            85,
+            89
+          ]
+        },
+        {
+          "name": "Mandibular plane angle",
+          "normal": 26.0,
+          "unit": "degrees",
+          "range": [
+            22,
+            30
+          ]
+        },
+        {
+          "name": "Lower facial height",
+          "normal": 47.0,
+          "unit": "percent of total face",
+          "range": [
+            43,
+            51
+          ]
+        },
+        {
+          "name": "Maxillary position (N perpendicular to A)",
+          "normal": 0.0,
+          "unit": "mm",
+          "range": [
+            -2,
+            2
+          ]
+        },
+        {
+          "name": "Mandibular position (N perpendicular to Pog)",
+          "normal": -4.0,
+          "unit": "mm",
+          "range": [
+            -8,
+            0
+          ]
+        },
+        {
+          "name": "Upper incisor to NA",
+          "normal": 4.0,
+          "unit": "mm",
+          "range": [
+            2,
+            6
+          ]
+        },
+        {
+          "name": "Lower incisor to NB",
+          "normal": 4.0,
+          "unit": "mm",
+          "range": [
+            2,
+            6
+          ]
+        },
+        {
+          "name": "Maxillomandibular difference",
+          "normal": 30.0,
+          "unit": "mm",
+          "range": [
+            27,
+            33
+          ]
+        }
+      ]
+    },
+    "Ricketts": {
+      "description": "Ricketts analysis - comprehensive with growth prediction, esthetic plane, and vertical/horizontal measures.",
+      "measurements": [
+        {
+          "name": "Facial axis angle",
+          "normal": 90.0,
+          "unit": "degrees",
+          "range": [
+            88,
+            92
+          ]
+        },
+        {
+          "name": "Facial depth angle",
+          "normal": 87.0,
+          "unit": "degrees",
+          "range": [
+            85,
+            89
+          ]
+        },
+        {
+          "name": "Mandibular plane angle",
+          "normal": 26.0,
+          "unit": "degrees",
+          "range": [
+            22,
+            30
+          ]
+        },
+        {
+          "name": "Lower facial height",
+          "normal": 47.0,
+          "unit": "degrees",
+          "range": [
+            43,
+            51
+          ]
+        },
+        {
+          "name": "Convexity (A to facial plane)",
+          "normal": 2.0,
+          "unit": "mm",
+          "range": [
+            0,
+            4
+          ]
+        },
+        {
+          "name": "Upper incisor to A-Pog (mm)",
+          "normal": 6.0,
+          "unit": "mm",
+          "range": [
+            4,
+            8
+          ]
+        },
+        {
+          "name": "Lower incisor to A-Pog (mm)",
+          "normal": 4.0,
+          "unit": "mm",
+          "range": [
+            2,
+            6
+          ]
+        },
+        {
+          "name": "Upper incisor to FH (deg)",
+          "normal": 111.0,
+          "unit": "degrees",
+          "range": [
+            107,
+            115
+          ]
+        },
+        {
+          "name": "Interincisal angle",
+          "normal": 130.0,
+          "unit": "degrees",
+          "range": [
+            125,
+            135
+          ]
+        },
+        {
+          "name": "Esthetic plane (upper lip)",
+          "normal": -4.0,
+          "unit": "mm",
+          "range": [
+            -6,
+            -2
+          ]
+        },
+        {
+          "name": "Esthetic plane (lower lip)",
+          "normal": -2.0,
+          "unit": "mm",
+          "range": [
+            -4,
+            0
+          ]
+        }
+      ]
+    },
+    "Eastman": {
+      "description": "Eastman analysis - commonly used in UK orthodontics; includes skeletal and dental angles.",
+      "measurements": [
+        {
+          "name": "SNA",
+          "normal": 81.0,
+          "unit": "degrees",
+          "range": [
+            79,
+            83
+          ]
+        },
+        {
+          "name": "SNB",
+          "normal": 78.0,
+          "unit": "degrees",
+          "range": [
+            76,
+            80
+          ]
+        },
+        {
+          "name": "ANB",
+          "normal": 3.0,
+          "unit": "degrees",
+          "range": [
+            1,
+            5
+          ]
+        },
+        {
+          "name": "MM angle (maxillary-mandibular)",
+          "normal": 27.0,
+          "unit": "degrees",
+          "range": [
+            23,
+            31
+          ]
+        },
+        {
+          "name": "Upper incisor to maxillary plane",
+          "normal": 109.0,
+          "unit": "degrees",
+          "range": [
+            105,
+            113
+          ]
+        },
+        {
+          "name": "Lower incisor to mandibular plane",
+          "normal": 93.0,
+          "unit": "degrees",
+          "range": [
+            89,
+            97
+          ]
+        },
+        {
+          "name": "Interincisal angle",
+          "normal": 135.0,
+          "unit": "degrees",
+          "range": [
+            130,
+            140
+          ]
+        },
+        {
+          "name": "Upper incisor to NA (mm)",
+          "normal": 4.0,
+          "unit": "mm",
+          "range": [
+            2,
+            6
+          ]
+        },
+        {
+          "name": "Lower incisor to NB (mm)",
+          "normal": 4.0,
+          "unit": "mm",
+          "range": [
+            2,
+            6
+          ]
+        }
+      ]
+    },
+    "Huddart": {
+      "description": "Huddart analysis - primarily for cleft lip and palate patients using dental cast measurements; limited cephalometric norms.",
+      "measurements": [
+        {
+          "name": "Huddart index (maxillary arch)",
+          "normal": 0.0,
+          "unit": "score",
+          "range": [
+            -5,
+            5
+          ],
+          "note": "Used for cleft assessment; negative indicates crossbite"
+        },
+        {
+          "name": "SNA",
+          "normal": 80.0,
+          "unit": "degrees",
+          "range": [
+            78,
+            82
+          ],
+          "note": "Often reduced in clefts"
+        },
+        {
+          "name": "ANB",
+          "normal": 2.0,
+          "unit": "degrees",
+          "range": [
+            0,
+            4
+          ],
+          "note": "May be lower in clefts"
+        }
+      ]
+    },
+    "Jarabak": {
+      "description": "Jarabak analysis - focuses on facial height ratios and growth rotation.",
+      "measurements": [
+        {
+          "name": "Posterior facial height (S-Go)",
+          "normal": 78.0,
+          "unit": "mm",
+          "range": [
+            72,
+            84
+          ]
+        },
+        {
+          "name": "Anterior facial height (N-Me)",
+          "normal": 120.0,
+          "unit": "mm",
+          "range": [
+            112,
+            128
+          ]
+        },
+        {
+          "name": "Jarabak ratio (S-Go/N-Me)",
+          "normal": 65.0,
+          "unit": "percent",
+          "range": [
+            62,
+            68
+          ]
+        },
+        {
+          "name": "Saddle angle (N-S-Ar)",
+          "normal": 123.0,
+          "unit": "degrees",
+          "range": [
+            119,
+            127
+          ]
+        },
+        {
+          "name": "Articular angle (S-Ar-Go)",
+          "normal": 143.0,
+          "unit": "degrees",
+          "range": [
+            139,
+            147
+          ]
+        },
+        {
+          "name": "Gonial angle (Ar-Go-Me)",
+          "normal": 130.0,
+          "unit": "degrees",
+          "range": [
+            126,
+            134
+          ]
+        },
+        {
+          "name": "Sum of angles",
+          "normal": 396.0,
+          "unit": "degrees",
+          "range": [
+            392,
+            400
+          ]
+        },
+        {
+          "name": "Facial axis rotation",
+          "normal": 0.0,
+          "unit": "degrees",
+          "range": [
+            -3,
+            3
+          ]
+        }
+      ]
+    },
+    "McGann": {
+      "description": "McGann analysis - less common; includes measures for surgical orthodontics.",
+      "measurements": [
+        {
+          "name": "Maxillary depth",
+          "normal": 90.0,
+          "unit": "degrees",
+          "range": [
+            87,
+            93
+          ]
+        },
+        {
+          "name": "Mandibular depth",
+          "normal": 88.0,
+          "unit": "degrees",
+          "range": [
+            85,
+            91
+          ]
+        },
+        {
+          "name": "Facial convexity",
+          "normal": 2.0,
+          "unit": "mm",
+          "range": [
+            0,
+            4
+          ]
+        },
+        {
+          "name": "Maxillary height",
+          "normal": 52.0,
+          "unit": "mm",
+          "range": [
+            48,
+            56
+          ]
+        },
+        {
+          "name": "Mandibular height",
+          "normal": 68.0,
+          "unit": "mm",
+          "range": [
+            64,
+            72
+          ]
+        }
+      ]
+    },
+    "Tweed": {
+      "description": "Tweed analysis - focuses on triangle of FMA, IMPA, FMIA and diagnostic triangle.",
+      "measurements": [
+        {
+          "name": "FMA (Frankfort-mandibular plane)",
+          "normal": 25.0,
+          "unit": "degrees",
+          "range": [
+            21,
+            29
+          ]
+        },
+        {
+          "name": "IMPA (incisor mandibular plane angle)",
+          "normal": 90.0,
+          "unit": "degrees",
+          "range": [
+            85,
+            95
+          ]
+        },
+        {
+          "name": "FMIA (Frankfort-mandibular incisor angle)",
+          "normal": 65.0,
+          "unit": "degrees",
+          "range": [
+            60,
+            70
+          ]
+        },
+        {
+          "name": "Tweed triangle sum (FMA+IMPA+FMIA)",
+          "normal": 180.0,
+          "unit": "degrees",
+          "range": [
+            178,
+            182
+          ]
+        }
+      ]
+    },
+    "Bjork": {
+      "description": "Bjork analysis - evaluates cranial base and jaw relationships, especially in growing patients.",
+      "measurements": [
+        {
+          "name": "Nasion angle (N-S-Ar)",
+          "normal": 125.0,
+          "unit": "degrees",
+          "range": [
+            121,
+            129
+          ]
+        },
+        {
+          "name": "Saddle angle",
+          "normal": 123.0,
+          "unit": "degrees",
+          "range": [
+            119,
+            127
+          ]
+        },
+        {
+          "name": "Articular angle",
+          "normal": 143.0,
+          "unit": "degrees",
+          "range": [
+            139,
+            147
+          ]
+        },
+        {
+          "name": "Gonial angle",
+          "normal": 130.0,
+          "unit": "degrees",
+          "range": [
+            126,
+            134
+          ]
+        },
+        {
+          "name": "Sum of angles (Bjork sum)",
+          "normal": 396.0,
+          "unit": "degrees",
+          "range": [
+            392,
+            400
+          ]
+        },
+        {
+          "name": "Facial height ratio (posterior/anterior)",
+          "normal": 65.0,
+          "unit": "percent",
+          "range": [
+            62,
+            68
+          ]
+        },
+        {
+          "name": "Mandibular body length (Go-Me)",
+          "normal": 76.0,
+          "unit": "mm",
+          "range": [
+            70,
+            82
+          ]
+        }
+      ]
+    },
+    "Downs": {
+      "description": "Downs analysis - classic analysis with skeletal and dental plane angles.",
+      "measurements": [
+        {
+          "name": "Facial angle (N-Pog to FH)",
+          "normal": 87.0,
+          "unit": "degrees",
+          "range": [
+            84,
+            90
+          ]
+        },
+        {
+          "name": "Angle of convexity (NA-APog)",
+          "normal": 0.0,
+          "unit": "degrees",
+          "range": [
+            -4,
+            4
+          ]
+        },
+        {
+          "name": "AB plane angle (A-B to N-Pog)",
+          "normal": -9.0,
+          "unit": "degrees",
+          "range": [
+            -12,
+            -6
+          ]
+        },
+        {
+          "name": "Mandibular plane angle (FH to GoGn)",
+          "normal": 21.5,
+          "unit": "degrees",
+          "range": [
+            18,
+            25
+          ]
+        },
+        {
+          "name": "Y-axis (SGn to FH)",
+          "normal": 59.0,
+          "unit": "degrees",
+          "range": [
+            56,
+            62
+          ]
+        },
+        {
+          "name": "Cant of occlusal plane (to FH)",
+          "normal": 9.5,
+          "unit": "degrees",
+          "range": [
+            7,
+            12
+          ]
+        },
+        {
+          "name": "Interincisal angle",
+          "normal": 135.0,
+          "unit": "degrees",
+          "range": [
+            130,
+            140
+          ]
+        },
+        {
+          "name": "Upper incisor to FH",
+          "normal": 111.0,
+          "unit": "degrees",
+          "range": [
+            107,
+            115
+          ]
+        },
+        {
+          "name": "Lower incisor to mandibular plane",
+          "normal": 91.5,
+          "unit": "degrees",
+          "range": [
+            87,
+            96
+          ]
+        },
+        {
+          "name": "Protrusion of incisors (UI to APog)",
+          "normal": 2.5,
+          "unit": "mm",
+          "range": [
+            0,
+            5
+          ]
+        }
+      ]
+    },
+    "Hasund": {
+      "description": "Hasund analysis - includes soft tissue and skeletal measurements, often used in Scandinavian orthodontics.",
+      "measurements": [
+        {
+          "name": "NL-NSL (maxillary plane to cranial base)",
+          "normal": 8.0,
+          "unit": "degrees",
+          "range": [
+            5,
+            11
+          ]
+        },
+        {
+          "name": "ML-NSL (mandibular plane to cranial base)",
+          "normal": 32.0,
+          "unit": "degrees",
+          "range": [
+            28,
+            36
+          ]
+        },
+        {
+          "name": "NL-ML (maxillary-mandibular plane)",
+          "normal": 24.0,
+          "unit": "degrees",
+          "range": [
+            20,
+            28
+          ]
+        },
+        {
+          "name": "N-S-Ba (cranial base angle)",
+          "normal": 129.0,
+          "unit": "degrees",
+          "range": [
+            125,
+            133
+          ]
+        },
+        {
+          "name": "S-N-A",
+          "normal": 82.0,
+          "unit": "degrees",
+          "range": [
+            79,
+            85
+          ]
+        },
+        {
+          "name": "S-N-B",
+          "normal": 80.0,
+          "unit": "degrees",
+          "range": [
+            77,
+            83
+          ]
+        },
+        {
+          "name": "A-N-B",
+          "normal": 2.0,
+          "unit": "degrees",
+          "range": [
+            0,
+            4
+          ]
+        },
+        {
+          "name": "Upper incisor to NL",
+          "normal": 110.0,
+          "unit": "degrees",
+          "range": [
+            106,
+            114
+          ]
+        },
+        {
+          "name": "Lower incisor to ML",
+          "normal": 90.0,
+          "unit": "degrees",
+          "range": [
+            86,
+            94
+          ]
+        },
+        {
+          "name": "Soft tissue profile (Holdaway)",
+          "normal": 10.0,
+          "unit": "degrees",
+          "range": [
+            8,
+            12
+          ]
+        }
+      ]
+    },
+    "SegnerHasund": {
+      "description": "Segner-Hasund analysis - a combination of Segner and Hasund analyses, common in Germany.",
+      "measurements": [
+        {
+          "name": "SNA",
+          "normal": 82.0,
+          "unit": "degrees",
+          "range": [
+            80,
+            84
+          ]
+        },
+        {
+          "name": "SNB",
+          "normal": 80.0,
+          "unit": "degrees",
+          "range": [
+            78,
+            82
+          ]
+        },
+        {
+          "name": "ANB",
+          "normal": 2.0,
+          "unit": "degrees",
+          "range": [
+            0,
+            4
+          ]
+        },
+        {
+          "name": "ML-NSL",
+          "normal": 32.0,
+          "unit": "degrees",
+          "range": [
+            28,
+            36
+          ]
+        },
+        {
+          "name": "NL-ML",
+          "normal": 24.0,
+          "unit": "degrees",
+          "range": [
+            20,
+            28
+          ]
+        },
+        {
+          "name": "Upper incisor to NL",
+          "normal": 110.0,
+          "unit": "degrees",
+          "range": [
+            106,
+            114
+          ]
+        },
+        {
+          "name": "Lower incisor to ML",
+          "normal": 90.0,
+          "unit": "degrees",
+          "range": [
+            86,
+            94
+          ]
+        },
+        {
+          "name": "Interincisal angle",
+          "normal": 130.0,
+          "unit": "degrees",
+          "range": [
+            125,
+            135
+          ]
+        },
+        {
+          "name": "Wits appraisal (AO-BO)",
+          "normal": 0.0,
+          "unit": "mm",
+          "range": [
+            -2,
+            2
+          ]
+        },
+        {
+          "name": "Facial height ratio (S-Go/N-Me)",
+          "normal": 65.0,
+          "unit": "percent",
+          "range": [
+            62,
+            68
+          ]
+        }
+      ]
+    },
+    "Krogman": {
+      "description": "Krogman analysis - focused on facial growth indices and proportional measurements.",
+      "measurements": [
+        {
+          "name": "Facial index (morphological)",
+          "normal": 90.0,
+          "unit": "percent",
+          "range": [
+            85,
+            95
+          ]
+        },
+        {
+          "name": "Cranial index",
+          "normal": 78.0,
+          "unit": "percent",
+          "range": [
+            74,
+            82
+          ]
+        },
+        {
+          "name": "Upper facial height (N-ANS)",
+          "normal": 53.0,
+          "unit": "mm",
+          "range": [
+            48,
+            58
+          ]
+        },
+        {
+          "name": "Lower facial height (ANS-Me)",
+          "normal": 67.0,
+          "unit": "mm",
+          "range": [
+            62,
+            72
+          ]
+        },
+        {
+          "name": "Total facial height (N-Me)",
+          "normal": 120.0,
+          "unit": "mm",
+          "range": [
+            112,
+            128
+          ]
+        },
+        {
+          "name": "Mandibular length (Go-Pog)",
+          "normal": 78.0,
+          "unit": "mm",
+          "range": [
+            72,
+            84
+          ]
+        },
+        {
+          "name": "Maxillary length (ANS-PNS)",
+          "normal": 52.0,
+          "unit": "mm",
+          "range": [
+            48,
+            56
+          ]
+        }
+      ]
+    },
+    "Lischer": {
+      "description": "Lischer analysis - early 20th century, uses geometric facial angles and gnathic indices.",
+      "measurements": [
+        {
+          "name": "Facial angle (nasion-prosthion)",
+          "normal": 85.0,
+          "unit": "degrees",
+          "range": [
+            82,
+            88
+          ]
+        },
+        {
+          "name": "Alveolar angle",
+          "normal": 70.0,
+          "unit": "degrees",
+          "range": [
+            66,
+            74
+          ]
+        },
+        {
+          "name": "Gnathic index",
+          "normal": 98.0,
+          "unit": "percent",
+          "range": [
+            95,
+            101
+          ]
+        },
+        {
+          "name": "Nasal angle",
+          "normal": 30.0,
+          "unit": "degrees",
+          "range": [
+            27,
+            33
+          ]
+        },
+        {
+          "name": "Mandibular plane angle (to FH)",
+          "normal": 23.0,
+          "unit": "degrees",
+          "range": [
+            20,
+            26
+          ]
+        }
+      ]
+    },
+    "Mew": {
+      "description": "Mew analysis (orthotropic) - focuses on maxillary and mandibular position relative to cranial base and airway.",
+      "measurements": [
+        {
+          "name": "Maxillary position (A to N perpendicular)",
+          "normal": 0.0,
+          "unit": "mm",
+          "range": [
+            -2,
+            2
+          ]
+        },
+        {
+          "name": "Mandibular position (Pog to N perpendicular)",
+          "normal": -4.0,
+          "unit": "mm",
+          "range": [
+            -8,
+            0
+          ]
+        },
+        {
+          "name": "Facial height ratio (lower/upper)",
+          "normal": 1.25,
+          "unit": "ratio",
+          "range": [
+            1.20,
+            1.30
+          ]
+        },
+        {
+          "name": "Incisor display at rest",
+          "normal": 2.0,
+          "unit": "mm",
+          "range": [
+            0,
+            4
+          ]
+        },
+        {
+          "name": "Nasolabial angle",
+          "normal": 102.0,
+          "unit": "degrees",
+          "range": [
+            98,
+            106
+          ]
+        },
+        {
+          "name": "Maxillary incisor inclination (to SN)",
+          "normal": 104.0,
+          "unit": "degrees",
+          "range": [
+            100,
+            108
+          ]
+        },
+        {
+          "name": "Mandibular incisor inclination (to GoGn)",
+          "normal": 90.0,
+          "unit": "degrees",
+          "range": [
+            86,
+            94
+          ]
+        },
+        {
+          "name": "Interlabial gap",
+          "normal": 2.0,
+          "unit": "mm",
+          "range": [
+            0,
+            4
+          ]
+        }
+      ]
+    },
+    "Nance": {
+      "description": "Nance analysis - focuses on arch length and leeway space; cephalometric norms limited to incisor position.",
+      "measurements": [
+        {
+          "name": "Maxillary arch length discrepancy",
+          "normal": 0.0,
+          "unit": "mm",
+          "range": [
+            -2,
+            2
+          ]
+        },
+        {
+          "name": "Mandibular arch length discrepancy",
+          "normal": 0.0,
+          "unit": "mm",
+          "range": [
+            -2,
+            2
+          ]
+        },
+        {
+          "name": "Leeway space (maxillary)",
+          "normal": 1.5,
+          "unit": "mm",
+          "range": [
+            1,
+            2
+          ]
+        },
+        {
+          "name": "Leeway space (mandibular)",
+          "normal": 2.5,
+          "unit": "mm",
+          "range": [
+            2,
+            3
+          ]
+        },
+        {
+          "name": "Incisor mandibular plane angle (IMPA)",
+          "normal": 90.0,
+          "unit": "degrees",
+          "range": [
+            85,
+            95
+          ]
+        },
+        {
+          "name": "Upper incisor to SN",
+          "normal": 104.0,
+          "unit": "degrees",
+          "range": [
+            100,
+            108
+          ]
+        }
+      ]
+    },
+    "Full": {
+      "description": "Comprehensive analysis combining key measurements from multiple systems.",
+      "measurements": [
+        {
+          "name": "SNA",
+          "normal": 82.0,
+          "unit": "degrees",
+          "range": [
+            80,
+            84
+          ]
+        },
+        {
+          "name": "SNB",
+          "normal": 80.0,
+          "unit": "degrees",
+          "range": [
+            78,
+            82
+          ]
+        },
+        {
+          "name": "ANB",
+          "normal": 2.0,
+          "unit": "degrees",
+          "range": [
+            0,
+            4
+          ]
+        },
+        {
+          "name": "FMA",
+          "normal": 25.0,
+          "unit": "degrees",
+          "range": [
+            21,
+            29
+          ]
+        },
+        {
+          "name": "IMPA",
+          "normal": 90.0,
+          "unit": "degrees",
+          "range": [
+            85,
+            95
+          ]
+        },
+        {
+          "name": "FMIA",
+          "normal": 65.0,
+          "unit": "degrees",
+          "range": [
+            60,
+            70
+          ]
+        },
+        {
+          "name": "Facial axis angle",
+          "normal": 90.0,
+          "unit": "degrees",
+          "range": [
+            88,
+            92
+          ]
+        },
+        {
+          "name": "Facial depth angle",
+          "normal": 87.0,
+          "unit": "degrees",
+          "range": [
+            85,
+            89
+          ]
+        },
+        {
+          "name": "Mandibular plane angle (Ricketts)",
+          "normal": 26.0,
+          "unit": "degrees",
+          "range": [
+            22,
+            30
+          ]
+        },
+        {
+          "name": "Lower facial height ratio",
+          "normal": 47.0,
+          "unit": "percent",
+          "range": [
+            43,
+            51
+          ]
+        },
+        {
+          "name": "Jarabak ratio (S-Go/N-Me)",
+          "normal": 65.0,
+          "unit": "percent",
+          "range": [
+            62,
+            68
+          ]
+        },
+        {
+          "name": "Wits appraisal",
+          "normal": 0.0,
+          "unit": "mm",
+          "range": [
+            -2,
+            2
+          ]
+        },
+        {
+          "name": "Nasolabial angle",
+          "normal": 102.0,
+          "unit": "degrees",
+          "range": [
+            98,
+            106
+          ]
+        },
+        {
+          "name": "Interincisal angle",
+          "normal": 130.0,
+          "unit": "degrees",
+          "range": [
+            125,
+            135
+          ]
+        },
+        {
+          "name": "Upper incisor to NA (mm)",
+          "normal": 4.0,
+          "unit": "mm",
+          "range": [
+            2,
+            6
+          ]
+        },
+        {
+          "name": "Lower incisor to NB (mm)",
+          "normal": 4.0,
+          "unit": "mm",
+          "range": [
+            2,
+            6
+          ]
+        }
+      ]
+    }
+  }
+}

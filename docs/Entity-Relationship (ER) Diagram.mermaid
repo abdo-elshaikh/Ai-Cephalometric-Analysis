@@ -1,0 +1,104 @@
+erDiagram
+    USERS {
+        uuid id PK
+        varchar email
+        varchar password_hash
+        varchar full_name
+        varchar role "Admin/Doctor"
+        timestamp created_at
+        timestamp last_login
+    }
+    PATIENTS {
+        uuid id PK
+        uuid doctor_id FK "Users.id"
+        varchar first_name
+        varchar last_name
+        date date_of_birth
+        varchar gender
+        varchar medical_record_no
+        timestamp created_at
+    }
+    STUDIES {
+        uuid id PK
+        uuid patient_id FK "Patients.id"
+        uuid doctor_id FK "Users.id"
+        date study_date
+        varchar study_type
+        varchar status "Pending/Completed"
+    }
+    XRAY_IMAGES {
+        uuid id PK
+        uuid study_id FK "Studies.id"
+        varchar file_name
+        varchar file_format "DICOM/PNG/JPG"
+        text storage_url
+        boolean is_calibrated
+        decimal pixel_spacing_mm
+        timestamp uploaded_at
+    }
+    ANALYSIS_SESSIONS {
+        uuid id PK
+        uuid xray_image_id FK "XRayImages.id"
+        uuid triggered_by FK "Users.id"
+        varchar model_version
+        varchar status "Queued/Running/Failed/Completed"
+        timestamp started_at
+        timestamp completed_at
+    }
+    LANDMARKS {
+        uuid id PK
+        uuid session_id FK "AnalysisSessions.id"
+        varchar landmark_code "SNA, ANB, etc."
+        decimal x_px
+        decimal y_px
+        decimal confidence_score
+        boolean is_ai_detected
+        boolean is_manually_adjusted
+    }
+    MEASUREMENTS {
+        uuid id PK
+        uuid session_id FK "AnalysisSessions.id"
+        varchar measurement_code
+        decimal value
+        varchar unit "mm/deg"
+        decimal normal_min
+        decimal normal_max
+        varchar status "Normal/Increased/Decreased"
+    }
+    DIAGNOSES {
+        uuid id PK
+        uuid session_id FK "AnalysisSessions.id"
+        varchar skeletal_class "Class I/II/III"
+        varchar vertical_pattern "Low/Normal/High Angle"
+        text summary_text
+    }
+    TREATMENT_PLANS {
+        uuid id PK
+        uuid diagnosis_id FK "Diagnoses.id"
+        int plan_index "0=Primary, 1=Alternative"
+        varchar treatment_type "Braces, Headgear, etc."
+        text description
+        text rationale
+        decimal confidence_score
+    }
+    REPORTS {
+        uuid id PK
+        uuid session_id FK "AnalysisSessions.id"
+        uuid generated_by FK "Users.id"
+        varchar report_format "PDF"
+        text storage_url
+        timestamp generated_at
+    }
+
+    USERS ||--o{ PATIENTS : "manages"
+    USERS ||--o{ STUDIES : "creates"
+    USERS ||--o{ ANALYSIS_SESSIONS : "triggers"
+    USERS ||--o{ REPORTS : "generates"
+    PATIENTS ||--o{ STUDIES : "has"
+    STUDIES ||--o{ XRAY_IMAGES : "contains"
+    XRAY_IMAGES ||--o{ ANALYSIS_SESSIONS : "analyzed_in"
+    ANALYSIS_SESSIONS ||--o{ LANDMARKS : "produces"
+    ANALYSIS_SESSIONS ||--o{ MEASUREMENTS : "computes"
+    ANALYSIS_SESSIONS ||--|| DIAGNOSES : "yields"
+    DIAGNOSES ||--o{ TREATMENT_PLANS : "recommends"
+    ANALYSIS_SESSIONS ||--o{ REPORTS : "generates"

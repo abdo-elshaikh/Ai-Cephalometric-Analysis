@@ -1,0 +1,51 @@
+# docker-compose.prod.yml — Production overrides
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# This file OVERRIDES development defaults with production-hardened settings.
+# All secrets MUST be provided via environment variables — never hardcode here.
+
+services:
+
+  postgres:
+    restart: always
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD env var is required}
+      POSTGRES_USER: ${DB_USER:?DB_USER env var is required}
+      POSTGRES_DB: ${DB_NAME:-cephanalysis_db}
+    # No port exposure in production — only accessible within Docker network
+    ports: !reset []
+
+  redis:
+    restart: always
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD env var is required}
+    ports: !reset []
+
+  api:
+    restart: always
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=${DB_NAME:-cephanalysis_db};Username=${DB_USER};Password=${DB_PASSWORD}
+      - Jwt__SecretKey=${JWT_SECRET_KEY:?JWT_SECRET_KEY env var is required}
+      - AiService__BaseUrl=http://ai_service:8000
+      - AiService__ServiceKey=${AI_SERVICE_KEY:?AI_SERVICE_KEY env var is required}
+      - Redis__ConnectionString=redis:6379,password=${REDIS_PASSWORD}
+    # API is not exposed directly — nginx reverse proxy handles this
+    ports: !reset []
+
+  ai_service:
+    restart: always
+    environment:
+      - AI_SERVICE_KEY=${AI_SERVICE_KEY}
+      - AI_OPENAI_API_KEY=${OPENAI_API_KEY}
+      - AI_DEVICE=cpu
+    ports: !reset []
+
+  frontend:
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    # In production, VITE_ vars are baked at build time — rebuild image with correct API URL
+    environment:
+      - VITE_API_URL=${API_PUBLIC_URL:-https://api.cephanalysis.com}

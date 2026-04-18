@@ -1,0 +1,68 @@
+flowchart LR
+    %% Actors
+    Doc([Doctor / Orthodontist])
+    Admin([System Administrator])
+    Sys([AI Core Microservice])
+
+    %% Subsystems / Modules
+    subgraph "Medical Record Management"
+        UC1(Manage Patients)
+        UC2(Manage Studies & Sessions)
+    end
+
+    subgraph "Image Processing & Analysis"
+        UC3(Upload X-Ray Image)
+        UC4(Calibrate Scaling/Measurements)
+        UC5(Run Pipeline Analysis)
+        UC11(Detect Anatomical Landmarks)
+        UC12(Compute Cephalometric Measurements)
+        UC13(Classify Diagnosis)
+        UC14(Generate Treatment Plans)
+        UC9(Manually Adjust Landmarks)
+    end
+
+    subgraph "Reporting & Export"
+        UC6(View Results Dashboard)
+        UC7(Generate PDF Report)
+        UC8(Export Analysis Data)
+    end
+
+    subgraph "Administrative Utilities"
+        UC10(Manage System Users & Roles)
+        UC15(Configure AI Models & Thresholds)
+    end
+
+    %% Actor Connections
+    Doc --> UC1
+    Doc --> UC2
+    Doc --> UC3
+    Doc --> UC4
+    Doc --> UC5
+    Doc --> UC9
+    Doc --> UC6
+    Doc --> UC7
+    Doc --> UC8
+
+    Admin --> UC10
+    Admin --> UC15
+
+    %% Internal relationships
+    UC5 -. "<<include>>" .-> UC11
+    UC5 -. "<<include>>" .-> UC12
+    UC5 -. "<<include>>" .-> UC13
+    UC5 -. "<<include>>" .-> UC14
+
+    %% System Actor
+    UC11 --- Sys
+    UC12 --- Sys
+    UC13 --- Sys
+    UC14 --- Sys
+    
+    %% Semantic Styling
+    classDef actor fill:#d4edda,stroke:#28a745,stroke-width:2px;
+    classDef usecase fill:#f8f9fa,stroke:#6c757d,stroke-width:1px,rx:10px,ry:10px;
+    classDef sys fill:#cce5ff,stroke:#007bff,stroke-width:2px;
+
+    class Doc,Admin actor;
+    class Sys sys;
+    class UC1,UC2,UC3,UC4,UC5,UC6,UC7,UC8,UC9,UC10,UC11,UC12,UC13,UC14,UC15 usecase;

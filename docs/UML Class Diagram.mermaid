@@ -1,0 +1,139 @@
+classDiagram
+    %% Enumerations
+    class Role {
+        <<enumeration>>
+        Admin
+        Doctor
+        Viewer
+    }
+    class Gender {
+        <<enumeration>>
+        Male
+        Female
+        Other
+    }
+    class Status {
+        <<enumeration>>
+        Queued
+        Running
+        Failed
+        Completed
+    }
+
+    %% Domain Entities
+    class User {
+        <<Entity>>
+        +UUID Id
+        +string Email
+        +string PasswordHash
+        +string FullName
+        +Role Role
+        +DateTime LastLoginAt
+        +Login(email, password) result
+        +RefreshToken(token) void
+    }
+
+    class Patient {
+        <<Entity>>
+        +UUID Id
+        +string FirstName
+        +string LastName
+        +DateTime DateOfBirth
+        +Gender Gender
+        +string MedicalRecordNo
+        +GetAge() int
+    }
+
+    class Study {
+        <<Entity>>
+        +UUID Id
+        +DateTime StudyDate
+        +StudyType Type
+        +StudyStatus Status
+        +AddImage(XRayImage image) void
+    }
+
+    class XRayImage {
+        <<Entity>>
+        +UUID Id
+        +string FileName
+        +FileFormat Format
+        +string StorageUrl
+        +bool IsCalibrated
+        +decimal PixelSpacingMm
+        +Calibrate(Point p1, Point p2, decimal knownMm) void
+    }
+
+    class AnalysisSession {
+        <<Entity>>
+        +UUID Id
+        +string ModelVersion
+        +Status AnalysisStatus
+        +long TotalDurationMs
+        +RunPipeline() Task
+    }
+
+    class Landmark {
+        <<Entity>>
+        +UUID Id
+        +string Code
+        +decimal X
+        +decimal Y
+        +decimal Confidence
+        +bool IsAIDetected
+        +AdjustPosition(decimal x, decimal y) void
+    }
+
+    class Measurement {
+        <<Entity>>
+        +UUID Id
+        +string Code
+        +decimal Value
+        +string Unit
+        +decimal NormalMin
+        +decimal NormalMax
+        +string State
+        +ComputeDeviation() decimal
+    }
+
+    class Diagnosis {
+        <<Entity>>
+        +UUID Id
+        +string SkeletalClass
+        +string VerticalPattern
+        +string Inclination
+        +decimal ConfidenceScore
+        +string SummaryText
+        +GenerateSummary() string
+    }
+
+    class TreatmentPlan {
+        <<Entity>>
+        +UUID Id
+        +int PlanIndex
+        +string Type
+        +string Description
+        +string Rationale
+        +decimal ConfidenceScore
+        +GetFormattedPlan() string
+    }
+
+    class Report {
+        <<Entity>>
+        +UUID Id
+        +string Format
+        +string StorageUrl
+        +GeneratePdf() bool
+    }
+
+    %% Relationships
+    User "1" --> "*" Patient : manages >
+    User "1" --> "*" Study : creates >
+    Patient "1" *-- "*" Study : has >
+    Study "1" *-- "*" XRayImage : contains >
+    XRayImage "1" --> "*" AnalysisSession : triggers >
+    AnalysisSession "1" *-- "*" Landmark : produces >
+    AnalysisSession "1" *-- "*" Measurement : computes >
+    AnalysisSession "1" *-- "1" Diagnosis : yields >
+    Diagnosis "1" *-- "*" TreatmentPlan : recommends >
+    AnalysisSession "1" --> "*" Report : generates >
