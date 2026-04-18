@@ -927,6 +927,14 @@ def _draw_steiner_lines(draw: ImageDraw.ImageDraw,
     if go_p and pog:
         draw.line([go_p, pog], fill=PUR, width=W)
 
+    # Holdaway H-Angle Line (Nasion-B line vs SoftPog-Ls line)
+    nb = pt("Nasion"), pt("Point B")
+    h_line = pt("Point Soft Pogonion"), pt("Labrale Superior")
+    if nb[0] and nb[1]:
+        draw.line([nb[0], nb[1]], fill=(*C_BLUE, 150), width=1)
+    if h_line[0] and h_line[1]:
+        draw.line([h_line[0], h_line[1]], fill=(*C_BLUE, 200), width=2)
+
 
 def _draw_mcnamara_lines(draw: ImageDraw.ImageDraw,
                          lms: dict[str, LandmarkPoint],
@@ -1222,10 +1230,12 @@ def _draw_molar(draw: ImageDraw.ImageDraw,
     # Distal Cusp
     pts.extend(_cubic_bezier_pts((x, y), (x+w/6, y + 4*dir_v), (x+w/3, y + 4*dir_v), (x+w/2, y), steps=5))
     
-    # Crown sides and root bifurcation hint
+    # Crown sides and root bifurcation hint (Anatomical taper)
     pts.append((x + w/2, y + h*dir_v))
-    pts.append((x + w/4, y + (h+10)*dir_v)) # Bifurcation dip
-    pts.append((x - w/4, y + (h+10)*dir_v))
+    # bifurcation apex
+    pts.append((x + w/6, y + (h+12)*dir_v))
+    pts.append((x, y + (h+15)*dir_v)) 
+    pts.append((x - w/6, y + (h+12)*dir_v))
     pts.append((x - w/2, y + h*dir_v))
     
     draw.polygon(pts, outline=color, fill=None)
