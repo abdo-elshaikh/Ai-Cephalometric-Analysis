@@ -34,6 +34,7 @@ from engines.overlay_engine import (
     render_wiggle_chart,
     render_tracing_only,
     render_measurement_table,
+    render_ceph_report,
 )
 from utils.security import verify_service_key
 
@@ -44,11 +45,12 @@ router = APIRouter()
 #  Supported overlay types
 # ─────────────────────────────────────────────
 OVERLAY_META: dict[str, str] = {
-    "xray_tracing":      "X-ray with anatomical tracing + Steiner analysis lines",
-    "xray_measurements": "X-ray with color-coded measurement value annotations",
-    "wiggle_chart":      "Wiggle deviation chart (Björk–Skieller style)",
-    "tracing_only":      "Pure anatomical tracing on white background with measurements",
-    "measurement_table": "Measurement table with norm values and Wiggle bars",
+    "xray_tracing":      "X-ray with anatomical tracing + analysis lines + confidence-aware landmarks",
+    "xray_measurements": "X-ray with color-coded measurement annotations + embedded deviation chart",
+    "wiggle_chart":      "Full-page Björk–Skieller deviation chart with group bands and value triplets",
+    "tracing_only":      "Pure anatomical tracing on white background with landmark labels",
+    "measurement_table": "Measurement table with zebra rows, status icons, and deviation bars",
+    "ceph_report":       "A4 clinical report combining tracing, wiggle chart, and measurement table",
 }
 
 RENDER_FN = {
@@ -57,6 +59,7 @@ RENDER_FN = {
     "wiggle_chart":      render_wiggle_chart,
     "tracing_only":      render_tracing_only,
     "measurement_table": render_measurement_table,
+    "ceph_report":       render_ceph_report,
 }
 
 HUMAN_LABELS: dict[str, str] = {
@@ -65,6 +68,7 @@ HUMAN_LABELS: dict[str, str] = {
     "wiggle_chart":      "Deviation Chart",
     "tracing_only":      "Clinical Tracing",
     "measurement_table": "Measurement Table",
+    "ceph_report":       "Clinical Report (A4)",
 }
 
 

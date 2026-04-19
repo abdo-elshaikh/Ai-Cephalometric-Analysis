@@ -145,6 +145,7 @@ class OverlayRequest(BaseModel):
         "wiggle_chart",
         "tracing_only",
         "measurement_table",
+        "ceph_report",
     ]
 
 
