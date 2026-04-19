@@ -1,11 +1,10 @@
 import math
 import logging
-import base64
 import io
 import torch
 import numpy as np
 from PIL import Image
-from typing import Dict, Any
+from typing import Dict, Optional
 
 # MONAI imports for professional medical AI pipelines
 import monai
@@ -24,15 +23,40 @@ from schemas.schemas import LandmarkPoint
 # Import the model code
 from engines.net import UNet, MONAIUNet
 from engines.func import argsoftmax, get_heatmap_stats
-from engines.mytransforms import mytransforms
 
 logger = logging.getLogger(__name__)
 
 _model = None
 _device = None
+_coord_maps: Optional[tuple[torch.Tensor, torch.Tensor]] = None
 
 # Model input dimensions
 H, W = 800, 640
+
+
+def _reset_coord_maps() -> None:
+    global _coord_maps
+    _coord_maps = None
+
+
+def _get_coord_maps() -> tuple[torch.Tensor, torch.Tensor]:
+    """Lazily build (y_map, x_map) on the active inference device — avoids per-request allocation."""
+    global _coord_maps, _device
+    if _coord_maps is not None and _coord_maps[0].device == torch.device(_device):
+        return _coord_maps
+    y_grid, x_grid = np.mgrid[0:H:1, 0:W:1]
+    y_map = torch.tensor(y_grid.flatten(), dtype=torch.float32, device=_device).unsqueeze(1)
+    x_map = torch.tensor(x_grid.flatten(), dtype=torch.float32, device=_device).unsqueeze(1)
+    _coord_maps = (y_map, x_map)
+    return _coord_maps
+
+
+def _clamp_to_image(pt: LandmarkPoint, orig_w: int, orig_h: int) -> LandmarkPoint:
+    x = min(max(pt.x, 0.0), float(max(orig_w - 1, 0)))
+    y = min(max(pt.y, 0.0), float(max(orig_h - 1, 0)))
+    if x == pt.x and y == pt.y:
+        return pt
+    return LandmarkPoint(x=x, y=y, confidence=pt.confidence)
 
 # MONAI Preprocessing Pipeline (Professional Clinical Standard)
 monai_pre_trans = Compose([
@@ -81,6 +105,7 @@ def load_model(model_path: str, device: str) -> None:
             logger.info("Standard UNet weights loaded successfully.")
 
         _model.eval()
+        _reset_coord_maps()
     except Exception as e:
         logger.error(
             f"Failed to load real model from {model_path}. "
@@ -119,7 +144,8 @@ class ScientificRefiner:
                         "Lowering global landmark confidence."
                     )
                     for lm in landmarks.values():
-                        lm.confidence = round(lm.confidence * 0.9, 4)
+                        if isinstance(lm, LandmarkPoint):
+                            lm.confidence = round(lm.confidence * 0.9, 4)
 
         # 3. Derive Menton (Me) from Gnathion & Gonion when low-confidence
         if "Gn" in landmarks and "Go" in landmarks:
@@ -146,6 +172,60 @@ class ScientificRefiner:
         return landmarks
 
 
+def _mirror_landmarks_x(landmarks: Dict[str, LandmarkPoint], orig_w: int) -> None:
+    """Reflect lateral-ceph coordinates after horizontal flip (patient left–right)."""
+    max_x = float(max(orig_w - 1, 0))
+    for k, lm in list(landmarks.items()):
+        if isinstance(lm, LandmarkPoint):
+            landmarks[k] = LandmarkPoint(
+                x=max_x - lm.x,
+                y=lm.y,
+                confidence=lm.confidence,
+            )
+
+
+def _apply_model_outputs_to_landmarks(
+    landmarks: Dict[str, LandmarkPoint],
+    outputs: torch.Tensor,
+    orig_w: int,
+    orig_h: int,
+) -> None:
+    """Decode heatmaps into canonical landmark entries (in-place)."""
+    y_map, x_map = _get_coord_maps()
+    scale_y = orig_h / H
+    scale_x = orig_w / W
+    with torch.no_grad():
+        pred_y = argsoftmax(outputs[0].view(-1, H * W), y_map, beta=1e-3)
+        pred_x = argsoftmax(outputs[0].view(-1, H * W), x_map, beta=1e-3)
+        pred = torch.cat([pred_y, pred_x], dim=1).detach().cpu().numpy()
+        max_logits, _, _ = get_heatmap_stats(outputs)
+
+    for i, name in enumerate(LANDMARK_NAMES):
+        mapped_name = str(name).strip().upper()
+        canonical = _NAME_MAP.get(mapped_name, mapped_name)
+        # Peak logit → (0,1); clamp avoids sigmoid saturation on extreme activations
+        conf = round(
+            float(torch.sigmoid(torch.clamp(max_logits[i], -24.0, 24.0)).item()),
+            4,
+        )
+        landmarks[canonical] = _clamp_to_image(
+            LandmarkPoint(
+                x=float(pred[i][1] * scale_x),
+                y=float(pred[i][0] * scale_y),
+                confidence=conf,
+            ),
+            orig_w,
+            orig_h,
+        )
+
+
+def _incisor_aliases(landmarks: Dict[str, LandmarkPoint]) -> None:
+    if "UI" in landmarks:
+        landmarks["U1"] = landmarks["UI"]
+    if "LI" in landmarks:
+        landmarks["L1"] = landmarks["LI"]
+
+
 def infer(image_bytes: bytes) -> Dict[str, LandmarkPoint]:
     """
     Run landmark detection on a raw image.
@@ -167,45 +247,29 @@ def infer(image_bytes: bytes) -> Dict[str, LandmarkPoint]:
         orig_W, orig_H = img_pil.size
         img_np = np.array(img_pil)
 
-        # Preprocess using MONAI (expects [C, H, W])
-        input_tensor = monai_pre_trans(img_np)
-        input_tensor = input_tensor.unsqueeze(0).to(_device)  # (1, 1, H, W)
+        def run_forward(gray: np.ndarray) -> torch.Tensor:
+            t = monai_pre_trans(gray).unsqueeze(0).to(_device)
+            with torch.no_grad():
+                return _model(t)
 
-        # Coordinate maps for argsoftmax
-        y_map, x_map = np.mgrid[0:H:1, 0:W:1]
-        y_map = torch.tensor(y_map.flatten(), dtype=torch.float).unsqueeze(1).to(_device)
-        x_map = torch.tensor(x_map.flatten(), dtype=torch.float).unsqueeze(1).to(_device)
+        outputs = run_forward(img_np)
+        _apply_model_outputs_to_landmarks(landmarks, outputs, orig_W, orig_H)
 
-        with torch.no_grad():
-            outputs = _model(input_tensor)
+        # Standard lateral ceph: Sella (S) is posterior to Nasion (N) — lower x when the
+        # profile faces right. If S is to the right of N, the image is likely mirrored.
+        if (
+            "S" in landmarks
+            and "N" in landmarks
+            and landmarks["S"].x > landmarks["N"].x
+        ):
+            logger.info("S–N order suggests a mirrored ceph — re-running on horizontally flipped image.")
+            flipped = np.ascontiguousarray(np.fliplr(img_np))
+            outputs_m = run_forward(flipped)
+            landmarks = get_fallback_landmarks(image_bytes)
+            _apply_model_outputs_to_landmarks(landmarks, outputs_m, orig_W, orig_H)
+            _mirror_landmarks_x(landmarks, orig_W)
 
-            # High-precision coordinate regression via argsoftmax
-            pred_y = argsoftmax(outputs[0].view(-1, H * W), y_map, beta=1e-3)
-            pred_x = argsoftmax(outputs[0].view(-1, H * W), x_map, beta=1e-3)
-
-            # Confidence from raw heatmap peaks
-            confidences, _, _ = get_heatmap_stats(outputs)
-
-            scale_y = orig_H / H
-            scale_x = orig_W / W
-            pred = torch.cat([pred_y, pred_x], dim=1).detach().cpu().numpy()
-
-        # Build landmark dictionary from model outputs
-        for i, name in enumerate(LANDMARK_NAMES):
-            mapped_name = str(name).strip().upper()
-            canonical = _NAME_MAP.get(mapped_name, mapped_name)
-            conf = round(float(torch.sigmoid(confidences[i]).item()), 4)
-            landmarks[canonical] = LandmarkPoint(
-                x=float(pred[i][1] * scale_x),
-                y=float(pred[i][0] * scale_y),
-                confidence=conf,
-            )
-
-        # Mirror UI/LI aliases for downstream engines
-        if "UI" in landmarks:
-            landmarks["U1"] = landmarks["UI"]
-        if "LI" in landmarks:
-            landmarks["L1"] = landmarks["LI"]
+        _incisor_aliases(landmarks)
 
         # Apply scientific refinement pass
         landmarks = ScientificRefiner.refine(landmarks, orig_W, orig_H)
