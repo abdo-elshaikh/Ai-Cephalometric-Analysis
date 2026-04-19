@@ -87,7 +87,7 @@ const MEASUREMENTS: MeasDef[] = [
 const SEV_COLOR = { Normal: '#059669', MildDeviation: '#ea580c', ModerateDeviation: '#dc2626', SevereDeviation: '#dc2626' } as const;
 const SEV_LABEL = { Normal: 'Normal', MildDeviation: 'Mild', ModerateDeviation: 'Moderate', SevereDeviation: 'Severe' } as const;
 
-function confColor(c: number) { return c > 0.95 ? '#34d399' : c > 0.85 ? '#4c9eff' : '#fbbf24'; }
+function confColor(c: number) { return c >= 0.80 ? '#22c55e' : c >= 0.60 ? '#eab308' : '#ef4444'; }
 
 // ── RangeBar ─────────────────────────────────────────────────────────────────
 
@@ -296,7 +296,8 @@ export default function AnalysisPage() {
   }, []);
 
   const viewerPoints = useMemo(() => landmarks.map(l => ({
-    id: l.name, x: l.point.x, y: l.point.y, label: l.name, color: confColor(l.confidence),
+    id: l.name, x: l.point.x, y: l.point.y, label: l.name,
+    color: confColor(l.confidence), confidence: l.confidence,
   })), [landmarks]);
 
   const categorisedLms = useMemo(() => {
@@ -418,6 +419,7 @@ export default function AnalysisPage() {
                 patientName={image.patientName}
                 patientMeta={image.patientAge ? `${image.patientAge}, ${image.patientSex ?? ''}`.trim() : undefined}
                 date={new Date().toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: 'numeric' })}
+                analysisMethod={analysisType}
               />
             ) : (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', flexDirection: 'column', gap: 10, color: 'rgba(255,255,255,0.18)' }}>

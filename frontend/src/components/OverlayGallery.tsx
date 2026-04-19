@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Images, RefreshCw, ZoomIn, ZoomOut, X, ChevronLeft, ChevronRight,
   Maximize2, Download, Eye, Layers, Activity, BarChart2, Grid3x3,
-  Wand2
+  Wand2, FileText,
 } from 'lucide-react';
 
 import api, { IMAGE_BASE_URL } from '../api/api';
@@ -56,6 +56,12 @@ const OVERLAY_META: Record<string, { icon: React.ReactNode; description: string;
     description: 'Tabular summary with deviation bars and clinical norm ranges',
     color: '#db2777',
     gradient: 'linear-gradient(135deg,#db2777,#be185d)',
+  },
+  ceph_report: {
+    icon: <FileText size={16} />,
+    description: 'A4 clinical report — tracing, wiggle chart and measurement table in one page',
+    color: '#0f766e',
+    gradient: 'linear-gradient(135deg,#0f766e,#0891b2)',
   },
 };
 
@@ -428,7 +434,7 @@ export default function OverlayGallery({ sessionId, allowGenerate = true }: Over
 
   const handleGenerate = async () => {
     setGenerating(true);
-    const id = toast.loading('Rendering 5 clinical overlay images…');
+    const id = toast.loading('Rendering 6 clinical overlay images…');
     try {
       const res = await api.post(`/analysis/sessions/${sessionId}/overlays`);
       const { images } = res.data;
@@ -451,7 +457,7 @@ export default function OverlayGallery({ sessionId, allowGenerate = true }: Over
   if (loading) {
     return (
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(260px,1fr))', gap: 16 }}>
-        {[...Array(5)].map((_, i) => (
+        {[...Array(6)].map((_, i) => (
           <div key={i} style={{
             borderRadius: 16, overflow: 'hidden',
             border: '1px solid rgba(255,255,255,0.06)',
@@ -488,7 +494,7 @@ export default function OverlayGallery({ sessionId, allowGenerate = true }: Over
           No Overlay Images Yet
         </h3>
         <p style={{ fontSize: '0.85rem', color: 'rgba(255,255,255,0.35)', marginBottom: 24, maxWidth: 380, margin: '0 auto 24px' }}>
-          Generate 5 professional clinical images: anatomical tracing, measurement annotations, deviation chart, and more.
+          Generate 6 professional clinical images: anatomical tracing, measurement annotations, deviation chart, measurement table, and an A4 clinical report.
         </p>
         {allowGenerate && (
           <button
