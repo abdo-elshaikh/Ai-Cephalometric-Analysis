@@ -7,7 +7,7 @@ Provider chain (for all functions):
   2. Gemini  (fallback — sync wrapped in asyncio executor)
 
 Design principles:
-  - Gemini client is initialized once as a lazy singleton.
+  - Gemini client is initialised once as a lazy singleton.
   - Prompts include measurement deviations from JSON norms for evidence-based AI.
   - All JSON extraction is fault-tolerant (handles markdown fences, bare arrays).
   - Exceptions are always logged with context; callers receive None on failure.
@@ -17,7 +17,6 @@ import asyncio
 import logging
 import json
 import re
-from functools import lru_cache
 from typing import Any, Optional
 from openai import AsyncOpenAI
 from google import genai
@@ -26,22 +25,28 @@ from utils.norms_util import norms_provider
 
 logger = logging.getLogger(__name__)
 
-# ── Client Initialization ─────────────────────────────────────────────────────
+# ── Client Initialisation ─────────────────────────────────────────────────────
 
-# OpenAI — async client; None if key is absent
+# OpenAI — async client; None when key is absent
 openai_client: Optional[AsyncOpenAI] = (
     AsyncOpenAI(api_key=settings.openai_api_key) if settings.openai_api_key else None
 )
 
-# Gemini — lazy singleton (avoid re-instantiating on every call)
+# Gemini — lazy singleton to avoid re-instantiating on every call
 _gemini_client: Optional[genai.Client] = None
 
+
 def _get_gemini_client() -> Optional[genai.Client]:
-    """Return a shared Gemini client, initializing it on first use."""
+    """Return the shared Gemini client, initialising it on first use."""
     global _gemini_client
     if _gemini_client is None and settings.gemini_api_key:
         _gemini_client = genai.Client(api_key=settings.gemini_api_key)
     return _gemini_client
+
+
+def _llm_available() -> bool:
+    """Return True if at least one LLM provider is configured."""
+    return bool(settings.openai_api_key or settings.gemini_api_key)
 
 
 # ── Shared Helpers ────────────────────────────────────────────────────────────
@@ -55,13 +60,12 @@ def _build_deviation_table(measurements: dict[str, float]) -> str:
     for code, value in measurements.items():
         rng = norms_provider.get_norm_range(code)
         mean = norms_provider.get_norm_mean(code)
-        # Attempt to determine unit (default to ° if not easily found)
         unit = "mm" if any(x in code.upper() for x in ["MM", "OVERJET", "OVERBITE", "DIST"]) else "°"
-        
+
         if rng is None or mean is None:
             rows.append(f"{code}: {value:.1f}{unit}")
             continue
-            
+
         lo, hi = rng
         if value < lo:
             status = f"-{lo - value:.1f}{unit} below norm"
@@ -69,8 +73,11 @@ def _build_deviation_table(measurements: dict[str, float]) -> str:
             status = f"+{value - hi:.1f}{unit} above norm"
         else:
             status = "within normal range"
-            
-        rows.append(f"{code}: {value:.1f}{unit} (norm {mean:.1f}{unit}, {status} [{lo:.1f}-{hi:.1f}])")
+
+        rows.append(
+            f"{code}: {value:.1f}{unit} "
+            f"(norm {mean:.1f}{unit}, {status} [{lo:.1f}-{hi:.1f}])"
+        )
     return "\n".join(rows) if rows else "No measurements provided."
 
 
@@ -79,14 +86,14 @@ def _extract_json(raw: str) -> Any:
     Robustly extract a JSON value from an LLM response that may contain
     markdown fences, preamble text, or bare arrays.
     """
-    # Strip markdown fences: ```json ... ``` or ``` ... ```
+    # Strip markdown code fences
     cleaned = re.sub(r"```(?:json)?\s*", "", raw).replace("```", "").strip()
-    # Try direct parse first
+    # Direct parse
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError:
         pass
-    # Find the first JSON object or array in the string
+    # Locate the first JSON object or array in the string
     match = re.search(r"(\{.*\}|\[.*\])", cleaned, re.DOTALL)
     if match:
         try:
@@ -98,8 +105,8 @@ def _extract_json(raw: str) -> Any:
 
 async def _gemini_generate(prompt: str, timeout: float = 15.0) -> str:
     """
-    Run a Gemini generation call in a thread-pool executor (Gemini SDK is sync).
-    Raises asyncio.TimeoutError if it exceeds `timeout` seconds.
+    Run a Gemini generation call in a thread-pool executor (Gemini SDK is synchronous).
+    Raises asyncio.TimeoutError when the call exceeds `timeout` seconds.
     """
     client = _get_gemini_client()
     if client is None:
@@ -108,13 +115,14 @@ async def _gemini_generate(prompt: str, timeout: float = 15.0) -> str:
     def _sync_call() -> str:
         response = client.models.generate_content(
             model=settings.gemini_model,
-            contents=prompt
+            contents=prompt,
         )
         return response.text.strip()
 
+    loop = asyncio.get_running_loop()
     return await asyncio.wait_for(
-        asyncio.get_event_loop().run_in_executor(None, _sync_call),
-        timeout=timeout
+        loop.run_in_executor(None, _sync_call),
+        timeout=timeout,
     )
 
 
@@ -126,11 +134,11 @@ async def generate_treatment_rationale(
     measurements: dict[str, float],
     treatment_name: str,
     treatment_type: str,
-    soft_tissue_profile: str = "Unknown"
+    soft_tissue_profile: str = "Unknown",
 ) -> str | None:
     """
     Generate a 2-sentence clinical rationale for a specific treatment plan.
-    Uses OpenAI primarily, Gemini as fallback.
+    Tries OpenAI first, falls back to Gemini.
     """
     system_prompt = (
         "You are an expert consultant orthodontist writing a clinical case note. "
@@ -144,9 +152,9 @@ async def generate_treatment_rationale(
 
     user_prompt = (
         f"Patient Summary:\n"
-        f"  Skeletal Class : {skeletal_class}\n"
+        f"  Skeletal Class  : {skeletal_class}\n"
         f"  Vertical Pattern: {vertical_pattern}\n"
-        f"  Soft Tissue    : {soft_tissue_profile}\n\n"
+        f"  Soft Tissue     : {soft_tissue_profile}\n\n"
         f"Cephalometric Measurements (with norm deviations):\n{deviation_table}\n\n"
         f"Proposed Treatment: {treatment_name} ({treatment_type})\n\n"
         f"Write the 2-sentence clinical rationale:"
@@ -189,7 +197,7 @@ async def populate_rationales(
     skeletal_class: str,
     vertical_pattern: str,
     measurements: dict[str, float],
-    soft_tissue_profile: str = "Unknown"
+    soft_tissue_profile: str = "Unknown",
 ) -> list[dict]:
     """
     Concurrently enrich all treatment plans with AI-generated rationales.
@@ -198,7 +206,7 @@ async def populate_rationales(
     tasks = [
         generate_treatment_rationale(
             skeletal_class, vertical_pattern, measurements,
-            t["treatment_name"], t["treatment_type"], soft_tissue_profile
+            t["treatment_name"], t["treatment_type"], soft_tissue_profile,
         )
         for t in treatments
     ]
@@ -208,12 +216,12 @@ async def populate_rationales(
     for i, result in enumerate(results):
         if isinstance(result, Exception):
             logger.warning(
-                f"Rationale generation failed for plan '{treatments[i].get('treatment_name')}': "
-                f"{result}"
+                f"Rationale generation failed for plan "
+                f"'{treatments[i].get('treatment_name')}': {result}"
             )
         elif isinstance(result, str) and len(result) > 10:
             treatments[i]["rationale"] = result
-        # else: keep existing rule-based template from treatment_engine.py
+        # else: keep existing rule-based template
 
     return treatments
 
@@ -224,11 +232,11 @@ async def generate_clinical_diagnosis_summary(
     skeletal_class: str,
     vertical_pattern: str,
     measurements: dict[str, float],
-    soft_tissue_profile: str = "Unknown"
+    soft_tissue_profile: str = "Unknown",
 ) -> str | None:
     """
     Generate a 100-150 word professional clinical diagnostic summary.
-    Uses OpenAI primarily, Gemini as fallback.
+    Tries OpenAI first, falls back to Gemini.
     """
     system_prompt = (
         "You are a senior consultant orthodontist writing a formal clinical case summary. "
@@ -242,9 +250,9 @@ async def generate_clinical_diagnosis_summary(
 
     user_prompt = (
         f"Cephalometric Diagnosis:\n"
-        f"  Skeletal Class : {skeletal_class}\n"
+        f"  Skeletal Class  : {skeletal_class}\n"
         f"  Vertical Pattern: {vertical_pattern}\n"
-        f"  Soft Tissue    : {soft_tissue_profile}\n\n"
+        f"  Soft Tissue     : {soft_tissue_profile}\n\n"
         f"Measurements (with deviation from norms):\n{deviation_table}\n\n"
         f"Write the 100-150 word clinical summary:"
     )
@@ -291,21 +299,28 @@ _TREATMENT_JSON_SCHEMA = (
     "Return ONLY the JSON — no markdown, no preamble."
 )
 
+# Models known to support JSON-mode response format
+_JSON_MODE_MODELS = {"gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4-turbo-preview"}
+
+
+def _supports_json_mode(model_name: str) -> bool:
+    return any(m in model_name for m in _JSON_MODE_MODELS)
+
 
 async def generate_generative_treatments(
     skeletal_class: str,
     vertical_pattern: str,
     measurements: dict[str, float],
     soft_tissue_profile: str,
-    patient_age: float | None = None
+    patient_age: float | None = None,
 ) -> list[dict] | None:
     """
-    Generate 3 evidence-based treatment plans from an LLM using patient data
-    and normative deviations. Uses OpenAI primarily, Gemini as fallback.
+    Generate 3 evidence-based treatment plans from an LLM.
+    Tries OpenAI first, falls back to Gemini.
     """
     system_prompt = (
         "You are an expert orthodontic consultant with 20 years of clinical experience. "
-        "Analyze the patient's cephalometric data — including deviations from established norms — "
+        "Analyse the patient's cephalometric data — including deviations from established norms — "
         "and propose exactly 3 evidence-based treatment plans ranked by suitability. "
         f"{_TREATMENT_JSON_SCHEMA}"
     )
@@ -315,10 +330,10 @@ async def generate_generative_treatments(
 
     context = (
         f"Patient Profile:\n"
-        f"  Age            : {patient_age if patient_age else 'Not specified'}\n"
-        f"  Skeletal Class : {skeletal_class}\n"
+        f"  Age             : {patient_age if patient_age else 'Not specified'}\n"
+        f"  Skeletal Class  : {skeletal_class}\n"
         f"  Vertical Pattern: {vertical_pattern}\n"
-        f"  Soft Tissue    : {soft_tissue_profile}\n\n"
+        f"  Soft Tissue     : {soft_tissue_profile}\n\n"
         f"Cephalometric Measurements (patient value vs. norms):\n{deviation_table}\n\n"
         f"Normative Reference Summary:\n{norm_context}"
     )
@@ -331,16 +346,14 @@ async def generate_generative_treatments(
             logger.warning(f"JSON extraction failed: {e}")
             return None
 
-        # Accept both {"treatments": [...]} and bare [...]
         plans = data.get("treatments", data) if isinstance(data, dict) else data
         if not isinstance(plans, list) or len(plans) == 0:
             logger.warning(f"Unexpected treatment structure: {type(data)}")
             return None
 
-        # Normalise and guarantee required fields
         required = {"plan_index", "treatment_type", "treatment_name",
                     "description", "confidence_score", "is_primary"}
-        validated = []
+        validated: list[dict] = []
         for i, plan in enumerate(plans[:3]):
             if not isinstance(plan, dict) or not required.issubset(plan.keys()):
                 logger.warning(f"Plan {i} missing required fields, skipping.")
@@ -356,13 +369,16 @@ async def generate_generative_treatments(
     # ── Provider 1: OpenAI ────────────────────────────────────────────────────
     if openai_client:
         try:
+            response_format = (
+                {"type": "json_object"} if _supports_json_mode(settings.openai_model) else None
+            )
             resp = await openai_client.chat.completions.create(
                 model=settings.openai_model,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user",   "content": context},
                 ],
-                response_format={"type": "json_object"} if "gpt-4" in settings.openai_model else None,
+                response_format=response_format,
                 temperature=0.5,
                 max_tokens=1200,
                 timeout=18,

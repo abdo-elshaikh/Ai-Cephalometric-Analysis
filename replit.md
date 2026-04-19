@@ -66,4 +66,22 @@ See `.env.example` for required configuration:
 ### AI Service
 - FastAPI, PyTorch, YOLOv8/HRNet
 - OpenCV, Pillow, scikit-learn
-- OpenAI/Gemini LLM integration
+- OpenAI/Gemini LLM integration (multi-provider failover)
+- MONAI UNet for professional medical landmark detection
+
+## AI Service — Code Quality Notes
+
+The following best-practice improvements have been applied to `ai_service/`:
+
+- **Security**: `security.py` — uses `secrets.compare_digest` for timing-safe service-key validation.
+- **Async correctness**: `llm_engine.py` — uses `asyncio.get_running_loop()` instead of deprecated `get_event_loop()`.
+- **Import hygiene**: `landmark_engine.py` — `import math` moved to top of file; `measurement.py` router imports reordered.
+- **Silent error elimination**: `measurement_engine.py` — bare `except: pass` replaced with `logger.debug(...)`.
+- **Fallback transparency**: `landmark_engine.py` — fallback landmark confidences set to 0.50 so clients can distinguish model-inferred from placeholder points; dummy model sentinel (`"dummy_model_loaded"` string) replaced with `None`.
+- **Bug fix**: `diagnosis_engine.py` — incorrect check for Frankfort landmarks in the measurements dict (floats) corrected.
+- **LLM JSON mode**: `llm_engine.py` — `response_format=json_object` now correctly applied to all GPT-4o/GPT-4o-mini models.
+- **Treatment rationale**: `treatment.py` router — LLM rationale enrichment is now applied to rule-based plans whenever any LLM provider (OpenAI or Gemini) is configured.
+- **`_llm_available()` helper**: centralised check for either LLM key being present.
+- **Typo fix**: `treatment_engine.py` — "Advancment" → "Advancement" in Le Fort I surgery name.
+- **DICOM windowing**: `dicom_util.py` — applies DICOM WindowCenter/WindowWidth when available for clinically accurate rendering.
+- **Norms utility refactor**: `norms_util.py` — `_iter_analyses()` and `_find_measurement()` helpers eliminate duplicated search logic across all lookup methods.

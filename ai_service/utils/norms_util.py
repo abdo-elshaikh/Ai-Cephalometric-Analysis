@@ -8,18 +8,21 @@ logger = logging.getLogger(__name__)
 
 class AnalysisNormsProvider:
     """
-    Singleton provider that loads and serves cephalometric norms from analysis_norms.json.
+    Singleton provider that loads and serves cephalometric norms from
+    ``analysis_norms.json``.
 
-    Usage:
+    Usage::
+
         norms_provider.load("config/analysis_norms.json")   # once at startup
         lo, hi = norms_provider.get_norm_range("SNA")       # (80.0, 84.0)
         mean   = norms_provider.get_norm_mean("SNA")        # 82.0
     """
-    _instance = None
+
+    _instance: Optional["AnalysisNormsProvider"] = None
     _norms_data: Dict[str, Any] = {}
 
-    def __new__(cls, *args, **kwargs):
-        if not cls._instance:
+    def __new__(cls, *args: Any, **kwargs: Any) -> "AnalysisNormsProvider":
+        if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
 
@@ -50,6 +53,39 @@ class AnalysisNormsProvider:
     def is_loaded(self) -> bool:
         return bool(self._norms_data)
 
+    # ── Internal search helpers ────────────────────────────────────────────────
+
+    @classmethod
+    def _iter_analyses(cls) -> list[tuple[str, dict]]:
+        """
+        Return (name, analysis_data) pairs with 'Full' first, then all others.
+        This enforces a stable search priority across all lookup methods.
+        """
+        analyses = cls._norms_data.get("analyses", {})
+        pairs: list[tuple[str, dict]] = []
+        if "Full" in analyses:
+            pairs.append(("Full", analyses["Full"]))
+        for key, val in analyses.items():
+            if key != "Full":
+                pairs.append((key, val))
+        return pairs
+
+    @classmethod
+    def _find_measurement(cls, target: str, analysis_data: dict) -> Optional[dict]:
+        """
+        Find a measurement entry by exact name or first-token match.
+        Returns the measurement dict or None.
+        """
+        first_token_match: Optional[dict] = None
+        for m in analysis_data.get("measurements", []):
+            name = m.get("name", "").strip().lower()
+            tokens = name.split()
+            if target == name:
+                return m  # Exact match — highest priority
+            if tokens and target == tokens[0] and first_token_match is None:
+                first_token_match = m
+        return first_token_match
+
     # ── Public accessors ───────────────────────────────────────────────────────
 
     @classmethod
@@ -59,7 +95,7 @@ class AnalysisNormsProvider:
 
     @classmethod
     def get_analysis_names(cls) -> List[str]:
-        """Return list of available analysis names (e.g. ['Steiner', 'Tweed', ...])."""
+        """Return the list of available analysis names (e.g. ['Steiner', 'Tweed', …])."""
         return list(cls._norms_data.get("analyses", {}).keys())
 
     @classmethod
@@ -67,91 +103,35 @@ class AnalysisNormsProvider:
         """
         Resolve (min, max) for a measurement by name or short code.
 
-        Search order:
-          1. Exact name match in 'Full' composite analysis.
-          2. First-token match (e.g. 'SNA') in 'Full'.
-          3. Exact name match across all other analyses.
-          4. First-token match across all other analyses.
-
-        Returns None if no match is found (caller should use its fallback).
+        Search order: 'Full' composite first, then all other analyses in
+        definition order. Returns None if no match is found.
         """
-        if not cls._norms_data or "analyses" not in cls._norms_data:
+        if not cls._norms_data:
             return None
-
-        analyses = cls._norms_data["analyses"]
         target = measurement_code.strip().lower()
-
-        def _range_from(m: dict) -> Optional[tuple[float, float]]:
-            r = m.get("range")
-            if r and len(r) == 2:
-                return (float(r[0]), float(r[1]))
-            return None
-
-        def _search(analysis_data: dict) -> Optional[tuple[float, float]]:
-            first_token_match = None
-            for m in analysis_data.get("measurements", []):
-                name = m.get("name", "").strip().lower()
-                tokens = name.split()
-                if target == name:
-                    return _range_from(m)    # exact match — return immediately
-                if tokens and target == tokens[0] and first_token_match is None:
-                    first_token_match = _range_from(m)  # first-token match — candidate
-            return first_token_match
-
-        # Priority 1 — 'Full' composite
-        if "Full" in analyses:
-            result = _search(analyses["Full"])
-            if result:
-                return result
-
-        # Priority 2 — all other analyses in stable order
-        for key, val in analyses.items():
-            if key == "Full":
-                continue
-            result = _search(val)
-            if result:
-                return result
-
+        for _, analysis_data in cls._iter_analyses():
+            m = cls._find_measurement(target, analysis_data)
+            if m is not None:
+                r = m.get("range")
+                if r and len(r) == 2:
+                    return float(r[0]), float(r[1])
         return None
 
     @classmethod
     def get_norm_mean(cls, measurement_code: str) -> Optional[float]:
         """
         Return the 'normal' (mean) value for a measurement.
-        Follows the same search order as get_norm_range().
+        Follows the same search order as :meth:`get_norm_range`.
         """
-        if not cls._norms_data or "analyses" not in cls._norms_data:
+        if not cls._norms_data:
             return None
-
-        analyses = cls._norms_data["analyses"]
         target = measurement_code.strip().lower()
-
-        def _search_mean(analysis_data: dict) -> Optional[float]:
-            fallback = None
-            for m in analysis_data.get("measurements", []):
-                name = m.get("name", "").strip().lower()
-                tokens = name.split()
+        for _, analysis_data in cls._iter_analyses():
+            m = cls._find_measurement(target, analysis_data)
+            if m is not None:
                 normal = m.get("normal")
-                if normal is None:
-                    continue
-                if target == name:
+                if normal is not None:
                     return float(normal)
-                if tokens and target == tokens[0] and fallback is None:
-                    fallback = float(normal)
-            return fallback
-
-        if "Full" in analyses:
-            result = _search_mean(analyses["Full"])
-            if result is not None:
-                return result
-
-        for key, val in analyses.items():
-            if key == "Full":
-                continue
-            result = _search_mean(val)
-            if result is not None:
-                return result
-
         return None
 
     @classmethod
@@ -160,34 +140,32 @@ class AnalysisNormsProvider:
     ) -> Optional[Dict[str, Any]]:
         """
         Return the full measurement dict for a specific analysis and measurement name.
-        Returns None if not found.
-        Example: get_norm_by_analysis("Steiner", "SNA")
-            -> {"name": "SNA", "normal": 82.0, "unit": "degrees", "range": [80, 84]}
+
+        Example::
+
+            get_norm_by_analysis("Steiner", "SNA")
+            # → {"name": "SNA", "normal": 82.0, "unit": "degrees", "range": [80, 84]}
         """
         analyses = cls._norms_data.get("analyses", {})
         analysis = analyses.get(analysis_name)
         if not analysis:
             return None
         target = measurement_code.strip().lower()
-        for m in analysis.get("measurements", []):
-            name = m.get("name", "").strip().lower()
-            tokens = name.split()
-            if target == name or (tokens and target == tokens[0]):
-                return m
-        return None
+        return cls._find_measurement(target, analysis)
 
     @classmethod
     def build_norm_context_for_llm(cls, measurement_codes: List[str]) -> str:
         """
         Build a compact normative-context string for injection into LLM prompts.
 
-        Example output:
-          SNA: norm 82°, range [80-84]; ANB: norm 2°, range [0-4]; ...
+        Example output::
+
+            SNA: norm 82°, range [80-84]; ANB: norm 2°, range [0-4]; …
         """
-        parts = []
+        parts: list[str] = []
         for code in measurement_codes:
             mean = cls.get_norm_mean(code)
-            rng = cls.get_norm_range(code)
+            rng  = cls.get_norm_range(code)
             if mean is not None and rng is not None:
                 parts.append(f"{code}: norm {mean}, range [{rng[0]}-{rng[1]}]")
         return "; ".join(parts) if parts else "Normative data unavailable."

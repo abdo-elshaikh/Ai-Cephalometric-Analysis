@@ -19,7 +19,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-async def global_exception_handler(request: Request, exc: Exception):
+async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     logger.error(f"Unhandled exception: {str(exc)}\n{traceback.format_exc()}")
     return JSONResponse(
         status_code=500,
@@ -28,12 +28,12 @@ async def global_exception_handler(request: Request, exc: Exception):
             "type": "https://httpstatuses.com/500",
             "title": "An unexpected error occurred",
             "status": 500,
-            "instance": str(request.url)
-        }
+            "instance": str(request.url),
+        },
     )
 
 
-async def http_exception_handler(request: Request, exc: HTTPException):
+async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
     return JSONResponse(
         status_code=exc.status_code,
         content={
@@ -41,48 +41,62 @@ async def http_exception_handler(request: Request, exc: HTTPException):
             "type": f"https://httpstatuses.com/{exc.status_code}",
             "title": "API Request Error",
             "status": exc.status_code,
-            "instance": str(request.url)
-        }
+            "instance": str(request.url),
+        },
     )
 
 
-async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    logger.error(f"Validation error for {request.url}: {exc.errors()}\nBody: {await request.body()}")
+async def validation_exception_handler(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
+    # Read the body once and cache it — RequestValidationError fires before body consumption
+    try:
+        body = (await request.body()).decode("utf-8", errors="replace")
+    except Exception:
+        body = "<unreadable>"
+    logger.error(f"Validation error for {request.url}: {exc.errors()}\nBody: {body}")
     return JSONResponse(
         status_code=422,
         content={
             "detail": exc.errors(),
-            "body": str(await request.body()),
+            "body": body,
             "type": "https://httpstatuses.com/422",
             "title": "Validation Error",
             "status": 422,
-            "instance": str(request.url)
-        }
+            "instance": str(request.url),
+        },
     )
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("🚀 AI Service starting up...")
-    logger.info(f"   Model path: {settings.model_path}")
-    logger.info(f"   Device: {settings.device}")
-    
-    # Actually boot the PyTorch model into memory!
+    logger.info("AI Service starting up...")
+    logger.info(f"   Model path : {settings.model_path}")
+    logger.info(f"   Device     : {settings.device}")
+
+    # Load PyTorch model into memory
     from engines.landmark_engine import load_model
     load_model(settings.model_path, settings.device)
-    
+
     # Load analysis norms into memory
     from utils.norms_util import norms_provider
-    norms_provider.load(settings.analysis_norms_path)
-    
+    norms_ok = norms_provider.load(settings.analysis_norms_path)
+    if not norms_ok:
+        logger.warning(
+            "Clinical norms failed to load — measurement status will use built-in defaults."
+        )
+
     yield
-    logger.info("🛑 AI Service shutting down...")
+
+    logger.info("AI Service shutting down...")
 
 
 app = FastAPI(
     title="CephAnalysis AI Service",
-    description="AI microservice for cephalometric landmark detection, "
-                "measurement, diagnosis, and treatment planning",
+    description=(
+        "AI microservice for cephalometric landmark detection, "
+        "measurement, diagnosis, and treatment planning"
+    ),
     version="1.0.0",
     lifespan=lifespan,
 )
@@ -100,18 +114,18 @@ app.add_exception_handler(HTTPException, http_exception_handler)
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
 
 # Register routers
-app.include_router(landmark.router, prefix="/ai", tags=["Landmark Detection"])
+app.include_router(landmark.router,    prefix="/ai", tags=["Landmark Detection"])
 app.include_router(measurement.router, prefix="/ai", tags=["Measurements"])
-app.include_router(diagnosis.router, prefix="/ai", tags=["Diagnosis"])
-app.include_router(treatment.router, prefix="/ai", tags=["Treatment Planning"])
-app.include_router(overlay.router,   prefix="/ai", tags=["Overlay"])
+app.include_router(diagnosis.router,   prefix="/ai", tags=["Diagnosis"])
+app.include_router(treatment.router,   prefix="/ai", tags=["Treatment Planning"])
+app.include_router(overlay.router,     prefix="/ai", tags=["Overlay"])
 
 
 @app.get("/health", tags=["Health"])
-async def health_check():
-    """Detailed telemetry endpoint for dashboard visualization."""
+async def health_check() -> dict:
+    """Detailed telemetry endpoint for dashboard visualisation."""
     from engines.landmark_engine import _model
-    
+
     return {
         "status": "healthy",
         "uptime_seconds": int(time.time() - START_TIME),
@@ -120,12 +134,12 @@ async def health_check():
         "engine": {
             "model_loaded": _model is not None,
             "device": settings.device,
-            "landmarks_count": settings.num_landmarks
+            "landmarks_count": settings.num_landmarks,
         },
         "providers": {
-            "openai": "available" if settings.openai_api_key else "missing",
-            "gemini": "available" if settings.gemini_api_key else "missing"
-        }
+            "openai": "available" if settings.openai_api_key else "not configured",
+            "gemini": "available" if settings.gemini_api_key else "not configured",
+        },
     }
 
 

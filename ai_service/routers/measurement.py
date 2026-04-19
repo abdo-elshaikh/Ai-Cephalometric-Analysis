@@ -1,7 +1,7 @@
-from fastapi import APIRouter, HTTPException, Header, Depends
+from fastapi import APIRouter, HTTPException, Depends
 from schemas.schemas import MeasurementRequest, MeasurementResponse, MeasurementItem
 from engines.measurement_engine import compute_all_measurements
-from config.settings import settings
+from utils.norms_util import norms_provider
 from utils.security import verify_service_key
 import logging
 
@@ -9,10 +9,12 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-@router.post("/calculate-measurements", response_model=MeasurementResponse, dependencies=[Depends(verify_service_key)])
-async def calculate_measurements(
-    request: MeasurementRequest
-):
+@router.post(
+    "/calculate-measurements",
+    response_model=MeasurementResponse,
+    dependencies=[Depends(verify_service_key)],
+)
+async def calculate_measurements(request: MeasurementRequest) -> MeasurementResponse:
     """Compute all cephalometric measurements from detected landmarks."""
     logger.info(f"Measurement computation requested for session {request.session_id}")
 
@@ -24,15 +26,20 @@ async def calculate_measurements(
         raise HTTPException(status_code=422, detail=f"Measurement computation failed: {e}")
 
     items = [MeasurementItem(**m) for m in raw]
-
     return MeasurementResponse(session_id=request.session_id, measurements=items)
 
-from utils.norms_util import norms_provider
 
-@router.get("/analysis-norms", response_model=dict, dependencies=[Depends(verify_service_key)])
-async def get_analysis_norms():
+@router.get(
+    "/analysis-norms",
+    response_model=dict,
+    dependencies=[Depends(verify_service_key)],
+)
+async def get_analysis_norms() -> dict:
     """Fetch the dynamically loaded clinical norms and standards."""
     norms = norms_provider.get_all_norms()
     if not norms:
-        raise HTTPException(status_code=500, detail="Cephalometric norms could not be loaded on the server.")
+        raise HTTPException(
+            status_code=500,
+            detail="Cephalometric norms could not be loaded on the server.",
+        )
     return norms

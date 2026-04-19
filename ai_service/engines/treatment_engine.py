@@ -1,8 +1,8 @@
 """
 Treatment Planning Engine — Advanced Clinical Decision Support System.
-Combines deterministic orthodontic rules with AI-driven rationalization.
+Combines deterministic orthodontic rules with AI-driven rationalisation.
 """
-from typing import Optional, Any
+from typing import Optional
 from config.settings import settings
 
 # ── Clinical Knowledge Base ──────────────────────────────────────────────────
@@ -24,7 +24,7 @@ TREATMENT_RULES: list[dict] = [
         "type": "Appliance",
         "conditions": {"skeletal_class": "ClassII", "max_age": 15, "vertical_pattern": "LowAngle"},
         "description": "Fixed functional appliance for mandibular advancement; highly effective in low-angle (hypodivergent) cases.",
-        "rationale_template": "Optimal for Class II correction in hypodivergent patients where orthopedic force can be maximally utilized.",
+        "rationale_template": "Optimal for Class II correction in hypodivergent patients where orthopedic force can be maximally utilised.",
         "duration": 12, "confidence": 0.92
     },
     {
@@ -42,7 +42,7 @@ TREATMENT_RULES: list[dict] = [
         "type": "Extraction",
         "conditions": {"skeletal_class": "ClassII", "profile": "Protrusive"},
         "description": "Skeletal camouflage involving the extraction of upper first premolars to retract the anterior segment.",
-        "rationale_template": "Addresses Class II discrepancy via camouflage by utilizing extraction spaces to retract the maxillary dentition and improve profile.",
+        "rationale_template": "Addresses Class II discrepancy via camouflage by utilising extraction spaces to retract the maxillary dentition and improve profile.",
         "duration": 24, "confidence": 0.88
     },
     # ── Skeletal Class III ────────────────────────────────────────────────────
@@ -76,7 +76,7 @@ TREATMENT_RULES: list[dict] = [
     },
     {
         "id": "surg-lefort-max",
-        "name": "Le Fort I Maxillary Advancment",
+        "name": "Le Fort I Maxillary Advancement",
         "type": "Surgery",
         "conditions": {"skeletal_class": "ClassIII", "min_age": 18, "anb": {"max": -3}},
         "description": "Surgical advancement of the maxilla to address severe skeletal Class III due to midface deficiency.",
@@ -108,7 +108,7 @@ TREATMENT_RULES: list[dict] = [
         "name": "Comprehensive Fixed Braces",
         "type": "Fixed",
         "conditions": {"skeletal_class": "ClassI"},
-        "description": "Standard orthodontic alignment to optimize occlusion and smile aesthetics.",
+        "description": "Standard orthodontic alignment to optimise occlusion and smile aesthetics.",
         "rationale_template": "Indicated for dental crowding or spacing correction in an orthognathic skeletal pattern.",
         "duration": 18, "confidence": 0.98
     },
@@ -123,65 +123,93 @@ TREATMENT_RULES: list[dict] = [
     }
 ]
 
-def calculate_suitability(rule: dict, skeletal_class: str, vertical_pattern: str, 
-                        patient_age: Optional[float], measurements: dict[str, float], 
-                        profile: str) -> float:
+
+def calculate_suitability(
+    rule: dict,
+    skeletal_class: str,
+    vertical_pattern: str,
+    patient_age: Optional[float],
+    measurements: dict[str, float],
+    profile: str,
+) -> float:
     """
-    Advanced scoring algorithm to determine clinical suitability of a rule.
-    Returns a score from 0.0 to 1.0.
+    Score a treatment rule against the patient's clinical profile.
+
+    Returns a suitability score in [0.0, 1.0].
+    A score of 0.0 means the rule is contraindicated; it will not be included.
     """
     cond = rule["conditions"]
     score = rule["confidence"]
-    
-    # 1. Mandatory mismatches (Zero score)
-    if "skeletal_class" in cond and cond["skeletal_class"] != skeletal_class: return 0.0
-    if "vertical_pattern" in cond and cond["vertical_pattern"] != vertical_pattern: return 0.0
+
+    # ── Mandatory mismatches (hard exclusions) ────────────────────────────────
+    if "skeletal_class" in cond and cond["skeletal_class"] != skeletal_class:
+        return 0.0
+    if "vertical_pattern" in cond and cond["vertical_pattern"] != vertical_pattern:
+        return 0.0
     if "profile" in cond and profile != "Unknown" and cond["profile"] != profile:
-        score *= 0.8 # Penalize profile mismatch instead of zeroing out (camouflage possible)
-        
-    # 2. Age Suitability
+        # Penalise rather than zero out — camouflage may still apply
+        score *= 0.8
+
+    # ── Age suitability ───────────────────────────────────────────────────────
     if patient_age is not None:
         if "max_age" in cond and patient_age > cond["max_age"]:
-            # Hard penalty for growth mod appliances in adults
-            if rule["type"] == "Appliance": return 0.0
+            if rule["type"] == "Appliance":
+                return 0.0  # Growth modification contraindicated in adults
             score *= 0.5
         if "min_age" in cond and patient_age < cond["min_age"]:
-            # Hard penalty for surgery in kids
-            if rule["type"] == "Surgery": return 0.0
+            if rule["type"] == "Surgery":
+                return 0.0  # Surgery contraindicated in growing patients
             score *= 0.5
-            
-    # 3. Specific Measurement Matching (ANB, Wits, Overjet, JRatio)
+
+    # ── Specific measurement thresholds ───────────────────────────────────────
     metrics = {
-        "anb": measurements.get("ANB"),
+        "anb":     measurements.get("ANB"),
         "overjet": measurements.get("OVERJET_MM"),
         "overbite": measurements.get("OVERBITE_MM"),
         "j_ratio": measurements.get("JRatio"),
     }
-    
+
     for key, val in metrics.items():
         if key in cond and val is not None:
             c = cond[key]
-            if "min" in c and val < c["min"]: score *= 0.7
-            if "max" in c and val > c["max"]: score *= 0.7
-            if "min" in c and val >= c["min"]: score += 0.05
-            if "max" in c and val <= c["max"]: score += 0.05
-            
+            if "min" in c and val < c["min"]:
+                score *= 0.7
+            if "max" in c and val > c["max"]:
+                score *= 0.7
+            # Bonus for values that fall within the ideal range
+            if "min" in c and val >= c["min"]:
+                score += 0.05
+            if "max" in c and val <= c["max"]:
+                score += 0.05
+
     return min(1.0, score)
 
-def suggest_treatment(skeletal_class: str, vertical_pattern: str,
-                       measurements: dict[str, float],
-                       patient_age: Optional[float] = None,
-                       profile: str = "Unknown") -> list[dict]:
+
+_MINIMUM_SUITABILITY = 0.4
+
+
+def suggest_treatment(
+    skeletal_class: str,
+    vertical_pattern: str,
+    measurements: dict[str, float],
+    patient_age: Optional[float] = None,
+    profile: str = "Unknown",
+) -> list[dict]:
     """
-    Generate ranked treatment plans using advanced suitability scoring.
+    Generate ranked treatment plans using the clinical suitability scoring algorithm.
+
+    Returns up to 3 plans sorted by descending confidence score.
+    Falls back to a monitoring plan when no rule exceeds the suitability threshold.
     """
-    scored_plans = []
-    
+    scored_plans: list[dict] = []
+
     for rule in TREATMENT_RULES:
-        score = calculate_suitability(rule, skeletal_class, vertical_pattern, patient_age, measurements, profile)
-        if score > 0.4: # Only suggest plausible plans
+        score = calculate_suitability(
+            rule, skeletal_class, vertical_pattern, patient_age, measurements, profile
+        )
+        if score >= _MINIMUM_SUITABILITY:
             scored_plans.append({
-                "plan_index": 0, # To be set after sorting
+                "plan_index": 0,  # Set after sorting
                 "treatment_type": rule["type"],
                 "treatment_name": rule["name"],
                 "description": rule["description"],
@@ -190,29 +218,29 @@ def suggest_treatment(skeletal_class: str, vertical_pattern: str,
                 "estimated_duration_months": rule["duration"],
                 "confidence_score": round(score, 3),
                 "source": "RuleBased",
-                "is_primary": False
+                "is_primary": False,
             })
-            
-    # Sort and refine
+
+    # Sort descending by confidence; take the top 3
     scored_plans.sort(key=lambda x: x["confidence_score"], reverse=True)
-    
-    for i, plan in enumerate(scored_plans[:3]):
+    top_plans = scored_plans[:3]
+
+    for i, plan in enumerate(top_plans):
         plan["plan_index"] = i
-        plan["is_primary"] = (i == 0)
-        
-    if not scored_plans:
-        # Fallback
+        plan["is_primary"] = i == 0
+
+    if not top_plans:
         return [{
             "plan_index": 0,
             "treatment_type": "Observation",
             "treatment_name": "Longitudinal Monitoring",
-            "description": "Periodical review of growth and dental development.",
-            "rationale": "Measurements do not trigger immediate intervention thresholds.",
-            "risks": "Potential for malocclusion progression if growth is unfavorable.",
+            "description": "Periodic review of growth and dental development.",
+            "rationale": "Current measurements do not meet immediate intervention thresholds.",
+            "risks": "Potential for malocclusion progression if growth is unfavourable.",
             "estimated_duration_months": 6,
             "confidence_score": 0.50,
             "source": "RuleBased",
-            "is_primary": True
+            "is_primary": True,
         }]
-        
-    return scored_plans[:3]
+
+    return top_plans

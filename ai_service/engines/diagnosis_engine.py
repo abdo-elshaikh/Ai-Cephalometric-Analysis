@@ -15,9 +15,11 @@ from __future__ import annotations
 from config.settings import settings
 from utils.norms_util import norms_provider
 
+
 def _get_norm(code: str, fallback_min: float, fallback_max: float) -> tuple[float, float]:
     rng = norms_provider.get_norm_range(code)
-    if rng: return rng[0], rng[1]
+    if rng:
+        return rng[0], rng[1]
     return fallback_min, fallback_max
 
 
@@ -25,23 +27,27 @@ def _get_norm(code: str, fallback_min: float, fallback_max: float) -> tuple[floa
 # Skeletal class
 # ---------------------------------------------------------------------------
 
-def classify_skeletal_class(anb: float, wits: float | None = None, sn_pp: float | None = None) -> dict[str, any]:
+def classify_skeletal_class(
+    anb: float,
+    wits: float | None = None,
+    sn_pp: float | None = None,
+) -> dict[str, any]:
     """
-    Classify skeletal AP relationship using ANB as primary indicator,
-    refined by Hasund's rotation correction and bidirectional Wits.
+    Classify the skeletal AP relationship using ANB as the primary indicator,
+    refined by Hasund's rotation correction and bidirectional Wits appraisal.
 
-    Returns a dict with 'label' and 'confidence_type' (e.g. 'Definitive', 'Borderline').
+    Returns a dict with 'label', 'type', and 'corrected_anb'.
     """
-    # 1. Hasund's Correction (Adjusts for rotated maxillae)
-    # Norm SN-PP is approx 8.0 degrees. Correction = 0.5 * (SN-PP - 8)
+    # 1. Hasund's Correction — adjusts for rotated maxillae
+    # Norm SN-PP ≈ 8.0°. Correction = 0.5 × (SN-PP − 8)
     corrected_anb = anb
     if sn_pp is not None:
         correction = 0.5 * (sn_pp - settings.sn_pp_mean)
         corrected_anb = anb - correction
 
-    # 2. Base Classification
+    # 2. Base classification
     anb_min, anb_max = _get_norm("ANB", 0.0, 4.0)
-    
+
     if corrected_anb < anb_min:
         base_class = "ClassIII"
     elif corrected_anb <= anb_max:
@@ -53,24 +59,22 @@ def classify_skeletal_class(anb: float, wits: float | None = None, sn_pp: float 
     final_class = base_class
     if wits is not None:
         if base_class == "ClassI":
-            if wits > 1.5: final_class = "ClassII"
-            elif wits < -1.5: final_class = "ClassIII"
-        elif base_class == "ClassII" and wits < -1.5: final_class = "ClassI"
-        elif base_class == "ClassIII" and wits > 1.5: final_class = "ClassI"
+            if wits > 1.5:
+                final_class = "ClassII"
+            elif wits < -1.5:
+                final_class = "ClassIII"
+        elif base_class == "ClassII" and wits < -1.5:
+            final_class = "ClassI"
+        elif base_class == "ClassIII" and wits > 1.5:
+            final_class = "ClassI"
 
-    # 4. Probabilistic / Borderline Check
-    # If within 0.5 of any threshold, mark as borderline
-    is_borderline = False
-    thresholds = [anb_min, anb_max]
-    for t in thresholds:
-        if abs(corrected_anb - t) < 0.5:
-            is_borderline = True
-            break
+    # 4. Borderline check — within 0.5° of either threshold
+    is_borderline = any(abs(corrected_anb - t) < 0.5 for t in [anb_min, anb_max])
 
     return {
         "label": final_class,
         "type": "Borderline" if is_borderline else "Definitive",
-        "corrected_anb": round(corrected_anb, 2)
+        "corrected_anb": round(corrected_anb, 2),
     }
 
 
@@ -80,8 +84,8 @@ def classify_skeletal_class(anb: float, wits: float | None = None, sn_pp: float 
 
 def classify_vertical_pattern(fma: float, j_ratio: float | None = None) -> str:
     """
-    Classify vertical facial pattern using FMA as primary indicator,
-    refined by Jarabak Ratio when available.
+    Classify the vertical facial pattern using FMA as the primary indicator,
+    refined by the Jarabak Ratio when available.
     """
     fma_min, fma_max = _get_norm("FMA", 21.0, 29.0)
     if fma < fma_min:
@@ -101,7 +105,7 @@ def classify_vertical_pattern(fma: float, j_ratio: float | None = None) -> str:
 
 
 def _growth_tendency_text(j_ratio: float | None) -> str:
-    """Return a growth tendency clause derived from Jarabak Ratio, or ''."""
+    """Return a growth-tendency clause derived from the Jarabak Ratio, or ''."""
     if j_ratio is None:
         return ""
     if j_ratio > 65:
@@ -116,18 +120,23 @@ def _growth_tendency_text(j_ratio: float | None) -> str:
 # ---------------------------------------------------------------------------
 
 def classify_soft_tissue(
-    ls_eline: float | None, li_eline: float | None, h_angle: float | None = None
+    ls_eline: float | None,
+    li_eline: float | None,
+    h_angle: float | None = None,
 ) -> str:
     """
-    Classify soft tissue profile, prioritizing Holdaway H-angle over Ricketts E-line.
+    Classify the soft tissue profile, prioritising the Holdaway H-Angle over
+    Ricketts E-Line.
 
-    Norms: 
-    - H-Angle: 10° (mean). >13° Protrusive, <7° Retrusive.
-    - E-line: Upper -4mm ± 3, Lower -2mm ± 2.
+    Norms:
+    - H-Angle: 10° mean. >13° → Protrusive, <7° → Retrusive.
+    - E-Line: Upper −4 mm ± 3, Lower −2 mm ± 2.
     """
     if h_angle is not None:
-        if h_angle > 13: return "Protrusive"
-        if h_angle < 7: return "Retrusive"
+        if h_angle > 13:
+            return "Protrusive"
+        if h_angle < 7:
+            return "Retrusive"
         return "Normal"
 
     if ls_eline is None or li_eline is None:
@@ -146,32 +155,31 @@ def classify_soft_tissue(
 
 def classify_apdi(fh_ab: float | None, pp_fh: float | None) -> str | None:
     """
-    Kim's AP Dysplasia Index. Composite index for skeletal AP relationships.
-    Mean = 81.4. >85 Class III, <77 Class II.
+    Kim's AP Dysplasia Index.
+    APDI = (FH-AB) + (PP-FH). Mean = 81.4. >85 → Class III, <77 → Class II.
     """
     if fh_ab is None or pp_fh is None:
         return None
-    
-    # APDI = (FH-AB) + (Palatal Plane to FH)
     apdi = fh_ab + pp_fh
-    
-    if apdi > 85: return "ClassIII_Tendency"
-    if apdi < 77: return "ClassII_Tendency"
+    if apdi > 85:
+        return "ClassIII_Tendency"
+    if apdi < 77:
+        return "ClassII_Tendency"
     return "ClassI_Relationship"
 
 
 def classify_odi(ab_mp: float | None, pp_mp: float | None) -> str | None:
     """
-    Kim's Overbite Depth Indicator. Superior to FMA for vertical depth.
-    Mean = 74.5. <68 Open Bite, >80 Deep Bite.
+    Kim's Overbite Depth Indicator.
+    ODI = (AB-MP) + (PP-MP). Mean = 74.5. <68 → Open Bite, >80 → Deep Bite.
     """
     if ab_mp is None or pp_mp is None:
         return None
-    
     odi = ab_mp + pp_mp
-    
-    if odi < 68: return "OpenBite_Tendency"
-    if odi > 80: return "DeepBite_Tendency"
+    if odi < 68:
+        return "OpenBite_Tendency"
+    if odi > 80:
+        return "DeepBite_Tendency"
     return "Balanced_Vertical"
 
 
@@ -200,17 +208,24 @@ def classify_incisor(val: float, min_norm: float, max_norm: float) -> str:
 # ---------------------------------------------------------------------------
 
 def classify_overjet(overjet_mm: float | None) -> str | None:
-    if overjet_mm is None: return None
-    if overjet_mm < 0: return "Negative"
-    if overjet_mm == 0: return "EdgeToEdge"
-    if overjet_mm <= 3: return "Normal"
+    if overjet_mm is None:
+        return None
+    if overjet_mm < 0:
+        return "Negative"
+    if overjet_mm == 0:
+        return "EdgeToEdge"
+    if overjet_mm <= 3:
+        return "Normal"
     return "Increased"
 
 
 def classify_overbite(overbite_mm: float | None) -> str | None:
-    if overbite_mm is None: return None
-    if overbite_mm <= 0: return "OpenBite"
-    if overbite_mm <= 3: return "Normal"
+    if overbite_mm is None:
+        return None
+    if overbite_mm <= 0:
+        return "OpenBite"
+    if overbite_mm <= 3:
+        return "Normal"
     return "Deep"
 
 
@@ -219,11 +234,11 @@ def classify_overbite(overbite_mm: float | None) -> str | None:
 # ---------------------------------------------------------------------------
 
 def compute_confidence(measurements: dict[str, float]) -> float:
-    primary = ["SNA", "SNB", "FMA", "UI-NA_DEG", "LI-NB_DEG"]
+    primary   = ["SNA", "SNB", "FMA", "UI-NA_DEG", "LI-NB_DEG"]
     secondary = ["Wits", "JRatio", "Ls-Eline", "Li-Eline", "H-Angle", "APDI", "ODI"]
 
-    primary_score = sum(0.16 for m in primary if m in measurements)
-    secondary_bonus = sum(0.02 for m in secondary if m in measurements)
+    primary_score    = sum(0.16 for m in primary   if m in measurements)
+    secondary_bonus  = sum(0.02 for m in secondary if m in measurements)
 
     return round(min(1.0, 0.20 + primary_score + secondary_bonus), 3)
 
@@ -235,16 +250,18 @@ def compute_confidence(measurements: dict[str, float]) -> float:
 def _validate_measurements(measurements: dict[str, float]) -> list[str]:
     warnings: list[str] = []
     plausible_ranges: dict[str, tuple[float, float]] = {
-        "SNA":       (60.0, 100.0),
-        "SNB":       (58.0,  98.0),
-        "ANB":       (-10.0,  15.0),
-        "FMA":       (10.0,   50.0),
-        "Wits":      (-15.0,  15.0),
+        "SNA":  (60.0, 100.0),
+        "SNB":  (58.0,  98.0),
+        "ANB":  (-10.0, 15.0),
+        "FMA":  (10.0,  50.0),
+        "Wits": (-15.0, 15.0),
     }
     for key, (lo, hi) in plausible_ranges.items():
         val = measurements.get(key)
         if val is not None and not (lo <= val <= hi):
-            warnings.append(f"{key} = {val} is outside expected plausible range [{lo}, {hi}].")
+            warnings.append(
+                f"{key} = {val} is outside the expected plausible range [{lo}, {hi}]."
+            )
     return warnings
 
 
@@ -262,12 +279,10 @@ def generate_summary(
     apdi: str | None = None,
     odi: str | None = None,
 ) -> str:
-    """
-    Generate a high-fidelity clinical summary including advanced indices.
-    """
+    """Generate a high-fidelity clinical summary including advanced indices."""
     s_label = skeletal_result["label"]
-    s_type = skeletal_result["type"]
-    anb = skeletal_result["corrected_anb"]
+    s_type  = skeletal_result["type"]
+    anb     = skeletal_result["corrected_anb"]
 
     class_desc = {
         "ClassI":   "normal jaw relationship (Class I)",
@@ -276,15 +291,21 @@ def generate_summary(
     }
 
     borderline_text = " borderline " if s_type == "Borderline" else " "
-    apdi_text = f" (APDI suggests {apdi.replace('_', ' ').lower()})" if apdi and "ClassI" not in apdi else ""
-    odi_text = f" (ODI suggests {odi.replace('_', ' ').lower()})" if odi and "Balanced" not in odi else ""
+    apdi_text = (
+        f" (APDI suggests {apdi.replace('_', ' ').lower()})"
+        if apdi and "ClassI" not in apdi else ""
+    )
+    odi_text = (
+        f" (ODI suggests {odi.replace('_', ' ').lower()})"
+        if odi and "Balanced" not in odi else ""
+    )
 
     vertical_desc = {
         "LowAngle": (
             f"hypodivergent (low angle) vertical pattern{growth_tendency} "
             f"with deep bite tendency{odi_text}"
         ),
-        "Normal":   f"normal vertical facial proportion{odi_text}",
+        "Normal": f"normal vertical facial proportion{odi_text}",
         "HighAngle": (
             f"hyperdivergent (high angle) vertical pattern{growth_tendency} "
             f"with open bite tendency{odi_text}"
@@ -316,21 +337,29 @@ def generate_summary(
 # Main entry point
 # ---------------------------------------------------------------------------
 
-def classify_diagnosis(measurements: dict[str, float], sex: str | None = None, age: float | None = None) -> dict:
-    """
-    Full diagnosis classification using advanced evidence-based methods.
-    """
-    # --- Norm Adjustments for Age/Sex ---
+def classify_diagnosis(
+    measurements: dict[str, float],
+    sex: str | None = None,
+    age: float | None = None,
+) -> dict:
+    """Full diagnosis classification using advanced evidence-based methods."""
+
+    # ── Norm adjustments for age ──────────────────────────────────────────────
     sna_norm_min, sna_norm_max = _get_norm("SNA", 80.0, 84.0)
     if age and age < 12:
+        # Growing patients have a slightly more prognathic maxilla
         sna_norm_min += 1.0
         sna_norm_max += 2.0
-        
-    snb_norm_min, snb_norm_max = _get_norm("SNB", 78.0, 82.0)
-    ui_na_norm_min, ui_na_norm_max = _get_norm("UI to NA (deg)", settings.ui_na_min, settings.ui_na_max)
-    li_nb_norm_min, li_nb_norm_max = _get_norm("LI to NB (deg)", settings.li_nb_min, settings.li_nb_max)
 
-    # --- Extract values ---
+    snb_norm_min, snb_norm_max = _get_norm("SNB", 78.0, 82.0)
+    ui_na_norm_min, ui_na_norm_max = _get_norm(
+        "UI to NA (deg)", settings.ui_na_min, settings.ui_na_max
+    )
+    li_nb_norm_min, li_nb_norm_max = _get_norm(
+        "LI to NB (deg)", settings.li_nb_min, settings.li_nb_max
+    )
+
+    # ── Extract measurement values ────────────────────────────────────────────
     sna      = measurements.get("SNA", 82.0)
     snb      = measurements.get("SNB", 80.0)
     anb      = measurements.get("ANB", sna - snb)
@@ -350,31 +379,33 @@ def classify_diagnosis(measurements: dict[str, float], sex: str | None = None, a
     overjet  = measurements.get("OVERJET_MM")
     overbite = measurements.get("OVERBITE_MM")
 
-    # --- Sanity checks ---
+    # ── Input sanity checks ───────────────────────────────────────────────────
     warnings = _validate_measurements(measurements)
-    if "Po" not in measurements or "Or" not in measurements:
-        warnings.append("Frankfort plane landmarks missing; advanced Kim's indices withheld.")
+    # Kim's indices require Frankfort plane measurements, not landmarks
+    if fh_ab is None and pp_fh is None:
+        warnings.append(
+            "FH-AB and PP-FH measurements absent; Kim's APDI could not be calculated."
+        )
 
-    # --- Classification ---
-    skeletal_result      = classify_skeletal_class(anb, wits, sn_pp)
-    apdi_class           = classify_apdi(fh_ab, pp_fh)
-    odi_class            = classify_odi(ab_mp, pp_mp)
-    vertical_pattern     = classify_vertical_pattern(fma, j_ratio)
-    
-    maxillary_position   = classify_jaw_position(sna, sna_norm_min, sna_norm_max)
-    mandibular_position  = classify_jaw_position(snb, snb_norm_min, snb_norm_max)
-    upper_incisor        = classify_incisor(ui_na, ui_na_norm_min, ui_na_norm_max)
-    lower_incisor        = classify_incisor(li_nb, li_nb_norm_min, li_nb_norm_max)
-    soft_tissue_profile  = classify_soft_tissue(ls_eline, li_eline, h_angle)
-    overjet_class        = classify_overjet(overjet)
-    overbite_class       = classify_overbite(overbite)
+    # ── Classification ────────────────────────────────────────────────────────
+    skeletal_result     = classify_skeletal_class(anb, wits, sn_pp)
+    apdi_class          = classify_apdi(fh_ab, pp_fh)
+    odi_class           = classify_odi(ab_mp, pp_mp)
+    vertical_pattern    = classify_vertical_pattern(fma, j_ratio)
+    maxillary_position  = classify_jaw_position(sna, sna_norm_min, sna_norm_max)
+    mandibular_position = classify_jaw_position(snb, snb_norm_min, snb_norm_max)
+    upper_incisor       = classify_incisor(ui_na, ui_na_norm_min, ui_na_norm_max)
+    lower_incisor       = classify_incisor(li_nb, li_nb_norm_min, li_nb_norm_max)
+    soft_tissue_profile = classify_soft_tissue(ls_eline, li_eline, h_angle)
+    overjet_class       = classify_overjet(overjet)
+    overbite_class      = classify_overbite(overbite)
 
-    # --- Summary ---
+    # ── Clinical summary ──────────────────────────────────────────────────────
     summary = generate_summary(
         skeletal_result, vertical_pattern,
         upper_incisor, lower_incisor,
         _growth_tendency_text(j_ratio),
-        soft_tissue_profile, apdi_class, odi_class
+        soft_tissue_profile, apdi_class, odi_class,
     )
 
     return {
@@ -397,7 +428,7 @@ def classify_diagnosis(measurements: dict[str, float], sex: str | None = None, a
         "summary":                   summary,
         "warnings":                  warnings,
         "clinical_notes": [
-            "CBCT-aware: 2D norms applied. Consider 3D imaging for asymmetry.",
-            "Structural Placeholder: WALA ridge/Bolton discrepancy assessment pending."
-        ]
+            "CBCT-aware: 2D norms applied. Consider 3D imaging for asymmetry assessment.",
+            "Structural Placeholder: WALA ridge/Bolton discrepancy assessment pending.",
+        ],
     }
