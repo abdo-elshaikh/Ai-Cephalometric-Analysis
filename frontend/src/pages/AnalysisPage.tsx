@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, CheckCircle, BrainCircuit, Activity,
   Eye, EyeOff, ChevronRight, Loader2, AlertTriangle,
+  Ruler, ShieldCheck,
 } from 'lucide-react';
 import { TRACING_DEFINITIONS } from '../utils/tracingDefinitions';
 import type { TracingLine } from '../utils/tracingDefinitions';
@@ -381,10 +382,46 @@ export default function AnalysisPage() {
           </div>
 
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+
+            {/* Calibration status badge */}
+            {image && (
+              image.isCalibrated ? (
+                <div title={`Scale: ${image.pixelSpacingMm?.toFixed(4) ?? '?'} mm/px`} style={{
+                  display: 'flex', alignItems: 'center', gap: 5,
+                  padding: '0 9px', height: 29, borderRadius: 5,
+                  background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.25)',
+                  color: '#22c55e', fontSize: 10.5, fontWeight: 700, letterSpacing: '0.03em',
+                  fontFamily: '"DM Mono",monospace', cursor: 'default',
+                }}>
+                  <ShieldCheck size={11} />
+                  {image.pixelSpacingMm ? `${image.pixelSpacingMm.toFixed(3)} mm/px` : 'Calibrated'}
+                </div>
+              ) : (
+                <button
+                  onClick={() => navigate(`/studies/${image.studyId}/calibrate/${imageId}`)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 5,
+                    padding: '0 10px', height: 29, borderRadius: 5, cursor: 'pointer',
+                    background: 'rgba(251,191,36,0.10)', border: '1px solid rgba(251,191,36,0.35)',
+                    color: '#fbbf24', fontSize: 10.5, fontWeight: 700, letterSpacing: '0.03em',
+                    fontFamily: '"DM Mono",monospace',
+                  }}
+                  title="Auto-Detect is disabled until you calibrate"
+                >
+                  <Ruler size={11} /> Calibrate First
+                </button>
+              )
+            )}
+
             <button className={`ap-btn ap-ghost`} onClick={() => setShowTracings(v => !v)} style={showTracings ? { color: '#4c9eff', borderColor: 'rgba(76,158,255,0.28)' } : undefined}>
               {showTracings ? <Eye size={13} /> : <EyeOff size={13} />} Tracings
             </button>
-            <button className="ap-btn ap-detect" onClick={handleAiDetect} disabled={analyzing || !!(image && !image.isCalibrated)}>
+            <button
+              className="ap-btn ap-detect"
+              onClick={handleAiDetect}
+              disabled={analyzing || !!(image && !image.isCalibrated)}
+              title={image && !image.isCalibrated ? 'Calibrate the image first to enable landmark detection' : 'Run AI landmark detection'}
+            >
               {analyzing ? <Loader2 size={12} className="spin" /> : <BrainCircuit size={12} />} {analyzing ? 'Detecting…' : 'Auto-Detect'}
             </button>
             <button className="ap-btn ap-finalize" onClick={handleFinalize} disabled={saving || !landmarks.length}>
@@ -393,9 +430,36 @@ export default function AnalysisPage() {
           </div>
         </header>
 
+        {/* ── Calibration gate banner ────────────────────────────────────────── */}
         {image && !image.isCalibrated && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '6px 16px', background: 'rgba(251,191,36,0.07)', borderBottom: '1px solid rgba(251,191,36,0.16)', fontSize: 11, color: '#fbbf24' }}>
-            <AlertTriangle size={12} /> Image not calibrated — linear measurements will be in pixels.
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 10,
+            padding: '10px 16px',
+            background: 'rgba(251,191,36,0.06)',
+            borderBottom: '1px solid rgba(251,191,36,0.18)',
+          }}>
+            <AlertTriangle size={14} style={{ color: '#fbbf24', flexShrink: 0 }} />
+            <div style={{ flex: 1 }}>
+              <span style={{ fontSize: 11.5, fontWeight: 700, color: '#fbbf24' }}>
+                Calibration required before landmark detection.
+              </span>
+              <span style={{ fontSize: 11, color: 'rgba(251,191,36,0.60)', marginLeft: 6 }}>
+                Without calibration the AI cannot use real-world distances — linear measurements will be in pixels only.
+              </span>
+            </div>
+            <button
+              onClick={() => navigate(`/studies/${image.studyId}/calibrate/${imageId}`)}
+              style={{
+                flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6,
+                padding: '6px 14px', borderRadius: 7, cursor: 'pointer',
+                background: 'rgba(251,191,36,0.14)', border: '1px solid rgba(251,191,36,0.45)',
+                color: '#fbbf24', fontSize: 11.5, fontWeight: 700,
+                fontFamily: '"Instrument Sans",sans-serif',
+                transition: 'background 0.15s',
+              }}
+            >
+              <Ruler size={13} /> Calibrate Now →
+            </button>
           </div>
         )}
 

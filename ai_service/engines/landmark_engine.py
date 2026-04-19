@@ -60,11 +60,10 @@ def _clamp_to_image(pt: LandmarkPoint, orig_w: int, orig_h: int) -> LandmarkPoin
 
 # MONAI Preprocessing Pipeline (Professional Clinical Standard)
 monai_pre_trans = Compose([
-    # monai expects [C, H, W], we pass [H, W] from numpy
     EnsureChannelFirst(channel_dim='no_channel'),
     Resize((H, W)),
-    ScaleIntensity(),  # Scales to [0,1]
-    NormalizeIntensity(subtrahend=0.5, divisor=0.5),  # Standard zero-mean, unit-variance style
+    ScaleIntensity(),
+    NormalizeIntensity(subtrahend=0.5, divisor=0.5),
     EnsureType()
 ])
 
@@ -86,6 +85,25 @@ _NAME_MAP: Dict[str, str] = {
     "GN": "Gn", "GO": "Go", "ANS": "ANS"
 }
 
+# ── Adult cephalometric anatomical norms (mm) ─────────────────────────────────
+# Used only when pixel_spacing_mm is known.  Ranges are (min, max) for adults.
+# Sources: Steiner, McNamara, Broadbent reference data.
+_ANATOMICAL_RANGES_MM: Dict[str, tuple[float, float]] = {
+    # Distance: (landmark_a, landmark_b): (min_mm, max_mm)
+    # key = "LMa:LMb"  – sorted lexicographically for consistency
+    "N:S":     (63.0,  80.0),   # Cranial base length
+    "Go:S":    (65.0,  90.0),   # Posterior facial height component
+    "Go:Gn":   (55.0,  82.0),   # Mandibular body length
+    "ANS:PNS": (45.0,  58.0),   # Palatal plane length
+    "N:Me":    (105.0, 140.0),  # Total anterior facial height
+    "Or:Po":   (40.0,  70.0),   # Frankfort horizontal length
+}
+
+
+def _dist_mm(a: LandmarkPoint, b: LandmarkPoint, px_per_mm: float) -> float:
+    """Euclidean distance between two landmarks converted to mm."""
+    return math.hypot(a.x - b.x, a.y - b.y) / px_per_mm
+
 
 def load_model(model_path: str, device: str) -> None:
     """Load landmark detection model weights into memory at startup."""
@@ -93,7 +111,6 @@ def load_model(model_path: str, device: str) -> None:
     _device = device
     logger.info(f"Loading landmark model from {model_path} onto {device}...")
     try:
-        # Use the professional MONAI UNet architecture with residual units
         _model = MONAIUNet(n_classes=38).to(device)
         try:
             _model.load_state_dict(torch.load(model_path, map_location=device))
@@ -117,22 +134,35 @@ def load_model(model_path: str, device: str) -> None:
 class ScientificRefiner:
     """
     Applies cephalometric anatomical rules to refine raw AI predictions.
-    Adjusts confidence and derives missing landmarks from known relationships.
+
+    When pixel_spacing_mm is provided the refiner works in real millimetres,
+    enabling:
+      • anatomical distance validation against published adult norms,
+      • confidence boosts / penalties based on structural plausibility,
+      • more accurate geometric derivation of missing landmarks.
     """
 
     @staticmethod
     def refine(
-        landmarks: Dict[str, LandmarkPoint], orig_w: int, orig_h: int
+        landmarks: Dict[str, LandmarkPoint],
+        orig_w: int,
+        orig_h: int,
+        pixel_spacing_mm: Optional[float] = None,
     ) -> Dict[str, LandmarkPoint]:
-        # 1. Anatomical Sequence Sanity Check
-        # In a standard lateral ceph, Sella (S) is posterior (lower x) relative to Nasion (N).
+
+        has_scale = pixel_spacing_mm is not None and pixel_spacing_mm > 0
+        # pixels per mm (e.g. 4 px/mm when spacing = 0.25 mm/px)
+        px_per_mm: float = (1.0 / pixel_spacing_mm) if has_scale else 0.0
+
+        # ── 1. Anatomical Sequence Sanity Check ───────────────────────────────
+        # In a standard lateral ceph, Sella (S) is posterior (lower x) than Nasion (N).
         if "S" in landmarks and "N" in landmarks:
             if landmarks["S"].x > landmarks["N"].x:
                 logger.warning(
                     "Sella detected anterior to Nasion — potential orientation issue."
                 )
 
-        # 2. Frankfort Horizontal (Po–Or) plane stabilisation
+        # ── 2. Frankfort Horizontal (Po–Or) plane stabilisation ───────────────
         if "Po" in landmarks and "Or" in landmarks:
             dx = landmarks["Or"].x - landmarks["Po"].x
             dy = landmarks["Or"].y - landmarks["Po"].y
@@ -147,26 +177,122 @@ class ScientificRefiner:
                         if isinstance(lm, LandmarkPoint):
                             lm.confidence = round(lm.confidence * 0.9, 4)
 
-        # 3. Derive Menton (Me) from Gnathion & Gonion when low-confidence
+                if has_scale:
+                    fh_mm = _dist_mm(landmarks["Po"], landmarks["Or"], px_per_mm)
+                    lo, hi = _ANATOMICAL_RANGES_MM["Or:Po"]
+                    if not (lo <= fh_mm <= hi):
+                        logger.warning(
+                            f"FH plane length {fh_mm:.1f} mm is outside "
+                            f"normal range [{lo}–{hi} mm]. "
+                            "Reducing Po/Or confidence."
+                        )
+                        factor = 0.80
+                        landmarks["Po"].confidence = round(landmarks["Po"].confidence * factor, 4)
+                        landmarks["Or"].confidence = round(landmarks["Or"].confidence * factor, 4)
+
+        # ── 3. Cranial base (S–N) distance validation ─────────────────────────
+        if has_scale and "S" in landmarks and "N" in landmarks:
+            sn_mm = _dist_mm(landmarks["S"], landmarks["N"], px_per_mm)
+            lo, hi = _ANATOMICAL_RANGES_MM["N:S"]
+            if lo <= sn_mm <= hi:
+                for k in ("S", "N"):
+                    landmarks[k].confidence = min(
+                        1.0, round(landmarks[k].confidence * 1.05, 4)
+                    )
+                logger.debug(f"S–N distance {sn_mm:.1f} mm — within norm [{lo}–{hi}]. Confidence boosted.")
+            else:
+                factor = 0.82
+                for k in ("S", "N"):
+                    landmarks[k].confidence = round(landmarks[k].confidence * factor, 4)
+                logger.warning(
+                    f"S–N distance {sn_mm:.1f} mm outside norm [{lo}–{hi} mm]. "
+                    "Confidence penalised."
+                )
+
+        # ── 4. Anterior facial height (N–Me) validation ───────────────────────
+        if has_scale and "N" in landmarks and "Me" in landmarks:
+            afh_mm = _dist_mm(landmarks["N"], landmarks["Me"], px_per_mm)
+            lo, hi = _ANATOMICAL_RANGES_MM["N:Me"]
+            if not (lo <= afh_mm <= hi):
+                logger.warning(
+                    f"Anterior facial height {afh_mm:.1f} mm outside norm [{lo}–{hi} mm]."
+                )
+
+        # ── 5. Mandibular body (Go–Gn) validation ────────────────────────────
+        if has_scale and "Go" in landmarks and "Gn" in landmarks:
+            mand_mm = _dist_mm(landmarks["Go"], landmarks["Gn"], px_per_mm)
+            lo, hi = _ANATOMICAL_RANGES_MM["Go:Gn"]
+            if lo <= mand_mm <= hi:
+                for k in ("Go", "Gn"):
+                    landmarks[k].confidence = min(
+                        1.0, round(landmarks[k].confidence * 1.04, 4)
+                    )
+
+        # ── 6. Derive Menton (Me) from Gnathion & Gonion when low-confidence
         if "Gn" in landmarks and "Go" in landmarks:
-            mand_len = math.hypot(
+            mand_len_px = math.hypot(
                 landmarks["Go"].x - landmarks["Gn"].x,
                 landmarks["Go"].y - landmarks["Gn"].y,
             )
-            if "Me" not in landmarks or landmarks["Me"].confidence < 0.8:
-                landmarks["Me"] = LandmarkPoint(
-                    x=landmarks["Gn"].x - mand_len * 0.05,
-                    y=landmarks["Gn"].y + mand_len * 0.12,
-                    confidence=0.85,
-                )
+            me_missing = "Me" not in landmarks or landmarks["Me"].confidence < 0.8
 
-        # 4. Derive PNS from ANS when low-confidence
+            if me_missing:
+                if has_scale:
+                    # Derive Me using anatomical offset: ~6 mm inferior to Gn
+                    # along the symphysis direction
+                    offset_px = 6.0 * px_per_mm
+                    # Estimate inferior direction from Gn relative to Go
+                    dx = landmarks["Gn"].x - landmarks["Go"].x
+                    dy = landmarks["Gn"].y - landmarks["Go"].y
+                    length = math.hypot(dx, dy) or 1.0
+                    # Me is slightly inferior and slightly posterior to Gn
+                    ux, uy = dx / length, dy / length
+                    landmarks["Me"] = LandmarkPoint(
+                        x=landmarks["Gn"].x + ux * offset_px * 0.3,
+                        y=landmarks["Gn"].y + uy * offset_px,
+                        confidence=0.87,
+                    )
+                else:
+                    # Fallback: fractional pixel offset
+                    landmarks["Me"] = LandmarkPoint(
+                        x=landmarks["Gn"].x - mand_len_px * 0.05,
+                        y=landmarks["Gn"].y + mand_len_px * 0.12,
+                        confidence=0.82,
+                    )
+
+        # ── 7. Derive PNS from ANS ────────────────────────────────────────────
         if "ANS" in landmarks:
-            if "PNS" not in landmarks or landmarks["PNS"].confidence < 0.8:
-                landmarks["PNS"] = LandmarkPoint(
-                    x=landmarks["ANS"].x - orig_w * 0.12,
-                    y=landmarks["ANS"].y + orig_h * 0.015,
-                    confidence=0.80,
+            pns_missing = "PNS" not in landmarks or landmarks["PNS"].confidence < 0.8
+            if pns_missing:
+                if has_scale:
+                    # PNS is ~50 mm posterior to ANS along the palatal plane
+                    # with a very small inferior component (~2 mm)
+                    palate_px = 50.0 * px_per_mm
+                    # Posterior direction = negative X in lateral ceph
+                    landmarks["PNS"] = LandmarkPoint(
+                        x=landmarks["ANS"].x - palate_px,
+                        y=landmarks["ANS"].y + 2.0 * px_per_mm,
+                        confidence=0.83,
+                    )
+                else:
+                    landmarks["PNS"] = LandmarkPoint(
+                        x=landmarks["ANS"].x - orig_w * 0.12,
+                        y=landmarks["ANS"].y + orig_h * 0.015,
+                        confidence=0.80,
+                    )
+
+        # ── 8. Palatal plane (ANS–PNS) length validation ──────────────────────
+        if has_scale and "ANS" in landmarks and "PNS" in landmarks:
+            pal_mm = _dist_mm(landmarks["ANS"], landmarks["PNS"], px_per_mm)
+            lo, hi = _ANATOMICAL_RANGES_MM["ANS:PNS"]
+            if lo <= pal_mm <= hi:
+                for k in ("ANS", "PNS"):
+                    landmarks[k].confidence = min(
+                        1.0, round(landmarks[k].confidence * 1.03, 4)
+                    )
+            else:
+                logger.warning(
+                    f"Palatal plane length {pal_mm:.1f} mm outside norm [{lo}–{hi} mm]."
                 )
 
         return landmarks
@@ -226,14 +352,38 @@ def _incisor_aliases(landmarks: Dict[str, LandmarkPoint]) -> None:
         landmarks["L1"] = landmarks["LI"]
 
 
-def infer(image_bytes: bytes) -> Dict[str, LandmarkPoint]:
+def infer(
+    image_bytes: bytes,
+    pixel_spacing_mm: Optional[float] = None,
+) -> Dict[str, LandmarkPoint]:
     """
     Run landmark detection on a raw image.
 
-    Always returns a landmark dict — falls back to anatomically-positioned
-    placeholders when the model is unavailable or inference fails.
+    Parameters
+    ----------
+    image_bytes : bytes
+        Raw image data (JPEG / PNG / DICOM-derived PNG).
+    pixel_spacing_mm : float | None
+        Calibrated mm-per-pixel scale.  When provided, the ScientificRefiner
+        uses real-world millimetre distances to validate and improve landmark
+        positions.  When None (uncalibrated image), pixel-fraction heuristics
+        are used as a fallback.
+
+    Returns
+    -------
+    Dict[str, LandmarkPoint]
+        Always returns a landmark dict — falls back to anatomically-positioned
+        placeholders when the model is unavailable or inference fails.
     """
     global _model, _device
+
+    if pixel_spacing_mm is not None and pixel_spacing_mm > 0:
+        logger.info(
+            f"Landmark detection with calibration: {pixel_spacing_mm:.4f} mm/px "
+            f"({1.0/pixel_spacing_mm:.2f} px/mm)"
+        )
+    else:
+        logger.info("Landmark detection without calibration (pixel-fraction heuristics).")
 
     # Start with fallback placeholders so the UI always has required landmarks.
     landmarks = get_fallback_landmarks(image_bytes)
@@ -271,8 +421,10 @@ def infer(image_bytes: bytes) -> Dict[str, LandmarkPoint]:
 
         _incisor_aliases(landmarks)
 
-        # Apply scientific refinement pass
-        landmarks = ScientificRefiner.refine(landmarks, orig_W, orig_H)
+        # Apply scientific refinement pass — passes calibration for mm-based logic
+        landmarks = ScientificRefiner.refine(
+            landmarks, orig_W, orig_H, pixel_spacing_mm=pixel_spacing_mm
+        )
 
         return landmarks
 
