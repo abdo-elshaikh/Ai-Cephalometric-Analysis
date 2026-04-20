@@ -120,7 +120,7 @@ app.include_router(diagnosis.router,   prefix="/ai", tags=["Diagnosis"])
 app.include_router(treatment.router,   prefix="/ai", tags=["Treatment Planning"])
 app.include_router(overlay.router,     prefix="/ai", tags=["Overlay"])
 
-
+# Health check
 @app.get("/health", tags=["Health"])
 async def health_check() -> dict:
     """Detailed telemetry endpoint for dashboard visualisation."""

@@ -77,6 +77,7 @@ public class SkiaImageOverlayService : IImageOverlayService
             // Back → front draw order
             DrawExtendedSkeletalPlanes(canvas, lm, bitmap.Width, bitmap.Height);
             DrawAnatomicalOutlines(canvas, lm);
+            DrawPharyngealAirway(canvas, lm, session);
             DrawAnatomicalProfileSpline(canvas, lm);
             DrawSoftTissueLines(canvas, lm);
             DrawDentalAxes(canvas, lm);
@@ -202,20 +203,31 @@ public class SkiaImageOverlayService : IImageOverlayService
 
         void DrawChain(params string[] codes)
         {
+            var points = codes
+                .Where(lm.ContainsKey)
+                .Select(c => new SKPoint((float)(lm[c].XMm * (decimal)_imgW), (float)(lm[c].YMm * (decimal)_imgH)))
+                .ToList();
+            if (points.Count < 2) return;
             using var path = new SKPath();
-            bool started = false;
-            foreach (var code in codes)
-            {
-                if (!lm.TryGetValue(code, out var p)) continue;
-                if (!started) { path.MoveTo((float)((p.XMm * (decimal)_imgW)), (float)((p.YMm * (decimal)_imgH))); started = true; }
-                else path.LineTo((float)((p.XMm * (decimal)_imgW)), (float)((p.YMm * (decimal)_imgH)));
-            }
-            if (started) canvas.DrawPath(path, paint);
+            path.MoveTo(points[0]);
+            for(int i=1; i<points.Count; i++) path.LineTo(points[i]);
+            canvas.DrawPath(path, paint);
         }
 
-        DrawChain("Ar", "Go", "Me", "Gn", "Pog", "B");  // Mandible
+        void DrawSpline(params string[] codes)
+        {
+            var points = codes
+                .Where(lm.ContainsKey)
+                .Select(c => new SKPoint((float)(lm[c].XMm * (decimal)_imgW), (float)(lm[c].YMm * (decimal)_imgH)))
+                .ToList();
+            if (points.Count < 3) { DrawChain(codes); return; }
+            using var path = BuildCatmullRom(points, tension: 0.3f);
+            canvas.DrawPath(path, paint);
+        }
+
+        DrawSpline("Ar", "Go", "Me", "Gn", "Pog", "B");  // Mandible
+        DrawSpline("Ba", "S", "N");                      // Cranial Base
         DrawChain("PNS", "ANS", "A");                    // Maxilla
-        DrawChain("S", "Ar", "Ba");                      // Post. Cranial Base
         if (lm.TryGetValue("Co", out var co) && lm.TryGetValue("Go", out var g))
         {
             using var rPath = new SKPath();
@@ -265,6 +277,26 @@ public class SkiaImageOverlayService : IImageOverlayService
             StrokeJoin = SKStrokeJoin.Round,
         };
         canvas.DrawPath(path, paint);
+    }
+
+    private void DrawPharyngealAirway(SKCanvas canvas, Dictionary<string, Landmark> lm, AnalysisSession session)
+    {
+        if (!lm.TryGetValue("PNS", out var pns) || !lm.TryGetValue("Ba", out var ba)) return;
+        float px1 = (float)(pns.XMm * (decimal)_imgW);
+        float py1 = (float)(pns.YMm * (decimal)_imgH);
+        if (lm.TryGetValue("36", out var wall))
+        {
+            float px2 = (float)(wall.XMm * (decimal)_imgW);
+            float py2 = (float)(wall.YMm * (decimal)_imgH);
+            using var p = new SKPaint { IsAntialias = true, Color = ColAdvanced.WithAlpha(160), StrokeWidth = 2.0f, Style = SKPaintStyle.Stroke };
+            canvas.DrawLine(px1, py1, px2, py2, p);
+            float dPx = MathF.Sqrt(MathF.Pow(px2 - px1, 2) + MathF.Pow(py2 - py1, 2));
+            decimal ps = session.XRayImage?.PixelSpacingMm ?? 0.3m;
+            if (ps > 0) {
+                float dMm = dPx * (float)ps;
+                DrawShadowedLabel(canvas, (px1 + px2) / 2 + 10, (py1 + py2) / 2, $"{dMm:F1}mm", ColAdvanced, _fs11);
+            }
+        }
     }
 
     /// <summary>Catmull-Rom spline through <paramref name="pts"/>.</summary>
@@ -453,7 +485,10 @@ public class SkiaImageOverlayService : IImageOverlayService
         path.CubicTo(rx, ry,
                      tx + ux * (cl + (len - cl) / 2) - px * rw, ty + uy * (cl + (len - cl) / 2) - py * rw,
                      tx + ux * cl, ty + uy * cl);
-
+        
+        // Fill for clinical premium look
+        using var fillPaint = new SKPaint { IsAntialias = true, Color = paint.Color.WithAlpha(30), Style = SKPaintStyle.Fill };
+        canvas.DrawPath(path, fillPaint);
         canvas.DrawPath(path, paint);
     }
 
@@ -529,7 +564,7 @@ public class SkiaImageOverlayService : IImageOverlayService
                 float midAng = startAngle + sweep / 2f;
                 float lx = (float)((vc.XMm * (decimal)_imgW)) + radius * 1.5f * MathF.Cos(midAng * MathF.PI / 180f);
                 float ly = (float)((vc.YMm * (decimal)_imgH)) + radius * 1.5f * MathF.Sin(midAng * MathF.PI / 180f);
-                DrawShadowedLabel(canvas, lx, ly, $"{m.Value:F2}°", ColorForStatus(m.Status, col), _fs11);
+                DrawShadowedLabel(canvas, lx, ly, $"{m.Value:F1}°", ColorForStatus(m.Status, col), _fs11);
             }
         }
 
@@ -697,7 +732,7 @@ public class SkiaImageOverlayService : IImageOverlayService
         // ── IMPA bottom ───────────────────────────────────────────────────────
         if (byCode.TryGetValue("IMPA", out var impa) && lm.TryGetValue("Me", out var me))
         {
-            string txt = $"{impa.Value:F2} °";
+            string txt = $"{impa.Value:F1} °";
             DrawPillLabel(canvas, (float)((me.XMm * (decimal)_imgW)) + 20f, (float)((me.YMm * (decimal)_imgH)) + 30f, txt,
                 ColorForStatus(impa.Status), _fs11);
         }
@@ -728,7 +763,7 @@ public class SkiaImageOverlayService : IImageOverlayService
                 MeasurementStatus.Decreased => " ▼",
                 _ => "",
             };
-            string label = $"{shortLabel}: {meas.Value:F2}{unit}{statusMark}";
+            string label = $"{shortLabel}: {meas.Value:F1}{unit}{statusMark}";
 
             // Leader line to anchor landmark
             if (lm.TryGetValue(anchor, out var pt))
@@ -770,7 +805,7 @@ public class SkiaImageOverlayService : IImageOverlayService
             float lx = (float)((pt.XMm * (decimal)_imgW)) + ox;
             float ly = (float)((pt.YMm * (decimal)_imgH)) + oy;
             SKColor col = ColorForStatus(meas.Status, ColAdvanced);
-            DrawShadowedLabel(canvas, lx, ly, $"{meas.Value:F2}", col, _fs11);
+            DrawShadowedLabel(canvas, lx, ly, $"{meas.Value:F1}", col, _fs11);
         }
     }
 

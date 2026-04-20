@@ -20,3 +20,11 @@ public record CreateStudyRequest(
     string? ClinicalNotes = null,
     DateOnly? StudyDate = null
 );
+
+public record UpdateStudyRequest(
+    string? Title,
+    string? ClinicalNotes,
+    DateOnly StudyDate,
+    string StudyType,
+    string? Status = null
+);

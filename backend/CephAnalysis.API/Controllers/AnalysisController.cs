@@ -47,6 +47,14 @@ public class AnalysisController : ControllerBase
             : StatusCode(result.StatusCode, new { error = result.Error });
     }
 
+    /// <summary>Batch update landmark positions for a session</summary>
+    [HttpPut("sessions/{sessionId:guid}/landmarks")]
+    public async Task<IActionResult> UpdateSessionLandmarks(Guid sessionId, [FromBody] List<LandmarkUpdateDto> landmarks, CancellationToken ct)
+    {
+        var result = await _mediator.Send(new UpdateSessionLandmarksCommand(sessionId, CurrentUserId, landmarks), ct);
+        return result.IsSuccess ? Ok(result.Data) : StatusCode(result.StatusCode, new { error = result.Error });
+    }
+
     /// <summary>Get all landmarks for a session</summary>
     [HttpGet("sessions/{sessionId:guid}/landmarks")]
     public async Task<IActionResult> GetSessionLandmarks(Guid sessionId, CancellationToken ct)
@@ -194,8 +202,15 @@ public class AnalysisController : ControllerBase
             : StatusCode(result.StatusCode, new { error = result.Error });
     }
 
-    /// <summary>
-    /// Get the stored overlay image URLs for a session.
+    /// <summary>Get dynamic clinical norms from the AI service</summary>
+    [HttpGet("norms")]
+    public async Task<IActionResult> GetAnalysisNorms(CancellationToken ct)
+    {
+        var result = await _mediator.Send(new GetAnalysisNormsQuery(), ct);
+        return result.IsSuccess ? Ok(result.Data) : StatusCode(result.StatusCode, new { error = result.Error });
+    }
+
+    /// <summary>Get the stored overlay image URLs for a session.</summary>
     /// Returns an empty array if overlays have not been generated yet.
     /// </summary>
     [HttpGet("sessions/{sessionId:guid}/overlays")]

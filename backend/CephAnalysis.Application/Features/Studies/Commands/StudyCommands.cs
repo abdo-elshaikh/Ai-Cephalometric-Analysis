@@ -1,3 +1,4 @@
+using CephAnalysis.Application.Features.Studies;
 using CephAnalysis.Application.Features.Studies.DTOs;
 using CephAnalysis.Application.Interfaces;
 using CephAnalysis.Domain.Entities;
@@ -66,34 +67,82 @@ public class GetPatientStudiesHandler(IApplicationDbContext db) : IRequestHandle
         if (patient.DoctorId.ToString() != query.DoctorId)
             return Result<List<StudyDto>>.Unauthorized("You do not have access to this patient.");
 
-        var studies = await _db.Studies
-            .AsNoTracking()
-            .Where(s => s.PatientId == query.PatientId)
-            .OrderByDescending(s => s.CreatedAt)
-            .Select(s => new StudyDto(
-                s.Id,
-                s.PatientId,
-                s.StudyType.ToString(),
-                s.Status.ToString(),
-                s.Title,
-                s.ClinicalNotes,
-                s.StudyDate,
-                s.CreatedAt,
-                s.XRayImages
-                    .SelectMany(i => i.AnalysisSessions)
-                    .OrderByDescending(asess => asess.CompletedAt)
-                    .Select(asess => asess.Status.ToString())
-                    .FirstOrDefault(),
-                s.XRayImages
-                    .SelectMany(i => i.AnalysisSessions)
-                    .Where(asess => asess.Diagnosis != null)
-                    .OrderByDescending(asess => asess.CompletedAt)
-                    .Select(asess => asess.Diagnosis!.SkeletalClass.ToString())
-                    .FirstOrDefault()
-            ))
+        var studies = await StudyQueryHelper.ProjectToDto(
+                _db.Studies
+                    .AsNoTracking()
+                    .Where(s => s.PatientId == query.PatientId)
+                    .OrderByDescending(s => s.CreatedAt))
             .ToListAsync(ct);
 
         return Result<List<StudyDto>>.Success(studies);
+    }
+}
+
+// ── Get Study By Id ──────────────────────────────────────────────────────────
+
+public record GetStudyQuery(Guid StudyId, string DoctorId) : IRequest<Result<StudyDto>>;
+
+public class GetStudyHandler(IApplicationDbContext db) : IRequestHandler<GetStudyQuery, Result<StudyDto>>
+{
+    private readonly IApplicationDbContext _db = db;
+
+    public async Task<Result<StudyDto>> Handle(GetStudyQuery query, CancellationToken ct)
+    {
+        var dto = await StudyQueryHelper.ProjectToDto(
+                _db.Studies
+                    .AsNoTracking()
+                    .Where(s => s.Id == query.StudyId && s.DoctorId.ToString() == query.DoctorId))
+            .FirstOrDefaultAsync(ct);
+
+        if (dto is not null)
+            return Result<StudyDto>.Success(dto);
+
+        var exists = await _db.Studies.AsNoTracking().AnyAsync(s => s.Id == query.StudyId, ct);
+        return exists
+            ? Result<StudyDto>.Unauthorized("You do not have access to this study.")
+            : Result<StudyDto>.NotFound("Study not found.");
+    }
+}
+
+// ── Update Study ─────────────────────────────────────────────────────────────
+
+public record UpdateStudyCommand(Guid StudyId, UpdateStudyRequest Request, string DoctorId) : IRequest<Result<StudyDto>>;
+
+public class UpdateStudyHandler(IApplicationDbContext db) : IRequestHandler<UpdateStudyCommand, Result<StudyDto>>
+{
+    private readonly IApplicationDbContext _db = db;
+
+    public async Task<Result<StudyDto>> Handle(UpdateStudyCommand cmd, CancellationToken ct)
+    {
+        var study = await _db.Studies.FirstOrDefaultAsync(s => s.Id == cmd.StudyId, ct);
+        if (study is null) return Result<StudyDto>.NotFound("Study not found.");
+        if (study.DoctorId.ToString() != cmd.DoctorId)
+            return Result<StudyDto>.Unauthorized("You do not have access to this study.");
+
+        var req = cmd.Request;
+        if (!Enum.TryParse<StudyType>(req.StudyType, out var type))
+            return Result<StudyDto>.Failure("Invalid study type.", 400);
+
+        study.StudyType = type;
+        study.Title = req.Title;
+        study.ClinicalNotes = req.ClinicalNotes;
+        study.StudyDate = req.StudyDate;
+        study.UpdatedAt = DateTime.UtcNow;
+
+        if (!string.IsNullOrWhiteSpace(req.Status))
+        {
+            if (!Enum.TryParse<StudyStatus>(req.Status, out var st))
+                return Result<StudyDto>.Failure("Invalid study status.", 400);
+            study.Status = st;
+        }
+
+        await _db.SaveChangesAsync(ct);
+
+        var dto = await StudyQueryHelper.ProjectToDto(
+                _db.Studies.AsNoTracking().Where(s => s.Id == study.Id))
+            .FirstAsync(ct);
+
+        return Result<StudyDto>.Success(dto);
     }
 }
 

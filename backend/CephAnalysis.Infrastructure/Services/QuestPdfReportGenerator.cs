@@ -42,26 +42,29 @@ public class QuestPdfReportGenerator(
     // Primary palette — deep navy clinical theme
     private static class Colors2
     {
-        public const string NavyDeep = "#0D1F3C";   // primary brand
-        public const string NavyMid = "#1A3660";   // secondary brand
-        public const string NavyLight = "#E8EDF5";   // tinted backgrounds
-        public const string NavyFaint = "#F3F6FA";   // alternate row / card bg
+        public const string NavyDeep = "#0A1A2F";   // ultra-dark clinical navy
+        public const string NavyMid = "#162B45";    // deep mid-tone
+        public const string NavyLight = "#F0F4F9";  // light tinted background
+        public const string NavyFaint = "#F8FAFC";  // ultra-light surface
 
-        public const string SlateText = "#2C3A4A";   // body text
-        public const string SlateLight = "#6B7A8D";   // secondary text
-        public const string SlateFaint = "#B0BAC7";   // tertiary / disabled
+        public const string SlateText = "#1E293B";  // dark slate body
+        public const string SlateLight = "#64748B"; // slate secondary
+        public const string SlateFaint = "#94A3B8"; // muted slate
 
-        public const string AccentTeal = "#007A87";   // informational callouts
-        public const string AccentGreen = "#1D7A4F";   // normal / good
-        public const string AccentAmber = "#B45309";   // borderline warning
-        public const string AccentRed = "#C0282F";   // abnormal / critical
-        public const string AccentGold = "#8B6914";   // primary tag
+        public const string BrandPrimary = "#6366F1"; // vibrant indigo accent
+        public const string BrandSecondary = "#A855F7"; // purple accent
 
-        public const string BorderLight = "#D4DCE8";   // table/card borders
-        public const string BorderStrong = "#A0AABB";   // dividers
+        public const string AccentTeal = "#0D9488";   // information
+        public const string AccentGreen = "#10B981";  // normal
+        public const string AccentAmber = "#F59E0B";  // warning
+        public const string AccentRed = "#EF4444";    // critical
+        public const string AccentGold = "#D97706";   // highlighted items
+
+        public const string BorderLight = "#E2E8F0";  // subtle borders
+        public const string BorderStrong = "#CBD5E1"; // pronounced dividers
 
         public const string White = "#FFFFFF";
-        public const string PageBg = "#F9FAFB";
+        public const string PageBg = "#F8FAFC";
     }
 
     // ── Category evidence references ─────────────────────────────────────
@@ -96,6 +99,14 @@ public class QuestPdfReportGenerator(
         ["APDI"] = (81.4f, 4.1f),
         ["ODI"] = (74.5f, 6.1f),
         ["H-Angle"] = (10.0f, 3.5f),
+        ["UPPER_AIRWAY"] = (13.0f, 4.0f),
+        ["A-NPerp"] = (0.0f, 2.0f),
+        ["Pog-NPerp"] = (-4.0f, 3.5f),
+        ["SaddleAngle"] = (123.0f, 5.0f),
+        ["ArticularAngle"] = (143.0f, 6.0f),
+        ["BJORK_SUM"] = (396.0f, 4.0f),
+        ["UpperGonial"] = (54.0f, 2.5f),
+        ["LowerGonial"] = (73.0f, 3.0f),
     };
 
     // ── Section counter for numbered badges ───────────────────────────────
@@ -190,43 +201,45 @@ public class QuestPdfReportGenerator(
     {
         container.Column(col =>
         {
-            // ── Top branding bar ─────────────────────────────────────────
+            // ── Dynamic Branding Strip ───────────────────────────────────
             col.Item()
                .Background(Colors2.NavyDeep)
-               .PaddingHorizontal(22).PaddingVertical(12)
+               .PaddingHorizontal(24).PaddingVertical(16)
                .Row(row =>
                {
-                   // Left: wordmark
+                   // Wordmark + Analysis Focus
                    row.RelativeItem().Column(inner =>
                    {
                        inner.Item().Text("CephAI")
-                            .FontSize(18).Bold()
+                            .FontSize(20).Bold()
                             .FontFamily("Trebuchet MS")
                             .FontColor(Colors2.White);
 
-                       inner.Item().Text("Advanced Cephalometric Imaging Platform")
-                            .FontSize(8)
-                            .FontColor(Colors2.SlateFaint);
+                       inner.Item().PaddingTop(2)
+                            .Text($"{session.AnalysisType} Precision Analysis")
+                            .FontSize(8).SemiBold()
+                            .FontColor(Colors2.BrandPrimary)
+                            .LetterSpacing(0.04f);
                    });
 
-                   // Centre: report title
+                   // Clinical Badge
                    row.RelativeItem(2).AlignCenter().Column(inner =>
                    {
                        inner.Item().AlignCenter()
-                            .Text("CEPHALOMETRIC ANALYSIS REPORT")
+                            .Text("CLINICAL DIAGNOSTIC REPORT")
                             .FontSize(11).Bold()
                             .FontFamily("Trebuchet MS")
-                            .LetterSpacing(0.06f)
+                            .LetterSpacing(0.1f)
                             .FontColor(Colors2.White);
 
                        if (isDraft)
                        {
-                           inner.Item().AlignCenter().PaddingTop(3)
-                                .Background(Colors2.AccentAmber)
-                                .Padding(2)
-                                .Text("⚠  DRAFT — NOT FOR CLINICAL USE")
-                                .FontSize(7.5f).Bold()
-                                .FontColor(Colors2.White);
+                           inner.Item().AlignCenter().PaddingTop(5)
+                                .Border(0.5f).BorderColor(Colors2.AccentAmber)
+                                .PaddingHorizontal(6).PaddingVertical(2)
+                                .Text("DRAFT — PRELIMINARY DATA")
+                                .FontSize(7).Bold()
+                                .FontColor(Colors2.AccentAmber);
                        }
                    });
 
@@ -234,12 +247,12 @@ public class QuestPdfReportGenerator(
                    row.RelativeItem().AlignRight().Column(inner =>
                    {
                        inner.Item().AlignRight()
-                            .Text($"Session  {session.Id.ToString().ToUpper()[..8]}")
+                             .Text($"Ref: {session.Id.ToString().ToUpper()[..8]}")
                             .FontSize(8.5f).Bold().FontColor(Colors2.SlateFaint);
 
                        inner.Item().AlignRight().PaddingTop(2)
-                            .Text(DateTime.Now.ToString("dd MMM yyyy   HH:mm"))
-                            .FontSize(8).FontColor(Colors2.SlateFaint);
+                            .Text(DateTime.UtcNow.ToString("dd MMM yyyy • HH:mm UTC"))
+                            .FontSize(7.5f).FontColor(Colors2.SlateFaint);
 
                        // Confidence badge
                        var score = session.Diagnosis?.ConfidenceScore ?? 0m;
@@ -256,8 +269,22 @@ public class QuestPdfReportGenerator(
                    });
                });
 
-            // ── Thin accent line ──────────────────────────────────────────
-            col.Item().Height(3).Background(Colors2.AccentTeal);
+            // ── Patient Quick-Strip ──────────────────────────────────────
+            col.Item()
+               .Background(Colors2.NavyMid)
+               .PaddingHorizontal(24).PaddingVertical(6)
+               .Row(row =>
+               {
+                   void Meta(string label, string val) => row.AutoItem().PaddingRight(20).Row(r =>
+                   {
+                       r.AutoItem().Text(label + ": ").FontSize(7).FontColor(Colors2.SlateFaint);
+                       r.AutoItem().Text(val).FontSize(7.5f).Bold().FontColor(Colors2.White);
+                   });
+
+                   Meta("PATIENT", $"{session.XRayImage?.Study?.Patient?.FirstName} {session.XRayImage?.Study?.Patient?.LastName}");
+                   Meta("ID", session.XRayImage?.Study?.Patient?.MedicalRecordNo ?? "—");
+                   Meta("SYSTEM", session.ModelVersion ?? "v2.4-Hybrid");
+               });
         });
     }
 
@@ -315,10 +342,9 @@ public class QuestPdfReportGenerator(
                 ComposeSection(col, "Bolton Tooth-Size Analysis",
                     c => ComposeBolton(c, session.Diagnosis.BoltonResult));
 
-            // 6. Measurements
             if (request.IncludesMeasurements && (session.Measurements?.Count ?? 0) > 0)
-                ComposeSection(col, "Cephalometric Measurements",
-                    c => ComposeMeasurements(c, session.Measurements!));
+                ComposeSection(col, $"{session.AnalysisType} Quantitative Analysis",
+                    c => ComposeMeasurements(c, session.Measurements!, session.AnalysisType));
 
             // 7. Treatment plans
             if (request.IncludesTreatmentPlan && (session.Diagnosis?.TreatmentPlans?.Count ?? 0) > 0)
@@ -386,34 +412,37 @@ public class QuestPdfReportGenerator(
 
         c.Background(Colors2.White)
          .Border(0.5f).BorderColor(Colors2.BorderLight)
-         .Padding(12)
+         .Padding(16)
          .Table(table =>
          {
              table.ColumnsDefinition(tc =>
              {
-                 tc.ConstantColumn(80); tc.RelativeColumn();
-                 tc.ConstantColumn(80); tc.RelativeColumn();
+                 tc.RelativeColumn(); tc.RelativeColumn();
+                 tc.RelativeColumn(); tc.RelativeColumn();
              });
 
              void Row(string label, string value, string label2, string value2)
              {
-                 table.Cell().PaddingVertical(4).Text(label)
-                      .Bold().FontSize(8).FontColor(Colors2.SlateLight);
-                 table.Cell().PaddingVertical(4).Text(value)
-                      .FontSize(8.5f).FontColor(Colors2.SlateText);
-                 table.Cell().PaddingVertical(4).Text(label2)
-                      .Bold().FontSize(8).FontColor(Colors2.SlateLight);
-                 table.Cell().PaddingVertical(4).Text(value2)
-                      .FontSize(8.5f).FontColor(Colors2.SlateText);
+                 table.Cell().PaddingVertical(4).Column(col =>
+                 {
+                     col.Item().Text(label).FontSize(6.5f).Bold().FontColor(Colors2.SlateFaint).LetterSpacing(0.02f);
+                     col.Item().Text(value).FontSize(8.5f).FontColor(Colors2.SlateText);
+                 });
+                 table.Cell().PaddingVertical(4).Column(col =>
+                 {
+                     col.Item().Text(label2).FontSize(6.5f).Bold().FontColor(Colors2.SlateFaint).LetterSpacing(0.02f);
+                     col.Item().Text(value2).FontSize(8.5f).FontColor(Colors2.SlateText);
+                 });
              }
 
-             Row("Full Name", $"{patient.FirstName} {patient.LastName}",
-                 "Patient ID", patient.MedicalRecordNo ?? patient.Id.ToString()[..8]);
-             Row("Date of Birth", patient.DateOfBirth.ToString("dd MMM yyyy"),
-                 "Gender", patient.Gender == GenderType.Other ? "—" : patient.Gender.ToString());
+             Row("FULL NAME", $"{patient.FirstName} {patient.LastName}",
+                 "PATIENT MRN", patient.MedicalRecordNo ?? "PTN-AUTO");
+
+             Row("DATE OF BIRTH", patient.DateOfBirth.ToString("dd MMM yyyy"),
+                 "GENDER / SEX", patient.Gender.ToString().ToUpper());
 
              if (!string.IsNullOrEmpty(patient.ContactNumber))
-                 Row("Contact", patient.ContactNumber, "", "");
+                 Row("CONTACT CHANNEL", patient.ContactNumber, "REGISTERED AT", patient.CreatedAt.ToString("dd MMM yyyy"));
          });
     }
 
@@ -434,7 +463,7 @@ public class QuestPdfReportGenerator(
                              .Border(0.5f).BorderColor(Colors2.BorderLight)
                              .Background(Colors2.White)
                              .Image(originalBytes).FitWidth();
-                       
+
                        imgCol.Item().PaddingTop(4).AlignCenter()
                              .Text("Original Radiograph")
                              .FontSize(8f).Bold().FontColor(Colors2.NavyMid);
@@ -449,7 +478,7 @@ public class QuestPdfReportGenerator(
                              .Border(0.5f).BorderColor(Colors2.BorderLight)
                              .Background(Colors2.White)
                              .Image(overlaidBytes).FitWidth();
-                       
+
                        imgCol.Item().PaddingTop(4).AlignCenter()
                              .Text("AI Cephalometric Tracing")
                              .FontSize(8f).Bold().FontColor(Colors2.NavyMid);
@@ -694,48 +723,90 @@ public class QuestPdfReportGenerator(
              if (!string.IsNullOrEmpty(tendency))
                  col.Item().Text(tendency).FontSize(8.5f).LineHeight(1.5f);
 
-             col.Item().Table(table =>
+             col.Item().Row(row =>
              {
-                 table.ColumnsDefinition(tc =>
+                 // Left side: Jarabak Table
+                 row.RelativeItem(3).Column(tCol =>
                  {
-                     tc.RelativeColumn(2.5f); tc.RelativeColumn(); tc.RelativeColumn(1.2f); tc.RelativeColumn(2.5f);
+                     tCol.Item().Table(table =>
+                     {
+                         table.ColumnsDefinition(tc =>
+                         {
+                             tc.RelativeColumn(3f); tc.RelativeColumn(1.2f); tc.RelativeColumn(1.5f); tc.RelativeColumn(2.5f);
+                         });
+
+                         void HCell(string t) => table.Cell()
+                              .PaddingBottom(4).BorderBottom(0.75f).BorderColor(Colors2.BorderLight)
+                              .Text(t).Bold().FontSize(7.5f).FontColor(Colors2.NavyDeep);
+
+                         HCell("Indicator"); HCell("Value"); HCell("Norm"); HCell("Interpretation");
+
+                         void DataRow(string name, decimal? val, string norm, string interp, bool alert = false)
+                         {
+                             table.Cell().PaddingVertical(3).Text(name).FontSize(8);
+                             table.Cell().PaddingVertical(3).AlignRight()
+                                  .Text(val.HasValue ? $"{val:F1}" : "—").FontSize(8).Bold()
+                                  .FontColor(alert ? Colors2.AccentAmber : Colors2.SlateText);
+                             table.Cell().PaddingVertical(3).AlignCenter()
+                                  .Text(norm).FontSize(7.5f).FontColor(Colors2.SlateFaint);
+                             table.Cell().PaddingVertical(3)
+                                  .Text(interp).FontSize(7.5f).Italic()
+                                  .FontColor(alert ? Colors2.AccentAmber : Colors2.SlateLight);
+                         }
+
+                         DataRow("Jarabak Ratio", jMeas?.Value, "62–65 %",
+                             jMeas?.Value > 65 ? "Horizontal" : jMeas?.Value < 59 ? "Vertical" : "Neutral",
+                             jMeas?.Value > 65 || jMeas?.Value < 59);
+
+                         DataRow("Upper Gonial", upperGonial?.Value, "52–58°",
+                             upperGonial?.Value > 58 ? "Post. incl." : upperGonial?.Value < 52 ? "Ant. incl." : "Normal",
+                             upperGonial?.Value > 58 || upperGonial?.Value < 52);
+
+                         DataRow("Lower Gonial", lowerGonial?.Value, "70–75°",
+                             lowerGonial?.Value > 75 ? "Open" : lowerGonial?.Value < 70 ? "Closed" : "Normal",
+                             lowerGonial?.Value > 75 || lowerGonial?.Value < 70);
+                     });
                  });
 
-                 void HCell(string t) => table.Cell()
-                      .PaddingBottom(4).BorderBottom(0.75f).BorderColor(Colors2.BorderLight)
-                      .Text(t).Bold().FontSize(7.5f).FontColor(Colors2.NavyDeep);
+                 row.ConstantItem(15);
 
-                 HCell("Indicator"); HCell("Value"); HCell("Norm"); HCell("Interpretation");
-
-                 void DataRow(string name, decimal? val, string norm, string interp, bool alert = false)
+                 // Right side: Visual Wiggle Chart
+                 row.RelativeItem(2).Column(wCol =>
                  {
-                     table.Cell().PaddingVertical(3).Text(name).FontSize(8);
-                     table.Cell().PaddingVertical(3).AlignRight()
-                          .Text(val.HasValue ? $"{val:F1}" : "—").FontSize(8).Bold()
-                          .FontColor(alert ? Colors2.AccentAmber : Colors2.SlateText);
-                     table.Cell().PaddingVertical(3).AlignCenter()
-                          .Text(norm).FontSize(7.5f).FontColor(Colors2.SlateFaint);
-                     table.Cell().PaddingVertical(3)
-                          .Text(interp).FontSize(7.5f).Italic()
-                          .FontColor(alert ? Colors2.AccentAmber : Colors2.SlateLight);
-                 }
+                     wCol.Item().PaddingBottom(6).AlignCenter()
+                          .Text("BJÖRK-SKIELLER WIGGLE CHART")
+                          .FontSize(7).Bold().FontColor(Colors2.SlateLight);
 
-                 DataRow("Jarabak Ratio (PFH/AFH)", jMeas?.Value, "62–65 %",
-                     jMeas?.Value > 65 ? "Counter-clockwise / horizontal growth" :
-                     jMeas?.Value < 59 ? "Clockwise / vertical growth" : "Balanced growth pattern",
-                     jMeas?.Value > 65 || jMeas?.Value < 59);
-
-                 DataRow("Upper Gonial Angle (Ar-Go-N)", upperGonial?.Value, "52–58°",
-                     upperGonial?.Value > 58 ? "Ramus inclined posteriorly" :
-                     upperGonial?.Value < 52 ? "Ramus inclined anteriorly" : "Normal ramus inclination",
-                     upperGonial?.Value > 58 || upperGonial?.Value < 52);
-
-                 DataRow("Lower Gonial Angle (N-Go-Me)", lowerGonial?.Value, "70–75°",
-                     lowerGonial?.Value > 75 ? "Open mandibular body angle" :
-                     lowerGonial?.Value < 70 ? "Closed mandibular body angle" : "Normal",
-                     lowerGonial?.Value > 75 || lowerGonial?.Value < 70);
+                     wCol.Item().Element(cont => ComposeWiggleChart(cont, session));
+                 });
              });
          });
+    }
+
+    private static void ComposeWiggleChart(IContainer c, AnalysisSession session)
+    {
+        string[] codes = { "SaddleAngle", "ArticularAngle", "GonialAngle", "BJORK_SUM", "UpperGonial", "LowerGonial", "SN-GoGn" };
+        var measMap = session.Measurements?.ToDictionary(m => m.MeasurementCode, m => m) ?? new Dictionary<string, Measurement>();
+
+        c.Table(table =>
+        {
+            table.ColumnsDefinition(tc => { tc.ConstantColumn(60); tc.RelativeColumn(); });
+
+            foreach (var code in codes)
+            {
+                table.Cell().PaddingVertical(2).Text(code == "BJORK_SUM" ? "Sum of ∠" : code).FontSize(6.5f).FontColor(Colors2.SlateLight);
+
+                if (measMap.TryGetValue(code, out var m))
+                {
+                    float dev = (float)(m.Value - (m.NormalMin + m.NormalMax) / 2m);
+                    table.Cell().PaddingVertical(2).Element(cell => DrawDeviationBar(cell, m, dev));
+                }
+                else
+                {
+                    table.Cell().PaddingVertical(2).Text("—").FontSize(6.5f).AlignCenter();
+                }
+            }
+        });
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -791,10 +862,7 @@ public class QuestPdfReportGenerator(
          });
     }
 
-    // ══════════════════════════════════════════════════════════════════════
-    // Measurements — grouped by category, with deviation bar and SD severity
-    // ══════════════════════════════════════════════════════════════════════
-    private static void ComposeMeasurements(IContainer c, IEnumerable<Measurement> measurements)
+    private static void ComposeMeasurements(IContainer c, IEnumerable<Measurement> measurements, AnalysisType priority)
     {
         c.Column(col =>
         {
@@ -802,24 +870,30 @@ public class QuestPdfReportGenerator(
 
             var grouped = measurements
                 .GroupBy(m => m.Category)
-                .OrderBy(g => g.Key ?? AnalysisType.Steiner);
-
-            // bool alternate = true;
+                .OrderBy(g => g.Key == priority ? 0 : 1)
+                .ThenBy(g => g.Key?.ToString() ?? "Standard");
 
             foreach (var group in grouped)
             {
                 string catName = group.Key?.ToString() ?? "Standard";
+                bool isPrimary = group.Key == priority;
                 bool hasRef = CategoryReferences.TryGetValue(catName, out var catRef);
 
                 col.Item().Column(catCol =>
                 {
                     // Category sub-heading
-                    catCol.Item().PaddingBottom(5)
-                           .Text(catName.ToUpperInvariant() + " ANALYSIS")
-                           .FontSize(8.5f).Bold()
-                           .FontFamily("Trebuchet MS")
-                           .FontColor(Colors2.NavyMid)
-                           .LetterSpacing(0.04f);
+                    catCol.Item().PaddingBottom(5).Row(r =>
+                    {
+                        r.AutoItem().PaddingRight(8).Text(catName.ToUpperInvariant() + " ANALYSIS")
+                            .FontSize(8.5f).Bold()
+                            .FontFamily("Trebuchet MS")
+                            .FontColor(isPrimary ? Colors2.BrandPrimary : Colors2.NavyMid)
+                            .LetterSpacing(0.04f);
+
+                        if (isPrimary)
+                            r.AutoItem().Background(Colors2.BrandPrimary + "15").PaddingHorizontal(6).PaddingVertical(1)
+                             .Text("SELECTED PROTOCOL").FontSize(6.5f).Bold().FontColor(Colors2.BrandPrimary);
+                    });
 
                     catCol.Item().Table(table =>
                     {

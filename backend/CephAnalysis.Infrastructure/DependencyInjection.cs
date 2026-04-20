@@ -22,7 +22,7 @@ public static class DependencyInjection
             opt.UseNpgsql(
                 configuration.GetConnectionString("DefaultConnection"),
                 npg => npg.MigrationsAssembly(typeof(DependencyInjection).Assembly.FullName)
-                          .UseQuerySplittingBehavior(QuerySplittingBehavior.SplitQuery)));
+                          .UseQuerySplittingBehavior(QuerySplittingBehavior.SingleQuery)));
 
         services.AddScoped<IApplicationDbContext>(provider => provider.GetRequiredService<ApplicationDbContext>());
 

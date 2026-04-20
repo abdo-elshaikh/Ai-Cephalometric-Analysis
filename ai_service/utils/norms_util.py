@@ -76,15 +76,12 @@ class AnalysisNormsProvider:
         Find a measurement entry by exact name or first-token match.
         Returns the measurement dict or None.
         """
-        first_token_match: Optional[dict] = None
         for m in analysis_data.get("measurements", []):
             name = m.get("name", "").strip().lower()
-            tokens = name.split()
-            if target == name:
-                return m  # Exact match — highest priority
-            if tokens and target == tokens[0] and first_token_match is None:
-                first_token_match = m
-        return first_token_match
+            code = m.get("code", "").strip().lower()
+            if target == name or target == code:
+                return m  # Exact match on name or code
+        return None
 
     # ── Public accessors ───────────────────────────────────────────────────────
 

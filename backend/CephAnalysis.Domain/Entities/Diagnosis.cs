@@ -17,7 +17,7 @@ public class Diagnosis
     public decimal? OverbitesMm { get; set; }
     public OverbiteStatus? OverbiteClassification { get; set; }
     public SoftTissueProfile SoftTissueProfile { get; set; }
-    public string? WarningsJson { get; set; }
+    public IEnumerable<string> Warnings { get; set; } = [];
     public CrowdingSeverity? CrowdingSeverity { get; set; }
     public decimal? ConfidenceScore { get; set; }
     public bool SkeletalBorderline { get; set; }

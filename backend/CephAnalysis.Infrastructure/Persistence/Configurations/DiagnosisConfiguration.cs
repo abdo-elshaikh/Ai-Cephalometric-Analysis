@@ -35,6 +35,19 @@ public class DiagnosisConfiguration : IEntityTypeConfiguration<Diagnosis>
                 c => c.ToDictionary(entry => entry.Key, entry => entry.Value)))
             ;
         builder.Property(d => d.SkeletalDifferential).HasColumnType("text");
+
+        builder.Property(d => d.Warnings)
+            .HasConversion(
+                v => System.Text.Json.JsonSerializer.Serialize(v, (System.Text.Json.JsonSerializerOptions?)null),
+                v => string.IsNullOrEmpty(v)
+                    ? new List<string>()
+                    : System.Text.Json.JsonSerializer.Deserialize<List<string>>(v, (System.Text.Json.JsonSerializerOptions?)null) ?? new List<string>())
+            .Metadata.SetValueComparer(new Microsoft.EntityFrameworkCore.ChangeTracking.ValueComparer<IEnumerable<string>>(
+                (c1, c2) => (c1 == null && c2 == null) || (c1 != null && c2 != null && c1.SequenceEqual(c2)),
+                c => c.Aggregate(0, (a, v) => HashCode.Combine(a, v.GetHashCode())),
+                c => c.ToList()))
+            ;
+        builder.Property(d => d.Warnings).HasColumnName("WarningsJson").HasColumnType("text");
         builder.Property(d => d.ConfidenceScore).HasPrecision(5, 4);
         builder.Property(d => d.CreatedAt).HasDefaultValueSql("NOW()");
 

@@ -235,6 +235,30 @@ public class AiService : IAiService
         }
     }
 
+    public async Task<Result<object>> GetAnalysisNormsAsync(CancellationToken ct)
+    {
+        try
+        {
+            var request = new HttpRequestMessage(HttpMethod.Get, "/ai/analysis-norms");
+            request.Headers.Add("x-service-key", _serviceKey);
+
+            var response = await _http.SendAsync(request, ct);
+            if (!response.IsSuccessStatusCode)
+            {
+                var err = await response.Content.ReadAsStringAsync(ct);
+                return Result<object>.Failure($"AI Norms Error: {response.StatusCode} - {err}", (int)response.StatusCode);
+            }
+
+            var content = await response.Content.ReadAsStringAsync(ct);
+            var result = JsonSerializer.Deserialize<object>(content, _jsonOptions);
+            return Result<object>.Success(result!);
+        }
+        catch (Exception ex)
+        {
+            return Result<object>.Failure($"Norms service error: {ex.Message}", 500);
+        }
+    }
+
     // ── Concrete DTOs to avoid Anonymous Type issues ────────────────────────
 
     private record LandmarkDetectionRequest(string session_id, string image_base64, double pixel_spacing_mm);

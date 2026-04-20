@@ -25,6 +25,8 @@ public interface IAiService
         decimal? pixelSpacingMm,
         IEnumerable<string>? outputs,
         CancellationToken ct);
+    
+    Task<Result<object>> GetAnalysisNormsAsync(CancellationToken ct);
 }
 
 public record LandmarkDto(

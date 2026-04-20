@@ -1,3 +1,4 @@
+from pydantic import Field, AliasChoices
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pathlib import Path
 
@@ -9,12 +10,12 @@ class Settings(BaseSettings):
     )
 
     # Service auth
-    service_key: str = "dev-service-key"
+    service_key: str = Field("dev-service-key", validation_alias=AliasChoices("AI_SERVICE_KEY", "SERVICE_KEY"))
 
     # AI model
-    model_path: str = "engines/model/model.pth"
-    model_version: str = "v1.0.0"
-    device: str = "cpu" # "cuda" for GPU
+    model_path: str = Field("models/model.pth", validation_alias=AliasChoices("AI_MODEL_PATH", "MODEL_PATH"))
+    model_version: str = Field("v1.0.0", validation_alias=AliasChoices("AI_MODEL_VERSION", "MODEL_VERSION"))
+    device: str = Field("cpu", validation_alias=AliasChoices("AI_DEVICE", "DEVICE")) # "cuda" for GPU
     # 
     num_landmarks: int = 38
     input_size_h: int = 800
@@ -45,11 +46,11 @@ class Settings(BaseSettings):
     overbite_max: float = 3.0
 
     # OpenAI (for LLM treatment justification)
-    openai_api_key: str = ""  # set via OPENAI_API_KEY in .env
+    openai_api_key: str = Field("", validation_alias=AliasChoices("AI_OPENAI_API_KEY", "OPENAI_API_KEY"))
     openai_model: str = "gpt-4o-mini"
 
     # Google Gemini (Fallback provider)
-    gemini_api_key: str = ""  # set via GEMINI_API_KEY in .env
+    gemini_api_key: str = Field("", validation_alias=AliasChoices("AI_GEMINI_API_KEY", "GEMINI_API_KEY"))
     gemini_model: str = "gemini-flash-latest" # Use verified available model alias
 
     # Database (for any direct AI service DB access)

@@ -31,9 +31,9 @@ import io
 import math
 import logging
 from dataclasses import dataclass, field
-from typing import Optional
-
+from typing import Optional, List, Tuple
 import numpy as np
+import scipy.interpolate as interpolate
 import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
@@ -265,6 +265,37 @@ def _cardinal_spline(draw, pts, fill, width=2, tension=0.4, steps=15):
                            b1*p1[1]+b2*p2[1]+b3*t1y+b4*t2y))
     curve.append(pts[-1])
     draw.line(curve, fill=fill, width=width, joint="curve")
+
+
+def _scipy_spline(draw: ImageDraw.ImageDraw, pts: List[Tuple[float, float]],
+                  fill: Tuple[int, int, int, int], width: int = 2, steps: int = 50):
+    """Anatomically accurate spline using scipy.interpolate.splprep."""
+    if len(pts) < 2:
+        return
+    if len(pts) == 2:
+        draw.line(pts, fill=fill, width=width)
+        return
+
+    # Clean duplicates which cause splprep to crash
+    clean_pts = []
+    for p in pts:
+        if not clean_pts or math.hypot(p[0]-clean_pts[-1][0], p[1]-clean_pts[-1][1]) > 0.5:
+            clean_pts.append(p)
+    
+    if len(clean_pts) < 3:
+        draw.line(clean_pts, fill=fill, width=width)
+        return
+
+    try:
+        x, y = zip(*clean_pts)
+        tck, u = interpolate.splprep([x, y], s=0, k=min(3, len(clean_pts)-1))
+        u_new = np.linspace(0, 1, steps)
+        out = interpolate.splev(u_new, tck)
+        curve = list(zip(out[0], out[1]))
+        draw.line(curve, fill=fill, width=width, joint="curve")
+    except Exception as e:
+        logger.debug(f"Spline failed: {e}. Falling back to cardinal.")
+        _cardinal_spline(draw, clean_pts, fill=fill, width=width)
 
 
 def _draw_label_with_bg(draw: ImageDraw.ImageDraw, text: str,
@@ -528,19 +559,22 @@ def _draw_soft_tissue(draw, lms, sx, sy, alpha=200, color=None):
         lm = _lm(lms, name)
         return _scale(lm, sx, sy) if lm else None
 
-    for segment, tension in [
-        (["upGl'","upN'","upPn'"],                              0.3),
-        (["upSn'","upSLS'","upLs'","upUppSt'"],                 0.4),
-        (["loLowSt'","loLi'","loILS'","loPg'"],                 0.4),
-        (["loPg'","loGn'","loMe'","loTh'"],                     0.3),
-    ]:
-        pts = [pt(n) for n in segment if pt(n)]
-        if len(pts) >= 2:
-            _cardinal_spline(draw, pts, fill=SOFT, width=2, tension=tension)
-
+    # Orange dashed facial profile line (Rickett's E-Plane)
     pron, spog = pt("Pronasale"), pt("Point Soft Pogonion")
     if pron and spog:
-        draw.line([pron, spog], fill=(*SOFT[:3], 100), width=1)
+        # Extend the line slightly
+        dx, dy = spog[0] - pron[0], spog[1] - pron[1]
+        p1 = (pron[0] - dx*0.1, pron[1] - dy*0.1)
+        p2 = (spog[0] + dx*0.2, spog[1] + dy*0.2)
+        draw.line([p1, p2], fill=(234, 88, 12, 180), width=1)
+
+    # Full anatomical soft tissue spline
+    soft_chain = ["SoftN", "GLA", "Prn", "Sn", "Ls", "Li", "SoftPog", "SoftGn"]
+    pts = [pt(n) for n in soft_chain if pt(n)]
+    if len(pts) >= 3:
+        _scipy_spline(draw, pts, fill=(153, 27, 27, 220), width=3)
+    elif len(pts) == 2:
+        draw.line(pts, fill=(153, 27, 27, 220), width=3)
 
 
 # ─────────────────────────────────────────────
@@ -567,13 +601,19 @@ def _draw_incisor_upper(draw, apex, tip, lms, sx, sy, color=(22, 163, 74, 230)):
     cej_r = (tip[0]+ux*cl+px*rw_n, tip[1]+uy*cl+py*rw_n)
 
     pts = [ie_l]
-    pts += _cubic_bezier_pts(ie_l, (ie_l[0]+ux*cl*0.4-px*cw_lab*0.2, ie_l[1]+uy*cl*0.4-py*cw_lab*0.2),
-                             (cej_l[0]-ux*cl*0.2, cej_l[1]-uy*cl*0.2), cej_l, steps=8)
-    pts += _cubic_bezier_pts(cej_l, (cej_l[0]+ux*rl*0.5, cej_l[1]+uy*rl*0.5), apex, apex, steps=8)
-    pts += _cubic_bezier_pts(apex, apex, (cej_r[0]+ux*rl*0.5, cej_r[1]+uy*rl*0.5), cej_r, steps=8)
-    pts += _cubic_bezier_pts(cej_r, (cej_r[0]-ux*cl*0.3+px*cw_lin*0.1, cej_r[1]-uy*cl*0.3+py*cw_lin*0.1),
-                             (ie_r[0]+ux*cl*0.1, ie_r[1]+uy*cl*0.1), ie_r, steps=10)
-    draw.polygon(pts, outline=color, fill=None)
+    # Crown Labial
+    pts += _cubic_bezier_pts(ie_l, (ie_l[0]+ux*cl*0.3-px*cw_lab*0.4, ie_l[1]+uy*cl*0.3-py*cw_lab*0.4),
+                             (cej_l[0]-ux*cl*0.2-px*rw_n*0.1, cej_l[1]-uy*cl*0.2-py*rw_n*0.1), cej_l, steps=10)
+    # Root
+    pts += _cubic_bezier_pts(cej_l, (cej_l[0]+ux*rl*0.4, cej_l[1]+uy*rl*0.4), apex, apex, steps=12)
+    pts += _cubic_bezier_pts(apex, apex, (cej_r[0]+ux*rl*0.4, cej_r[1]+uy*rl*0.4), cej_r, steps=12)
+    # Crown Lingual (with cingulum)
+    mid_cing = (cej_r[0]-ux*cl*0.4+px*cw_lin*0.3, cej_r[1]-uy*cl*0.4+py*cw_lin*0.3)
+    pts += _cubic_bezier_pts(cej_r, (cej_r[0]-ux*cl*0.2+px*cw_lin*0.5, cej_r[1]-uy*cl*0.2+py*cw_lin*0.5),
+                             mid_cing, mid_cing, steps=6)
+    pts += _cubic_bezier_pts(mid_cing, (ie_r[0]+ux*cl*0.2, ie_r[1]+uy*cl*0.2), ie_r, ie_r, steps=10)
+    
+    draw.polygon(pts, outline=color, fill=(*color[:3], 20))
 
 
 def _draw_incisor_lower(draw, apex, tip, lms, sx, sy, color=(22, 163, 174, 230)):
@@ -611,11 +651,38 @@ def _draw_molar(draw, lms, sx, sy, which="upper", color=(22, 163, 74, 230)):
     pts   += _cubic_bezier_pts((x-w/2,y),(x-w/3,y+4*dv),(x-w/6,y+4*dv),(x,y), steps=5)
     pts   += _cubic_bezier_pts((x,y),(x+w/6,y+4*dv),(x+w/3,y+4*dv),(x+w/2,y), steps=5)
     pts   += [(x+w/2,y+h*dv),(x+w/6,y+(h+12)*dv),(x,y+(h+15)*dv),(x-w/6,y+(h+12)*dv),(x-w/2,y+h*dv)]
-    draw.polygon(pts, outline=color, fill=None)
+    draw.polygon(pts, outline=color, fill=(*color[:3], 15))
 
 
-def _draw_anatomical_outlines(draw, lms, sx, sy, color=ANAT_COLOR):
+def _draw_pharynx(draw, lms, sx, sy, scale_mm, font):
+    """Visualize pharyngeal airway and annotate widths."""
+    def pt(name):
+        lm = _lm(lms, name)
+        return _scale(lm, sx, sy) if lm else None
+
+    pns, ba = pt("Posterior Nasal Spine"), pt("Basion")
+    if pns and ba:
+        # Upper Pharynx approximation
+        mid_ph = ((pns[0] + ba[0])/2, (pns[1] + ba[1])/2)
+        # Assuming we have pharyngeal wall landmarks or calculating distance
+        # For visualization, we'll draw a shaded area if points are available
+        # If not, we just show the measurement if it exists
+        pass
+
+    # Draw airway limits if we have specific landmarks (usually 37/38 in some models)
+    u_ph_wall = pt("36") # Approximation
+    if pns and u_ph_wall:
+        draw.line([pns, u_ph_wall], fill=(6, 182, 212, 180), width=2)
+        dist_px = math.hypot(pns[0]-u_ph_wall[0], pns[1]-u_ph_wall[1])
+        if scale_mm:
+            dist_mm = dist_px * scale_mm / sx
+            draw.text(((pns[0]+u_ph_wall[0])/2 + 5, (pns[1]+u_ph_wall[1])/2), 
+                      f"{dist_mm:.2f}mm", font=font, fill=(6, 182, 212))
+
+
+def _draw_anatomical_outlines(draw, lms, sx, sy, req=None, color=ANAT_COLOR):
     COL = (*color, 230)
+    spacing = req.pixel_spacing_mm if req else None
 
     def pt(name, *aliases):
         lm = _lm(lms, name, *aliases)
@@ -630,10 +697,18 @@ def _draw_anatomical_outlines(draw, lms, sx, sy, color=ANAT_COLOR):
     if ans and pns:
         draw.line([ans, pns], fill=COL, width=2)
 
-    mand_chain = ["Articulare","P0","Constructed Gonion (tangent)","Menton","Gnathion","Pogonion"]
+    mand_chain = ["Ar", "Po", "Go", "Me", "Gn", "Pog"]
     mpts = [pt(nm) for nm in mand_chain if pt(nm)]
-    if len(mpts) >= 2:
-        _cardinal_spline(draw, mpts, fill=COL, width=2, tension=0.4)
+    if len(mpts) >= 3:
+        _scipy_spline(draw, mpts, fill=COL, width=3)
+    elif len(mpts) == 2:
+        draw.line(mpts, fill=COL, width=3)
+
+    # Skull Base spline
+    base_chain = ["Ba", "S", "N"]
+    bpts = [pt(nm) for nm in base_chain if pt(nm)]
+    if len(bpts) >= 3:
+        _scipy_spline(draw, bpts, fill=COL, width=3)
 
     ui_a, ui_t = pt("Apex of upper incisor"), pt("Incisal edge of upper incisor")
     if ui_a and ui_t:
@@ -643,6 +718,39 @@ def _draw_anatomical_outlines(draw, lms, sx, sy, color=ANAT_COLOR):
         _draw_incisor_lower(draw, li_a, li_t, lms, sx, sy, color=COL)
     _draw_molar(draw, lms, sx, sy, "upper", color=COL)
     _draw_molar(draw, lms, sx, sy, "lower", color=COL)
+    
+    # Pharynx
+    _draw_pharynx(draw, lms, sx, sy, scale_mm=spacing, font=_try_font(18))
+
+
+def _draw_reference_planes(draw, lms, sx, sy, alpha=180):
+    """Draw and label critical reference planes."""
+    REF = (59, 130, 246, alpha) # Blue-500
+    font = _try_font(18, bold=True)
+    
+    def pt(name):
+        lm = _lm(lms, name)
+        return _scale(lm, sx, sy) if lm else None
+
+    # Frankfort Horizontal (Po-Or)
+    po, orb = pt("Po"), pt("Or")
+    if po and orb:
+        dx, dy = orb[0]-po[0], orb[1]-po[1]
+        ln = math.hypot(dx, dy) or 1
+        p1 = (po[0] - dx*0.2, po[1] - dy*0.2)
+        p2 = (orb[0] + dx*0.8, orb[1] + dy*0.8)
+        draw.line([p1, p2], fill=REF, width=2)
+        draw.text((p1[0]-60, p1[1]-10), "FH", font=font, fill=REF)
+
+    # Mandibular Plane (Go-Me)
+    go, me = pt("Go"), pt("Me")
+    if go and me:
+        dx, dy = me[0]-go[0], me[1]-go[1]
+        ln = math.hypot(dx, dy) or 1
+        p1 = (go[0] - dx*0.1, go[1] - dy*0.1)
+        p2 = (me[0] + dx*0.4, me[1] + dy*0.4)
+        draw.line([p1, p2], fill=REF, width=2)
+        draw.text((p2[0]+10, p2[1]), "MP", font=font, fill=REF)
 
 
 # ─────────────────────────────────────────────
@@ -863,7 +971,8 @@ def render_xray_with_tracing(req: OverlayRequest,
     if method in ("tweed", "full"):
         _draw_tweed_lines(draw, lms, sx, sy)
 
-    _draw_anatomical_outlines(draw, lms, sx, sy)
+    _draw_anatomical_outlines(draw, lms, sx, sy, req=req)
+    _draw_reference_planes(draw, lms, sx, sy)
     _draw_soft_tissue(draw, lms, sx, sy)
     _draw_landmark_dots(draw, lms, sx, sy)
     _draw_landmark_labels(draw, lms, sx, sy, font_size=18, dark_bg=True)
@@ -908,7 +1017,7 @@ def render_xray_with_measurements(req: OverlayRequest,
     draw    = ImageDraw.Draw(overlay)
     lms     = req.landmarks
 
-    _draw_anatomical_outlines(draw, lms, sx, sy, color=C_BLACK)
+    _draw_anatomical_outlines(draw, lms, sx, sy, req=req, color=C_BLACK)
     _draw_steiner_lines(draw, lms, sx, sy)
     _draw_soft_tissue(draw, lms, sx, sy, alpha=230, color=(*SOFT_TISSUE_TRACE, 230))
     _draw_landmark_dots(draw, lms, sx, sy)
@@ -1046,7 +1155,8 @@ def render_tracing_only(req: OverlayRequest,
     if method in ("tweed", "full"):
         _draw_tweed_lines(draw, lms, sx, sy)
 
-    _draw_anatomical_outlines(draw, lms, sx, sy, color=C_BLACK)
+    _draw_anatomical_outlines(draw, lms, sx, sy, req=req, color=C_BLACK)
+    _draw_reference_planes(draw, lms, sx, sy)
     _draw_soft_tissue(draw, lms, sx, sy, alpha=255, color=(*SOFT_TISSUE_TRACE, 255))
     _draw_landmark_dots(draw, lms, sx, sy)
     _draw_landmark_labels(draw, lms, sx, sy, font_size=18, dark_bg=False)

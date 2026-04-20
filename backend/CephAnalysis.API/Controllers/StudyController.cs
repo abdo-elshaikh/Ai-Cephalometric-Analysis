@@ -36,6 +36,26 @@ public class StudyController : ControllerBase
             : StatusCode(result.StatusCode, new { error = result.Error });
     }
 
+    /// <summary>Get a single study by id (doctor must own the study)</summary>
+    [HttpGet("{id:guid}")]
+    public async Task<IActionResult> GetStudy(Guid id, CancellationToken ct)
+    {
+        var result = await _mediator.Send(new GetStudyQuery(id, CurrentUserId), ct);
+        return result.IsSuccess
+            ? Ok(result.Data)
+            : StatusCode(result.StatusCode, new { error = result.Error });
+    }
+
+    /// <summary>Update study metadata (and optionally workflow status)</summary>
+    [HttpPut("{id:guid}")]
+    public async Task<IActionResult> UpdateStudy(Guid id, [FromBody] UpdateStudyRequest request, CancellationToken ct)
+    {
+        var result = await _mediator.Send(new UpdateStudyCommand(id, request, CurrentUserId), ct);
+        return result.IsSuccess
+            ? Ok(result.Data)
+            : StatusCode(result.StatusCode, new { error = result.Error });
+    }
+
     /// <summary>Delete an existing study</summary>
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> DeleteStudy(Guid id, CancellationToken ct)

@@ -76,6 +76,43 @@ public record GetAnalysisHistoryQuery(
     string DoctorId,
     int PageSize = 100) : IRequest<Result<IEnumerable<AnalysisHistoryItemDto>>>;
 
+public record UpdateSessionLandmarksCommand(Guid SessionId, string DoctorId, List<LandmarkUpdateDto> Landmarks) : IRequest<Result<bool>>;
+
+public class UpdateSessionLandmarksHandler : IRequestHandler<UpdateSessionLandmarksCommand, Result<bool>>
+{
+    private readonly IApplicationDbContext _db;
+    public UpdateSessionLandmarksHandler(IApplicationDbContext db) => _db = db;
+
+    public async Task<Result<bool>> Handle(UpdateSessionLandmarksCommand cmd, CancellationToken ct)
+    {
+        var session = await _db.AnalysisSessions
+            .Include(x => x.XRayImage).ThenInclude(x => x.Study).ThenInclude(x => x.Patient)
+            .Include(x => x.Landmarks)
+            .FirstOrDefaultAsync(x => x.Id == cmd.SessionId, ct);
+
+        if (session is null) return Result<bool>.NotFound("Session not found.");
+        if (session.XRayImage.Study.Patient.DoctorId.ToString() != cmd.DoctorId)
+            return Result<bool>.Unauthorized();
+
+        if (cmd.Landmarks != null && cmd.Landmarks.Any())
+        {
+            foreach (var update in cmd.Landmarks)
+            {
+                var lm = session.Landmarks.FirstOrDefault(l => l.LandmarkCode == update.LandmarkCode);
+                if (lm != null)
+                {
+                    lm.XPx = update.X;
+                    lm.YPx = update.Y;
+                    lm.IsManuallyAdjusted = true;
+                }
+            }
+            await _db.SaveChangesAsync(ct);
+        }
+
+        return Result<bool>.Success(true);
+    }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // Detect Landmarks (existing, kept)
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -410,7 +447,7 @@ public class ClassifyDiagnosisHandler : IRequestHandler<ClassifyDiagnosisCommand
             OdiNote = d.OdiNote,
             GrowthTendency = d.GrowthTendency,
             SummaryText = d.Summary,
-            WarningsJson = JsonSerializer.Serialize(d.Warnings)
+            Warnings = d.Warnings ?? []
         };
         _db.Diagnoses.Add(diagnosis);
 
@@ -430,7 +467,7 @@ public class ClassifyDiagnosisHandler : IRequestHandler<ClassifyDiagnosisCommand
         d.OverjetMm, d.OverjetClassification?.ToString(), 
         d.OverbitesMm, d.OverbiteClassification?.ToString(),
         d.ConfidenceScore, d.SummaryText,
-        string.IsNullOrEmpty(d.WarningsJson) ? new List<string>() : JsonSerializer.Deserialize<List<string>>(d.WarningsJson)!);
+        d.Warnings ?? []);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -935,5 +972,18 @@ public class GetOverlayImagesHandler : IRequestHandler<GetOverlayImagesQuery, Re
             session.OverlayImagesJson, _jsonOpts) ?? [];
 
         return Result<IEnumerable<OverlayImageEntry>>.Success(entries);
+    }
+}
+
+public record GetAnalysisNormsQuery() : IRequest<Result<object>>;
+
+public class GetAnalysisNormsHandler : IRequestHandler<GetAnalysisNormsQuery, Result<object>>
+{
+    private readonly IAiService _aiService;
+    public GetAnalysisNormsHandler(IAiService aiService) => _aiService = aiService;
+
+    public async Task<Result<object>> Handle(GetAnalysisNormsQuery request, CancellationToken ct)
+    {
+        return await _aiService.GetAnalysisNormsAsync(ct);
     }
 }
