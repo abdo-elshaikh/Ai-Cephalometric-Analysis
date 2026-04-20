@@ -5,7 +5,7 @@ import { studiesApi, imagesApi, analysisApi } from '../api/client'
 import { useDropzone } from 'react-dropzone'
 import {
   ArrowLeft, Upload, ImageIcon, Zap, Activity, Target, RotateCcw, ChevronRight,
-  ZoomIn, ZoomOut, Maximize2, Move, Hand, Focus, Info, CheckCircle
+  ZoomIn, ZoomOut, Maximize2, Move, Hand, Focus, Info, CheckCircle, Users
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { format } from 'date-fns'
@@ -358,12 +358,54 @@ function AnalysisTypeModal({ imageId, onClose, onRun }) {
   )
 }
 
+const WORKFLOW_STEPS = [
+  { num: 1, label: 'Upload', desc: 'Add a cephalometric X-ray image', icon: Upload },
+  { num: 2, label: 'Calibrate', desc: 'Set pixel spacing with 2-point ruler', icon: Target },
+  { num: 3, label: 'Run AI', desc: 'Auto-detect landmarks & measure', icon: Zap },
+  { num: 4, label: 'Review', desc: 'Edit landmarks & generate report', icon: Activity },
+]
+
+function WorkflowGuide({ uploadedCount, calibratedCount }) {
+  const activeStep = uploadedCount === 0 ? 1 : calibratedCount === 0 ? 2 : 3
+  return (
+    <div style={{ display: 'flex', gap: 0, marginBottom: 24, borderRadius: 'var(--radius-md)', overflow: 'hidden', border: '1px solid var(--border)' }}>
+      {WORKFLOW_STEPS.map(({ num, label, desc, icon: Icon }) => {
+        const done = num < activeStep
+        const active = num === activeStep
+        return (
+          <div key={num} style={{
+            flex: 1, padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 4, position: 'relative',
+            background: done ? 'rgba(16,185,129,0.06)' : active ? 'rgba(0,194,224,0.06)' : 'var(--bg-elevated)',
+            borderRight: num < 4 ? '1px solid var(--border-subtle)' : 'none',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 2 }}>
+              <div style={{
+                width: 22, height: 22, borderRadius: '50%', flexShrink: 0,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                background: done ? 'var(--success)' : active ? 'var(--accent-primary)' : 'var(--bg-overlay)',
+                color: done || active ? '#000' : 'var(--text-muted)',
+                fontSize: 10, fontWeight: 700,
+              }}>
+                {done ? '✓' : num}
+              </div>
+              <span style={{ fontSize: '0.8rem', fontWeight: 600, color: done ? 'var(--success)' : active ? 'var(--accent-primary)' : 'var(--text-muted)' }}>
+                {label}
+              </span>
+            </div>
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', paddingLeft: 29, lineHeight: 1.4 }}>{desc}</div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 export default function StudyDetailPage() {
   const { studyId } = useParams()
   const navigate = useNavigate()
   const qc = useQueryClient()
-  const [calibModal, setCalibModal] = useState(null) // image object
-  const [analysisModal, setAnalysisModal] = useState(null) // imageId
+  const [calibModal, setCalibModal] = useState(null)
+  const [analysisModal, setAnalysisModal] = useState(null)
   const [runningPipeline, setRunningPipeline] = useState(null)
 
   const { data: study, isLoading: sLoad } = useQuery({
@@ -402,28 +444,52 @@ export default function StudyDetailPage() {
     }
   }
 
+  const imgUrl = img => {
+    const u = img.storageUrl
+    if (!u) return ''
+    return u.startsWith('http') ? u : u.startsWith('uploads/') ? `/${u}` : `/uploads/${u}`
+  }
+
   if (sLoad) return <div className="page"><div style={{ display: 'flex', justifyContent: 'center', paddingTop: 80 }}><div className="spinner" /></div></div>
 
   const statusColor = s => ({ Active: 'badge-success', Completed: 'badge-accent', Pending: 'badge-warning' }[s] ?? 'badge-muted')
+  const patient = study?.patient
+  const patientName = patient ? `${patient.firstName ?? ''} ${patient.lastName ?? ''}`.trim() : null
+  const uploadedCount = images?.length ?? 0
+  const calibratedCount = images?.filter(i => i.isCalibrated).length ?? 0
 
   return (
     <div className="page">
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
-        <button className="btn btn-ghost btn-icon" onClick={() => navigate(`/patients/${study?.patient?.id ?? ''}`)}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 24 }}>
+        <button className="btn btn-ghost btn-icon" style={{ marginTop: 4 }} onClick={() => navigate(`/patients/${patient?.id ?? ''}`)}>
           <ArrowLeft size={18} />
         </button>
         <div style={{ flex: 1 }}>
-          <h1 style={{ marginBottom: 2 }}>{study?.studyType ?? 'Study'}</h1>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          {patientName && (
+            <div style={{ fontSize: '0.78rem', color: 'var(--accent-primary)', fontWeight: 600, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 5 }}>
+              <Users size={12} /> {patientName}
+              {patient?.medicalRecordNumber && <code style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginLeft: 4 }}>{patient.medicalRecordNumber}</code>}
+            </div>
+          )}
+          <h1 style={{ marginBottom: 4 }}>{study?.studyType ?? 'Study'} Case</h1>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
             <span className={`badge ${statusColor(study?.status)}`}>{study?.status}</span>
             {study?.createdAt && <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Created {format(new Date(study.createdAt), 'dd MMM yyyy')}</span>}
+            {study?.referralReason && <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>· {study.referralReason}</span>}
           </div>
         </div>
       </div>
 
+      {/* Workflow progress */}
+      <WorkflowGuide uploadedCount={uploadedCount} calibratedCount={calibratedCount} />
+
       {/* Upload Zone */}
       <div className="card" style={{ marginBottom: 24 }}>
-        <div className="card-title" style={{ marginBottom: 16 }}><Upload size={16} color="var(--accent-primary)" /> Upload X-Ray Image</div>
+        <div className="card-title" style={{ marginBottom: 16 }}>
+          <Upload size={16} color="var(--accent-primary)" /> Upload X-Ray Image
+          <span style={{ marginLeft: 'auto', fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 400 }}>Step 1</span>
+        </div>
         <div {...getRootProps()} className={`dropzone ${isDragActive ? 'active' : ''} ${uploadMutation.isPending ? 'active' : ''}`}>
           <input {...getInputProps()} id="xray-upload-input" />
           <div className="dropzone-icon"><Upload size={32} /></div>
@@ -431,16 +497,21 @@ export default function StudyDetailPage() {
             ? <div className="dropzone-text">Uploading…</div>
             : isDragActive
               ? <div className="dropzone-text">Drop to upload</div>
-              : <><div className="dropzone-text">Drag & drop an X-ray, or <strong style={{ color: 'var(--accent-primary)' }}>click to browse</strong></div>
-                  <div className="dropzone-hint">Supports JPG, PNG, BMP, DICOM · Max 100 MB</div></>}
+              : <>
+                  <div className="dropzone-text">Drag & drop an X-ray, or <strong style={{ color: 'var(--accent-primary)' }}>click to browse</strong></div>
+                  <div className="dropzone-hint">Supports JPG, PNG, BMP, DICOM · Max 100 MB</div>
+                </>}
         </div>
       </div>
 
       {/* Images list */}
       <div className="card" style={{ padding: 0 }}>
-        <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div className="card-title"><ImageIcon size={16} color="var(--accent-primary)" /> X-Ray Images</div>
-          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{images?.length ?? 0} images</span>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            {calibratedCount > 0 && <span className="badge badge-success">{calibratedCount} calibrated</span>}
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{uploadedCount} total</span>
+          </div>
         </div>
 
         {iLoad ? (
@@ -452,54 +523,63 @@ export default function StudyDetailPage() {
             <p>Upload a cephalometric X-ray above to begin AI analysis.</p>
           </div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 20, padding: 24 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 20, padding: 24 }}>
             {images.map(img => (
-              <div key={img.id} className="card" style={{ padding: 0, overflow: 'hidden' }}>
+              <div key={img.id} className="card" style={{ padding: 0, overflow: 'hidden', transition: 'border-color 0.2s, box-shadow 0.2s' }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(0,194,224,0.3)'; e.currentTarget.style.boxShadow = '0 4px 20px rgba(0,0,0,0.4)' }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = ''; e.currentTarget.style.boxShadow = '' }}>
                 {/* Thumbnail */}
                 <div style={{ background: '#000', aspectRatio: '4/3', overflow: 'hidden', position: 'relative' }}>
                   <img
-                    src={img.storageUrl?.startsWith('http') ? img.storageUrl : (img.storageUrl?.startsWith('uploads/') ? `/${img.storageUrl}` : `/uploads/${img.storageUrl}`)}
+                    src={imgUrl(img)}
                     alt="X-ray"
                     style={{ width: '100%', height: '100%', objectFit: 'contain' }}
                     onError={e => { e.target.style.display = 'none' }}
                   />
+                  {/* Status overlay */}
                   <div style={{ position: 'absolute', top: 8, right: 8, display: 'flex', gap: 6 }}>
                     <span className={`badge ${img.isCalibrated ? 'badge-success' : 'badge-warning'}`}>
-                      {img.isCalibrated ? '✓ Calibrated' : 'Uncalibrated'}
+                      {img.isCalibrated ? '✓ Calibrated' : '⚠ Needs Calibration'}
                     </span>
                   </div>
+                  {/* Pixel spacing badge */}
+                  {img.pixelSpacingMm && (
+                    <div style={{ position: 'absolute', bottom: 8, left: 8, background: 'rgba(0,0,0,0.7)', borderRadius: 4, padding: '2px 7px', fontSize: 10, color: 'var(--accent-primary)', fontFamily: 'monospace', backdropFilter: 'blur(4px)' }}>
+                      {img.pixelSpacingMm.toFixed(4)} mm/px
+                    </div>
+                  )}
                 </div>
 
-                <div style={{ padding: 16 }}>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: 12 }}>
+                <div style={{ padding: '12px 16px' }}>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {img.originalFileName} · {format(new Date(img.uploadedAt), 'dd MMM yyyy')}
-                    {img.pixelSpacingMm && <> · <code style={{ color: 'var(--accent-primary)' }}>{img.pixelSpacingMm.toFixed(3)} mm/px</code></>}
                   </div>
 
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                     {!img.isCalibrated && (
-                      <button id={`cal-btn-${img.id}`} className="btn btn-secondary btn-sm" onClick={() => setCalibModal(img)}>
-                        <Target size={13} /> Calibrate
+                      <button id={`cal-btn-${img.id}`} className="btn btn-secondary btn-sm" onClick={() => setCalibModal(img)}
+                        title="Set pixel spacing before running AI">
+                        <Target size={13} /> Calibrate (Step 2)
                       </button>
                     )}
                     <button
                       id={`run-btn-${img.id}`}
                       className="btn btn-primary btn-sm"
                       disabled={!img.isCalibrated || runningPipeline === img.id}
-                      title={!img.isCalibrated ? 'Calibrate first' : 'Run AI full pipeline'}
+                      title={!img.isCalibrated ? 'Calibrate image first to enable AI analysis' : 'Run full AI pipeline'}
                       onClick={() => setAnalysisModal(img.id)}
                     >
                       {runningPipeline === img.id
                         ? <><div className="spinner" style={{ width: 13, height: 13, borderWidth: 2 }} /> Analyzing…</>
-                        : <><Zap size={13} /> Run AI</>}
+                        : <><Zap size={13} /> Run AI Analysis</>}
                     </button>
                     <button id={`view-sessions-${img.id}`} className="btn btn-ghost btn-sm" onClick={async () => {
                       try {
                         const { data } = await analysisApi.getLatestSession(img.id)
                         navigate(`/analysis/${data.id}`)
-                      } catch { toast.error('No analysis session found') }
+                      } catch { toast.error('No analysis session found for this image') }
                     }}>
-                      <Activity size={13} /> Sessions <ChevronRight size={12} />
+                      <Activity size={13} /> View Sessions
                     </button>
                   </div>
                 </div>
@@ -515,10 +595,10 @@ export default function StudyDetailPage() {
       )}
 
       {analysisModal && (
-        <AnalysisTypeModal 
-          imageId={analysisModal} 
-          onClose={() => setAnalysisModal(null)} 
-          onRun={(type) => runPipeline(analysisModal, type)} 
+        <AnalysisTypeModal
+          imageId={analysisModal}
+          onClose={() => setAnalysisModal(null)}
+          onRun={(type) => runPipeline(analysisModal, type)}
         />
       )}
     </div>

@@ -35,6 +35,13 @@ const CustomTooltip = ({ active, payload, label }) => {
   )
 }
 
+const QUICK_ACTIONS = [
+  { icon: Users,    label: 'Register Patient',  sub: 'Add a new patient record',        to: '/patients',  color: 'var(--accent-primary)', id: 'qa-patients' },
+  { icon: Activity, label: 'View History',       sub: 'Browse all analysis sessions',    to: '/history',   color: 'var(--success)',        id: 'qa-history' },
+  { icon: FileText, label: 'Clinical Reports',   sub: 'Download PDF ceph reports',       to: '/reports',   color: 'var(--info)',           id: 'qa-reports' },
+  { icon: Brain,    label: 'AI Analysis',        sub: 'Start from a patient study',      to: '/patients',  color: 'var(--warning)',        id: 'qa-ai' },
+]
+
 export default function DashboardPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
@@ -44,13 +51,16 @@ export default function DashboardPage() {
     refetchInterval: 30000,
   })
 
-  // Build sparkline data from stats
   const chartData = stats?.recentActivity ?? [
     { day: 'Mon', analyses: 3 }, { day: 'Tue', analyses: 7 },
     { day: 'Wed', analyses: 5 }, { day: 'Thu', analyses: 9 },
     { day: 'Fri', analyses: 12 }, { day: 'Sat', analyses: 4 },
     { day: 'Sun', analyses: 8 },
   ]
+
+  const displayName = user?.firstName
+    ? `Dr. ${user.firstName} ${user.lastName ?? ''}`.trim()
+    : `Dr. ${user?.email?.split('@')[0] ?? 'Doctor'}`
 
   return (
     <div className="page">
@@ -59,7 +69,7 @@ export default function DashboardPage() {
         <div>
           <h1>Dashboard</h1>
           <div className="page-subtitle">
-            Welcome back, <strong style={{ color: 'var(--accent-primary)' }}>{user?.email?.split('@')[0] ?? 'Doctor'}</strong>
+            Welcome back, <strong style={{ color: 'var(--accent-primary)' }}>{displayName}</strong>
             {' '}— here's your clinical overview
           </div>
         </div>
@@ -68,17 +78,37 @@ export default function DashboardPage() {
         </button>
       </div>
 
-      {/* Stats row */}
+      {/* Quick actions */}
       <div className="grid-4" style={{ marginBottom: 24 }}>
-        <StatCard icon={Users}      label="Total Patients"    value={stats?.totalPatients}    sub="Registered" />
-        <StatCard icon={Activity}   label="Total Analyses"    value={stats?.totalAnalyses}    sub="All time"                 color="var(--success)" />
-        <StatCard icon={FileText}   label="Reports Generated" value={stats?.totalReports}     sub="PDF & clinical"           color="var(--info)" />
-        <StatCard icon={Brain}      label="Pending Sessions"  value={stats?.pendingSessions}  sub="Awaiting review"          color="var(--warning)" />
+        {QUICK_ACTIONS.map(({ icon: Icon, label, sub, to, color, id }) => (
+          <button key={id} id={id} onClick={() => navigate(to)} style={{
+            background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)',
+            padding: '18px 20px', cursor: 'pointer', textAlign: 'left', transition: 'all 0.2s',
+            display: 'flex', flexDirection: 'column', gap: 8,
+          }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = color; e.currentTarget.style.boxShadow = `0 0 0 1px ${color}33, 0 4px 20px rgba(0,0,0,0.4)` }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = ''; e.currentTarget.style.boxShadow = '' }}>
+            <div style={{ width: 36, height: 36, borderRadius: 'var(--radius-md)', background: `${color}18`, display: 'flex', alignItems: 'center', justifyContent: 'center', border: `1px solid ${color}30` }}>
+              <Icon size={18} color={color} />
+            </div>
+            <div>
+              <div style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: 2 }}>{label}</div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{sub}</div>
+            </div>
+          </button>
+        ))}
       </div>
 
-      {/* Charts + Recent */}
+      {/* Stats row */}
+      <div className="grid-4" style={{ marginBottom: 24 }}>
+        <StatCard icon={Users}      label="Total Patients"     value={stats?.totalPatients}       sub="Registered" />
+        <StatCard icon={Activity}   label="Total Analyses"     value={stats?.totalAnalyses}       sub="All time"         color="var(--success)" />
+        <StatCard icon={FileText}   label="Reports Generated"  value={stats?.totalReports}        sub="PDF & clinical"   color="var(--info)" />
+        <StatCard icon={Brain}      label="Pending Sessions"   value={stats?.pendingSessions}     sub="Awaiting review"  color="var(--warning)" />
+      </div>
+
+      {/* Charts + Clinical breakdown */}
       <div className="grid-2" style={{ marginBottom: 24, alignItems: 'start' }}>
-        {/* Activity chart */}
         <div className="card">
           <div className="card-header">
             <div className="card-title"><TrendingUp size={16} color="var(--accent-primary)" />Weekly Activity</div>
@@ -100,25 +130,29 @@ export default function DashboardPage() {
           </ResponsiveContainer>
         </div>
 
-        {/* Quick stats */}
         <div className="card">
           <div className="card-header">
-            <div className="card-title"><Zap size={16} color="var(--accent-primary)" />Clinical Breakdown</div>
+            <div className="card-title"><Zap size={16} color="var(--accent-primary)" />Skeletal Classification</div>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             {[
-              { label: 'Class I Skeletal',  val: stats?.classI  ?? 0, total: stats?.totalAnalyses ?? 1, color: 'var(--success)' },
-              { label: 'Class II Skeletal', val: stats?.classII ?? 0, total: stats?.totalAnalyses ?? 1, color: 'var(--warning)' },
-              { label: 'Class III Skeletal',val: stats?.classIII?? 0, total: stats?.totalAnalyses ?? 1, color: 'var(--danger)' },
-              { label: 'Completed Sessions',val: stats?.completedSessions ?? 0, total: stats?.totalAnalyses ?? 1, color: 'var(--accent-primary)' },
+              { label: 'Class I Skeletal',   val: stats?.classI   ?? 0, total: stats?.totalAnalyses ?? 1, color: 'var(--success)' },
+              { label: 'Class II Skeletal',  val: stats?.classII  ?? 0, total: stats?.totalAnalyses ?? 1, color: 'var(--warning)' },
+              { label: 'Class III Skeletal', val: stats?.classIII ?? 0, total: stats?.totalAnalyses ?? 1, color: 'var(--danger)' },
+              { label: 'Finalized Sessions', val: stats?.completedSessions ?? 0, total: stats?.totalAnalyses ?? 1, color: 'var(--accent-primary)' },
             ].map(({ label, val, total, color }) => (
               <div key={label}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                  <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{label}</span>
-                  <span style={{ fontSize: '0.8rem', fontWeight: 600, color }}>{val}</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+                  <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>{label}</span>
+                  <span style={{ fontSize: '0.82rem', fontWeight: 700, color }}>
+                    {val}
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 400 }}>
+                      {' '}({total > 0 ? Math.round((val / total) * 100) : 0}%)
+                    </span>
+                  </span>
                 </div>
                 <div className="progress-bar">
-                  <div className="progress-fill" style={{ width: `${total > 0 ? (val/total)*100 : 0}%`, background: color }} />
+                  <div className="progress-fill" style={{ width: `${total > 0 ? (val / total) * 100 : 0}%`, background: color }} />
                 </div>
               </div>
             ))}
@@ -126,11 +160,11 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Recent analyses table */}
+      {/* Recent analyses */}
       <div className="card">
         <div className="card-header">
           <div className="card-title"><Clock size={16} color="var(--accent-primary)" />Recent Analysis History</div>
-          <button className="btn btn-ghost btn-sm" onClick={() => navigate('/history')}>View All</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => navigate('/history')}>View All →</button>
         </div>
         {stats?.recentSessions?.length > 0 ? (
           <div className="table-wrap">
@@ -143,8 +177,8 @@ export default function DashboardPage() {
               <tbody>
                 {stats.recentSessions.slice(0, 8).map(s => (
                   <tr key={s.id} style={{ cursor: 'pointer' }} onClick={() => navigate(`/analysis/${s.id}`)}>
-                    <td>{s.patientName}</td>
-                    <td><code style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{s.patientMrn}</code></td>
+                    <td style={{ fontWeight: 600 }}>{s.patientName}</td>
+                    <td><code style={{ fontSize: '0.78rem', color: 'var(--accent-primary)' }}>{s.patientMrn}</code></td>
                     <td><span className="badge badge-accent">{s.analysisType}</span></td>
                     <td>
                       <span className={`badge ${s.status === 'Finalized' ? 'badge-success' : s.status === 'Failed' ? 'badge-danger' : 'badge-warning'}`}>
@@ -162,13 +196,18 @@ export default function DashboardPage() {
             </table>
           </div>
         ) : (
-          <div className="empty-state">
-            <Activity size={40} />
-            <h3>No analyses yet</h3>
-            <p>Start by registering a patient and uploading an X-ray.</p>
-            <button className="btn btn-primary" style={{ marginTop: 16 }} onClick={() => navigate('/patients')}>
-              <Users size={16} /> Add First Patient
-            </button>
+          <div className="empty-state" style={{ padding: '48px 24px' }}>
+            <Brain size={44} style={{ opacity: 0.25 }} />
+            <h3 style={{ marginBottom: 8 }}>No analyses yet</h3>
+            <p style={{ marginBottom: 20 }}>Register a patient, upload an X-ray, calibrate it, then run the AI pipeline.</p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
+              <button className="btn btn-primary" id="dash-start-btn" onClick={() => navigate('/patients')}>
+                <Users size={16} /> Register First Patient
+              </button>
+              <button className="btn btn-secondary" onClick={() => navigate('/history')}>
+                <Activity size={16} /> View History
+              </button>
+            </div>
           </div>
         )}
       </div>

@@ -340,6 +340,58 @@ tbody td:first-child { color: var(--text-primary); font-weight: 500; }
   border-radius: var(--radius-sm);
 }
 
+/* ─── Keyboard shortcut badge ─── */
+.kbd {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 2px 6px; border-radius: 4px; font-family: var(--font-mono);
+  font-size: 0.65rem; font-weight: 600; color: var(--text-muted);
+  background: var(--bg-overlay); border: 1px solid var(--border-subtle);
+  box-shadow: 0 1px 0 var(--border);
+}
+
+/* ─── Glow pulse (AI running indicator) ─── */
+@keyframes glow-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(0,194,224,0); }
+  50%       { box-shadow: 0 0 0 6px rgba(0,194,224,0.18); }
+}
+.glow-pulse { animation: glow-pulse 1.8s ease-in-out infinite; }
+
+/* ─── Workflow step connector ─── */
+.workflow-connector { display: flex; align-items: stretch; }
+
+/* ─── Image card hover ─── */
+.image-card { transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s; }
+.image-card:hover { transform: translateY(-2px); }
+
+/* ─── Tooltip ─── */
+.tooltip-wrap { position: relative; }
+.tooltip-wrap:hover .tooltip { display: block; }
+.tooltip {
+  display: none; position: absolute; bottom: 110%; left: 50%; transform: translateX(-50%);
+  background: var(--bg-overlay); color: var(--text-primary); padding: 5px 10px;
+  border-radius: var(--radius-sm); font-size: 0.72rem; white-space: nowrap; z-index: 200;
+  border: 1px solid var(--border); box-shadow: var(--shadow-md);
+  pointer-events: none;
+}
+
+/* ─── Calibration banner ─── */
+.calib-banner {
+  padding: 10px 16px; border-radius: var(--radius-md);
+  background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.25);
+  display: flex; align-items: center; gap: 10;
+  font-size: 0.82rem; color: var(--warning);
+}
+
+/* ─── Quick action card ─── */
+.quick-action-card {
+  background: var(--bg-surface); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); padding: 18px 20px;
+  cursor: pointer; text-align: left; transition: all 0.2s;
+  display: flex; flex-direction: column; gap: 8;
+  font-family: var(--font-sans);
+}
+.quick-action-card:hover { transform: translateY(-2px); }
+
 /* ─── Responsive ─── */
 @media (max-width: 1024px) {
   :root { --sidebar-width: 0px; }
