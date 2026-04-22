@@ -109,8 +109,12 @@ public class QuestPdfReportGenerator(
         ["LowerGonial"] = (73.0f, 3.0f),
     };
 
-    // ── Section counter for numbered badges ───────────────────────────────
-    private static int _sectionIndex = 0;
+    // ── Per-document state for thread safety ──────────────────────────────
+    private class ReportContext
+    {
+        private int _sectionIndex = 0;
+        public int NextSectionIndex() => ++_sectionIndex;
+    }
 
     // ══════════════════════════════════════════════════════════════════════
     // Entry point
@@ -120,10 +124,9 @@ public class QuestPdfReportGenerator(
         GenerateReportRequest request,
         CancellationToken ct)
     {
+        var context = new ReportContext();
         bool isDraft = session.Status != SessionStatus.Finalized
                     && session.Status != SessionStatus.Completed;
-
-        _sectionIndex = 0; // reset per document
 
         // ── Pre-fetch images ──────────────────────────────────────────────
         byte[]? originalXrayBytes = null;
@@ -184,7 +187,7 @@ public class QuestPdfReportGenerator(
                      .FontColor(Colors2.SlateText));
 
                 page.Header().Element(c => ComposeHeader(c, session, isDraft));
-                page.Content().Element(c => ComposeContent(c, session, request, originalXrayBytes, overlaidXrayBytes));
+                page.Content().Element(c => ComposeContent(c, session, request, originalXrayBytes, overlaidXrayBytes, context));
                 page.Footer().Element(c => ComposeFooter(c, isDraft));
             });
         });
@@ -296,14 +299,15 @@ public class QuestPdfReportGenerator(
         AnalysisSession session,
         GenerateReportRequest request,
         byte[]? originalXrayBytes,
-        byte[]? overlaidXrayBytes)
+        byte[]? overlaidXrayBytes,
+        ReportContext context)
     {
         container.PaddingHorizontal(22).PaddingVertical(16).Column(col =>
         {
             col.Spacing(20);
 
             // 1. Patient information
-            ComposeSection(col, "Patient Information",
+            ComposeSection(col, "Patient Information", context,
                 c => ComposePatientDetails(c, session.XRayImage?.Study?.Patient));
 
             // 2. X-ray image (Side-by-side or single)
@@ -311,44 +315,44 @@ public class QuestPdfReportGenerator(
             {
                 if (request.IncludesLandmarkOverlay && overlaidXrayBytes != null)
                 {
-                    ComposeSection(col, "Cephalometric Tracing Overlay",
+                    ComposeSection(col, "Cephalometric Tracing Overlay", context,
                         c => ComposeSideBySideImages(c, session, originalXrayBytes, overlaidXrayBytes));
                 }
                 else
                 {
-                    ComposeSection(col, "X-Ray Record",
+                    ComposeSection(col, "X-Ray Record", context,
                         c => ComposeXRayImage(c, session, session.XRayImage!, originalXrayBytes));
                 }
 
                 if (request.IncludesLandmarkOverlay && (session.Landmarks?.Count ?? 0) > 0)
                 {
-                    ComposeSection(col, "AI Landmark Detection Confidence",
+                    ComposeSection(col, "AI Landmark Detection Confidence", context,
                         c => ComposeLandmarksTable(c, session));
                 }
             }
 
             // 3. Clinical assessment summary
             if (session.Diagnosis != null)
-                ComposeSection(col, "Clinical Assessment Summary",
+                ComposeSection(col, "Clinical Assessment Summary", context,
                     c => ComposeDiagnosis(c, session.Diagnosis));
 
             // 4. Growth tendency
             if (session.Diagnosis != null)
-                ComposeSection(col, "Growth Pattern Assessment",
+                ComposeSection(col, "Growth Pattern Assessment", context,
                     c => ComposeGrowthTendency(c, session));
 
             // 5. Bolton discrepancy
             if (session.Diagnosis?.BoltonResult != null)
-                ComposeSection(col, "Bolton Tooth-Size Analysis",
+                ComposeSection(col, "Bolton Tooth-Size Analysis", context,
                     c => ComposeBolton(c, session.Diagnosis.BoltonResult));
 
             if (request.IncludesMeasurements && (session.Measurements?.Count ?? 0) > 0)
-                ComposeSection(col, $"{session.AnalysisType} Quantitative Analysis",
+                ComposeSection(col, $"{session.AnalysisType} Quantitative Analysis", context,
                     c => ComposeMeasurements(c, session.Measurements!, session.AnalysisType));
 
             // 7. Treatment plans
             if (request.IncludesTreatmentPlan && (session.Diagnosis?.TreatmentPlans?.Count ?? 0) > 0)
-                ComposeSection(col, "Recommended Treatment Plans",
+                ComposeSection(col, "Recommended Treatment Plans", context,
                     c => ComposeTreatmentPlans(c, session.Diagnosis!.TreatmentPlans));
 
             // 8. Signature
@@ -362,9 +366,10 @@ public class QuestPdfReportGenerator(
     private static void ComposeSection(
         ColumnDescriptor col,
         string title,
+        ReportContext context,
         Action<IContainer> body)
     {
-        int idx = ++_sectionIndex;
+        int idx = context.NextSectionIndex();
 
         col.Item().Column(inner =>
         {

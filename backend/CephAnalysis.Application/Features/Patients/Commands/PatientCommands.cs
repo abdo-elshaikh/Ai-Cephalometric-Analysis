@@ -204,7 +204,7 @@ public class GetPatientsHandler : IRequestHandler<GetPatientsQuery, Result<Paged
     {
         var doctorIdString = query.DoctorId;
         var doctorId = Guid.Parse(doctorIdString);
-        var q = _db.Patients.AsNoTracking().Where(p => p.DoctorId == doctorId && !p.IsDeleted);
+        var q = _db.Patients.AsNoTracking().Where(p => p.DoctorId == doctorId);
 
         if (!string.IsNullOrWhiteSpace(query.Search))
         {
@@ -246,12 +246,21 @@ public record DeletePatientCommand(Guid PatientId, string DoctorId, string UserR
 public class DeletePatientHandler : IRequestHandler<DeletePatientCommand, Result>
 {
     private readonly IApplicationDbContext _db;
+    private readonly IStorageService       _storage;
 
-    public DeletePatientHandler(IApplicationDbContext db) => _db = db;
+    public DeletePatientHandler(IApplicationDbContext db, IStorageService storage)
+    {
+        _db      = db;
+        _storage = storage;
+    }
 
     public async Task<Result> Handle(DeletePatientCommand cmd, CancellationToken ct)
     {
         var patient = await _db.Patients
+            .Include(p => p.Studies)
+                .ThenInclude(s => s.XRayImages)
+                    .ThenInclude(i => i.AnalysisSessions)
+                        .ThenInclude(a => a.Reports)
             .FirstOrDefaultAsync(p => p.Id == cmd.PatientId, ct);
 
         if (patient is null) return Result.NotFound("Patient not found.");
@@ -260,8 +269,57 @@ public class DeletePatientHandler : IRequestHandler<DeletePatientCommand, Result
         if (cmd.UserRole != "Admin" && patient.DoctorId.ToString() != cmd.DoctorId)
             return Result.Failure("You do not have permission to delete this patient.", 403);
 
-        patient.IsDeleted = true;
-        patient.UpdatedAt = DateTime.UtcNow;
+        // ── 1. Collect all storage URLs to delete ───────────────────────────
+        var urlsToDelete = new HashSet<string>();
+        
+        foreach (var study in patient.Studies)
+        {
+            foreach (var img in study.XRayImages)
+            {
+                if (!string.IsNullOrWhiteSpace(img.StorageUrl))   urlsToDelete.Add(img.StorageUrl);
+                if (!string.IsNullOrWhiteSpace(img.ThumbnailUrl)) urlsToDelete.Add(img.ThumbnailUrl);
+
+                foreach (var session in img.AnalysisSessions)
+                {
+                    if (!string.IsNullOrWhiteSpace(session.ResultImageUrl))
+                        urlsToDelete.Add(session.ResultImageUrl);
+
+                    if (!string.IsNullOrWhiteSpace(session.OverlayImagesJson))
+                    {
+                        try
+                        {
+                            var overlays = System.Text.Json.JsonSerializer.Deserialize<List<OverlayImageEntry>>(session.OverlayImagesJson);
+                            if (overlays != null)
+                            {
+                                foreach (var o in overlays)
+                                {
+                                    if (!string.IsNullOrWhiteSpace(o.StorageUrl) && !o.StorageUrl.StartsWith("error:"))
+                                        urlsToDelete.Add(o.StorageUrl);
+                                }
+                            }
+                        }
+                        catch { /* ignore malformed json */ }
+                    }
+
+                    foreach (var report in session.Reports)
+                    {
+                        if (!string.IsNullOrWhiteSpace(report.StorageUrl))
+                            urlsToDelete.Add(report.StorageUrl);
+                    }
+                }
+            }
+        }
+
+        // ── 2. Delete from storage (fire and forget or sequential?) ─────────
+        // We'll do it sequentially or in a simple loop to ensure completion
+        foreach (var url in urlsToDelete)
+        {
+            try { await _storage.DeleteFileAsync(url, ct); }
+            catch { /* non-fatal if file already gone or storage down */ }
+        }
+
+        // ── 3. Hard delete from database (Cascade configured in DB handles children) ──
+        _db.Patients.Remove(patient);
         await _db.SaveChangesAsync(ct);
 
         return Result.Success(204);

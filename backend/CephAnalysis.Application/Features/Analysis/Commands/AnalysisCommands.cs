@@ -886,14 +886,20 @@ public record DeleteAnalysisSessionCommand(Guid SessionId, string UserId) : IReq
 public class DeleteAnalysisSessionHandler : IRequestHandler<DeleteAnalysisSessionCommand, Result<Unit>>
 {
     private readonly IApplicationDbContext _db;
+    private readonly IStorageService       _storage;
 
-    public DeleteAnalysisSessionHandler(IApplicationDbContext db) => _db = db;
+    public DeleteAnalysisSessionHandler(IApplicationDbContext db, IStorageService storage)
+    {
+        _db      = db;
+        _storage = storage;
+    }
 
     public async Task<Result<Unit>> Handle(DeleteAnalysisSessionCommand cmd, CancellationToken ct)
     {
         var session = await _db.AnalysisSessions
             .Include(s => s.XRayImage)
-            .ThenInclude(i => i.Study)
+                .ThenInclude(i => i.Study)
+            .Include(s => s.Reports)
             .FirstOrDefaultAsync(s => s.Id == cmd.SessionId, ct);
 
         if (session is null) return Result<Unit>.NotFound("Analysis session not found.");
@@ -902,6 +908,43 @@ public class DeleteAnalysisSessionHandler : IRequestHandler<DeleteAnalysisSessio
         if (session.XRayImage.Study.DoctorId.ToString() != cmd.UserId)
             return Result<Unit>.Unauthorized("You do not have access to this analysis session.");
 
+        // ── 1. Collect all storage URLs to delete ───────────────────────────
+        var urlsToDelete = new HashSet<string>();
+        
+        if (!string.IsNullOrWhiteSpace(session.ResultImageUrl))
+            urlsToDelete.Add(session.ResultImageUrl);
+
+        if (!string.IsNullOrWhiteSpace(session.OverlayImagesJson))
+        {
+            try
+            {
+                var overlays = System.Text.Json.JsonSerializer.Deserialize<List<OverlayImageEntry>>(session.OverlayImagesJson);
+                if (overlays != null)
+                {
+                        foreach (var o in overlays)
+                        {
+                            if (!string.IsNullOrWhiteSpace(o.StorageUrl) && !o.StorageUrl.StartsWith("error:"))
+                                urlsToDelete.Add(o.StorageUrl);
+                        }
+                }
+            }
+            catch { /* ignore malformed json */ }
+        }
+
+        foreach (var report in session.Reports)
+        {
+            if (!string.IsNullOrWhiteSpace(report.StorageUrl))
+                urlsToDelete.Add(report.StorageUrl);
+        }
+
+        // ── 2. Delete from storage ──────────────────────────────────────────
+        foreach (var url in urlsToDelete)
+        {
+            try { await _storage.DeleteFileAsync(url, ct); }
+            catch { /* non-fatal */ }
+        }
+
+        // ── 3. Hard delete from database ────────────────────────────────────
         _db.AnalysisSessions.Remove(session);
         await _db.SaveChangesAsync(ct);
 

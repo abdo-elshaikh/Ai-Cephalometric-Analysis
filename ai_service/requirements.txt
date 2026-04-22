@@ -34,7 +34,7 @@ torchvision==0.21.0+cpu
 
 # AI & LLM Integration
 openai>=1.0.0
-google-generativeai>=0.8.3
+google-genai>=0.1.0
 
 # Testing
 pytest==8.3.5

@@ -33,7 +33,7 @@ public class GetDashboardStatsHandler : IRequestHandler<GetDashboardStatsQuery, 
 
         // Simple counts without unnecessary includes
         var totalPatients = await _db.Patients
-            .CountAsync(p => p.DoctorId == doctorId && !p.IsDeleted, ct);
+            .CountAsync(p => p.DoctorId == doctorId, ct);
         
         var activeStudies = await _db.Studies
             .CountAsync(s => s.DoctorId == doctorId && s.Status != StudyStatus.Completed, ct);

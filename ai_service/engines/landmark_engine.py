@@ -313,6 +313,51 @@ def _apply_model_outputs_to_landmarks(
         )
 
 
+def _is_expected_orientation(landmarks: Dict[str, LandmarkPoint]) -> bool:
+    """True when S is posterior to N (smaller x), if both are available."""
+    if "S" not in landmarks or "N" not in landmarks:
+        return True
+    return landmarks["S"].x <= landmarks["N"].x
+
+
+def _merge_landmarks(
+    primary: Dict[str, LandmarkPoint],
+    secondary: Dict[str, LandmarkPoint],
+    orig_w: int,
+    orig_h: int,
+) -> Dict[str, LandmarkPoint]:
+    """
+    Confidence-weighted fusion of two landmark predictions.
+
+    This acts as lightweight test-time augmentation and improves stability of
+    uncertain points without requiring model retraining.
+    """
+    merged: Dict[str, LandmarkPoint] = {}
+    for key in set(primary.keys()) | set(secondary.keys()):
+        p1 = primary.get(key)
+        p2 = secondary.get(key)
+        if p1 is None and p2 is not None:
+            merged[key] = _clamp_to_image(p2, orig_w, orig_h)
+            continue
+        if p2 is None and p1 is not None:
+            merged[key] = _clamp_to_image(p1, orig_w, orig_h)
+            continue
+        if p1 is None or p2 is None:
+            continue
+
+        c1 = max(float(p1.confidence or 0.5), 0.05)
+        c2 = max(float(p2.confidence or 0.5), 0.05)
+        total = c1 + c2
+
+        fused = LandmarkPoint(
+            x=((p1.x * c1) + (p2.x * c2)) / total,
+            y=((p1.y * c1) + (p2.y * c2)) / total,
+            confidence=min(1.0, round(max(c1, c2) * 0.99, 4)),
+        )
+        merged[key] = _clamp_to_image(fused, orig_w, orig_h)
+    return merged
+
+
 def infer(
     image_bytes: bytes,
     pixel_spacing_mm: Optional[float] = None,
@@ -368,21 +413,28 @@ def infer(
             with torch.no_grad():
                 return _model(t)
 
+        # Pass A: direct inference
         outputs = run_forward(img_np)
-        _apply_model_outputs_to_landmarks(landmarks, outputs, orig_W, orig_H)
+        base_landmarks = _make_fallback_landmarks(orig_W, orig_H)
+        _apply_model_outputs_to_landmarks(base_landmarks, outputs, orig_W, orig_H)
 
-        # Orientation check: re-run on flipped image if S is anterior to N.
-        if (
-            "S" in landmarks
-            and "N" in landmarks
-            and landmarks["S"].x > landmarks["N"].x
-        ):
-            logger.info("S–N order suggests a mirrored ceph — re-running on flipped image.")
-            flipped = np.ascontiguousarray(np.fliplr(img_np))
-            outputs_m = run_forward(flipped)
-            landmarks = _make_fallback_landmarks(orig_W, orig_H)
-            _apply_model_outputs_to_landmarks(landmarks, outputs_m, orig_W, orig_H)
-            _mirror_landmarks_x(landmarks, orig_W)
+        # Pass B: mirrored inference (test-time augmentation)
+        flipped = np.ascontiguousarray(np.fliplr(img_np))
+        outputs_m = run_forward(flipped)
+        mirrored_landmarks = _make_fallback_landmarks(orig_W, orig_H)
+        _apply_model_outputs_to_landmarks(mirrored_landmarks, outputs_m, orig_W, orig_H)
+        _mirror_landmarks_x(mirrored_landmarks, orig_W)
+
+        base_ok = _is_expected_orientation(base_landmarks)
+        mirror_ok = _is_expected_orientation(mirrored_landmarks)
+
+        if not base_ok and mirror_ok:
+            logger.info("S–N orientation mismatch in base pass; selecting mirrored pass.")
+            landmarks = mirrored_landmarks
+        elif base_ok and mirror_ok:
+            landmarks = _merge_landmarks(base_landmarks, mirrored_landmarks, orig_W, orig_H)
+        else:
+            landmarks = base_landmarks
 
         landmarks = ScientificRefiner.refine(
             landmarks, orig_W, orig_H, pixel_spacing_mm=pixel_spacing_mm

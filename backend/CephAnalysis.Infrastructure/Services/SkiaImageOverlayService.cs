@@ -27,8 +27,16 @@ namespace CephAnalysis.Infrastructure.Services;
 /// </summary>
 public class SkiaImageOverlayService : IImageOverlayService
 {
-    private int _imgW;
-    private int _imgH;
+    // ── Per-render context for thread safety ────────────────────────────────
+    private record RenderContext(
+        int Width,
+        int Height,
+        float Scale,
+        Dictionary<string, Landmark> Landmarks,
+        SKFont Fs9,
+        SKFont Fs11,
+        SKFont Fs13,
+        SKFont Fs15);
 
     // ── Palette ─────────────────────────────────────────────────────────────
     private static readonly SKColor ColSkeletal = SKColor.Parse("#9333ea"); // Purple-600
@@ -47,12 +55,6 @@ public class SkiaImageOverlayService : IImageOverlayService
     private static readonly SKColor ColFMA = SKColor.Parse("#ea580c"); // Orange (matches ref)
     private static readonly SKColor ColIMPA = SKColor.Parse("#16a34a"); // Green  (matches ref)
 
-    // ── Scale-adjusted font sizes (set per render) ───────────────────────────
-    private float _fs9 = 9f;
-    private float _fs11 = 11f;
-    private float _fs13 = 13f;
-    private float _fs15 = 15f;
-
     public async Task<Stream> GenerateOverlaidImageAsync(
         Stream baseImageStream,
         AnalysisSession session,
@@ -66,29 +68,38 @@ public class SkiaImageOverlayService : IImageOverlayService
 
             // Scale fonts relative to image height (baseline 900 px)
             float scale = bitmap.Height / 900f;
-            _fs9 = 9f * scale;
-            _fs11 = 11f * scale;
-            _fs13 = 13f * scale;
-            _fs15 = 15f * scale;
+            
+            // Initialize context-specific fonts
+            using var fs9 = new SKFont(SKTypeface.Default, 9f * scale);
+            using var fs11 = new SKFont(SKTypeface.Default, 11f * scale);
+            using var fs13 = new SKFont(SKTypeface.Default, 13f * scale);
+            using var fs15 = new SKFont(SKTypeface.Default, 15f * scale);
+
+            var ctx = new RenderContext(
+                bitmap.Width,
+                bitmap.Height,
+                scale,
+                session.Landmarks.ToDictionary(l => l.LandmarkCode, l => l),
+                fs9, fs11, fs13, fs15
+            );
 
             using var canvas = new SKCanvas(bitmap);
-            var lm = session.Landmarks.ToDictionary(l => l.LandmarkCode, l => l);
 
             // Back → front draw order
-            DrawExtendedSkeletalPlanes(canvas, lm, bitmap.Width, bitmap.Height);
-            DrawAnatomicalOutlines(canvas, lm);
-            DrawPharyngealAirway(canvas, lm, session);
-            DrawAnatomicalProfileSpline(canvas, lm);
-            DrawSoftTissueLines(canvas, lm);
-            DrawDentalAxes(canvas, lm);
-            DrawClinicalAppraisals(canvas, lm);
-            DrawAngleArcSectors(canvas, lm, session);
-            DrawBjorkGrowthVector(canvas, lm, session);
-            DrawLandmarkPoints(canvas, lm, session);
-            DrawMeasurementCallouts(canvas, lm, session, bitmap.Width, bitmap.Height);
-            DrawOnImageLegend(canvas, bitmap.Width, bitmap.Height);
-            DrawCalibrationRuler(canvas, session, bitmap.Width, bitmap.Height);
-            DrawPatientHeader(canvas, session, bitmap.Width);
+            DrawExtendedSkeletalPlanes(canvas, ctx);
+            DrawAnatomicalOutlines(canvas, ctx);
+            DrawPharyngealAirway(canvas, session, ctx);
+            DrawAnatomicalProfileSpline(canvas, ctx);
+            DrawSoftTissueLines(canvas, ctx);
+            DrawDentalAxes(canvas, ctx);
+            DrawClinicalAppraisals(canvas, ctx);
+            DrawAngleArcSectors(canvas, session, ctx);
+            DrawBjorkGrowthVector(canvas, session, ctx);
+            DrawLandmarkPoints(canvas, session, ctx);
+            DrawMeasurementCallouts(canvas, session, ctx);
+            DrawOnImageLegend(canvas, ctx);
+            DrawCalibrationRuler(canvas, session, ctx);
+            DrawPatientHeader(canvas, session, ctx);
 
             var image = SKImage.FromBitmap(bitmap);
             var data = image.Encode(SKEncodedImageFormat.Jpeg, 93);
@@ -99,10 +110,10 @@ public class SkiaImageOverlayService : IImageOverlayService
     // ══════════════════════════════════════════════════════════════════════════
     // Patient header (top-left banner)
     // ══════════════════════════════════════════════════════════════════════════
-    private void DrawPatientHeader(SKCanvas canvas, AnalysisSession session, int imgW)
+    private void DrawPatientHeader(SKCanvas canvas, AnalysisSession session, RenderContext ctx)
     {
-        float pad = 12f;
-        float bh = _fs15 + _fs11 + pad * 2.5f;
+        float pad = 12f * ctx.Scale;
+        float bh = (15f + 11f) * ctx.Scale + pad * 2.5f;
 
         // Semi-opaque dark band
         using var bg = new SKPaint
@@ -110,14 +121,12 @@ public class SkiaImageOverlayService : IImageOverlayService
             Color = new SKColor(10, 15, 30, 200),
             IsAntialias = true,
         };
-        canvas.DrawRect(new SKRect(0, 0, imgW * 0.55f, bh), bg);
+        canvas.DrawRect(new SKRect(0, 0, ctx.Width * 0.55f, bh), bg);
 
-        using var boldFont = new SKFont(SKTypeface.Default, _fs15) { Embolden = true };
-        using var normFont = new SKFont(SKTypeface.Default, _fs11);
         using var wp = new SKPaint { IsAntialias = true, Color = SKColors.White };
         using var sp = new SKPaint { IsAntialias = true, Color = new SKColor(160, 200, 255, 210) };
 
-        float tx = pad, ty = _fs11 + pad;
+        float tx = pad, ty = (11f * ctx.Scale) + pad;
         var patient = session.XRayImage?.Study?.Patient;
         string name = patient?.FullName ?? "Unknown Patient";
         string age = "--Y";
@@ -128,18 +137,14 @@ public class SkiaImageOverlayService : IImageOverlayService
         }
         string gender = patient?.Gender.ToString() ?? "U";
 
-        // Image 2 style: Minimalism
-        canvas.DrawText($"{name} ({age}, {gender})", tx, ty, normFont, wp);
-        canvas.DrawText($"{session.QueuedAt:d/M/yyyy}", tx, ty + _fs11 + 4, normFont, sp);
+        canvas.DrawText($"{name} ({age}, {gender})", tx, ty, ctx.Fs11, wp);
+        canvas.DrawText($"{session.QueuedAt:d/M/yyyy}", tx, ty + (11f * ctx.Scale) + 4, ctx.Fs11, sp);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
     // Extended skeletal planes — per-plane dash patterns
     // ══════════════════════════════════════════════════════════════════════════
-    private void DrawExtendedSkeletalPlanes(
-        SKCanvas canvas,
-        Dictionary<string, Landmark> lm,
-        int imgW, int imgH)
+    private void DrawExtendedSkeletalPlanes(SKCanvas canvas, RenderContext ctx)
     {
         // (c1, c2, color, extension, dashOn, dashOff, opacity)
         var planes = new (string, string, SKColor, float, float, float, float)[]
@@ -154,48 +159,51 @@ public class SkiaImageOverlayService : IImageOverlayService
 
         foreach (var (c1, c2, color, ext, dashOn, dashOff, opacity) in planes)
         {
-            if (!lm.TryGetValue(c1, out var p1) || !lm.TryGetValue(c2, out var p2)) continue;
+            var p1 = GetPoint(c1, ctx);
+            var p2 = GetPoint(c2, ctx);
+            if (p1 == null || p2 == null) continue;
 
-            float dx = (float)((p2.XMm * (decimal)_imgW) - (p1.XMm * (decimal)_imgW));
-            float dy = (float)((p2.YMm * (decimal)_imgH) - (p1.YMm * (decimal)_imgH));
-            float x1 = Math.Clamp((float)((p1.XMm * (decimal)_imgW)) - dx * ext, 0, imgW);
-            float y1 = Math.Clamp((float)((p1.YMm * (decimal)_imgH)) - dy * ext, 0, _imgH);
-            float x2 = Math.Clamp((float)((p2.XMm * (decimal)_imgW)) + dx * ext, 0, imgW);
-            float y2 = Math.Clamp((float)((p2.YMm * (decimal)_imgH)) + dy * ext, 0, _imgH);
+            float dx = p2.Value.X - p1.Value.X;
+            float dy = p2.Value.Y - p1.Value.Y;
+
+            float x1 = Math.Clamp(p1.Value.X - dx * ext, 0, ctx.Width);
+            float y1 = Math.Clamp(p1.Value.Y - dy * ext, 0, ctx.Height);
+            float x2 = Math.Clamp(p2.Value.X + dx * ext, 0, ctx.Width);
+            float y2 = Math.Clamp(p2.Value.Y + dy * ext, 0, ctx.Height);
 
             using var paint = new SKPaint
             {
                 IsAntialias = true,
                 Color = color.WithAlpha((byte)(255 * opacity)),
-                StrokeWidth = 1.6f,
+                StrokeWidth = 1.6f * ctx.Scale,
                 Style = SKPaintStyle.Stroke,
                 StrokeCap = SKStrokeCap.Round,
                 PathEffect = dashOn > 0
-                    ? SKPathEffect.CreateDash(new[] { dashOn, dashOff }, 0)
+                    ? SKPathEffect.CreateDash(new[] { dashOn * ctx.Scale, dashOff * ctx.Scale }, 0)
                     : null,
             };
             canvas.DrawLine(x1, y1, x2, y2, paint);
 
             // Plane label at mid-point, offset perpendicular
             DrawShadowedLabel(canvas,
-                (x1 + x2) / 2f + 6f,
-                (y1 + y2) / 2f - 6f,
+                (x1 + x2) / 2f + 6f * ctx.Scale,
+                (y1 + y2) / 2f - 6f * ctx.Scale,
                 c1 == "Po" ? "FH" : c1 == "S" ? "SN" :
                 c1 == "Go" ? "MP" : c1 == "ANS" ? "PP" : "",
-                color.WithAlpha(200), _fs9);
+                color.WithAlpha(200), ctx.Fs9);
         }
     }
 
     // ══════════════════════════════════════════════════════════════════════════
     // Hard-tissue anatomical outlines
     // ══════════════════════════════════════════════════════════════════════════
-    private void DrawAnatomicalOutlines(SKCanvas canvas, Dictionary<string, Landmark> lm)
+    private void DrawAnatomicalOutlines(SKCanvas canvas, RenderContext ctx)
     {
         using var paint = new SKPaint
         {
             IsAntialias = true,
             Color = ColAnatomical.WithAlpha(210),
-            StrokeWidth = 2.0f,
+            StrokeWidth = 2.0f * ctx.Scale,
             Style = SKPaintStyle.Stroke,
             StrokeCap = SKStrokeCap.Round,
             StrokeJoin = SKStrokeJoin.Round,
@@ -204,9 +212,11 @@ public class SkiaImageOverlayService : IImageOverlayService
         void DrawChain(params string[] codes)
         {
             var points = codes
-                .Where(lm.ContainsKey)
-                .Select(c => new SKPoint((float)(lm[c].XMm * (decimal)_imgW), (float)(lm[c].YMm * (decimal)_imgH)))
+                .Select(c => GetPoint(c, ctx))
+                .Where(p => p.HasValue)
+                .Select(p => p!.Value)
                 .ToList();
+
             if (points.Count < 2) return;
             using var path = new SKPath();
             path.MoveTo(points[0]);
@@ -217,9 +227,11 @@ public class SkiaImageOverlayService : IImageOverlayService
         void DrawSpline(params string[] codes)
         {
             var points = codes
-                .Where(lm.ContainsKey)
-                .Select(c => new SKPoint((float)(lm[c].XMm * (decimal)_imgW), (float)(lm[c].YMm * (decimal)_imgH)))
+                .Select(c => GetPoint(c, ctx))
+                .Where(p => p.HasValue)
+                .Select(p => p!.Value)
                 .ToList();
+
             if (points.Count < 3) { DrawChain(codes); return; }
             using var path = BuildCatmullRom(points, tension: 0.3f);
             canvas.DrawPath(path, paint);
@@ -228,25 +240,31 @@ public class SkiaImageOverlayService : IImageOverlayService
         DrawSpline("Ar", "Go", "Me", "Gn", "Pog", "B");  // Mandible
         DrawSpline("Ba", "S", "N");                      // Cranial Base
         DrawChain("PNS", "ANS", "A");                    // Maxilla
-        if (lm.TryGetValue("Co", out var co) && lm.TryGetValue("Go", out var g))
+        
+        var co = GetPoint("Co", ctx);
+        var g = GetPoint("Go", ctx);
+        if (co != null && g != null)
         {
             using var rPath = new SKPath();
-            rPath.MoveTo((float)((co.XMm * (decimal)_imgW)), (float)((co.YMm * (decimal)_imgH)));
+            rPath.MoveTo(co.Value.X, co.Value.Y);
             // Gentle curve for the ramus
-            float midX = ((float)((co.XMm * (decimal)_imgW)) + (float)((g.XMm * (decimal)_imgW))) / 2f - 4f;
-            float midY = ((float)((co.YMm * (decimal)_imgH)) + (float)((g.YMm * (decimal)_imgH))) / 2f;
-            rPath.QuadTo(midX, midY, (float)((g.XMm * (decimal)_imgW)), (float)((g.YMm * (decimal)_imgH)));
+            float midX = (co.Value.X + g.Value.X) / 2f - 4f * ctx.Scale;
+            float midY = (co.Value.Y + g.Value.Y) / 2f;
+            rPath.QuadTo(midX, midY, g.Value.X, g.Value.Y);
             canvas.DrawPath(rPath, paint);
         }
 
         // Symphysis loop
-        if (lm.TryGetValue("B", out var lb) && lm.TryGetValue("Pog", out var lp) &&
-            lm.TryGetValue("Gn", out var lgn) && lm.TryGetValue("Me", out var lme))
+        var lb = GetPoint("B", ctx);
+        var lp = GetPoint("Pog", ctx);
+        var lgn = GetPoint("Gn", ctx);
+        var lme = GetPoint("Me", ctx);
+        if (lb != null && lp != null && lgn != null && lme != null)
         {
             using var sym = new SKPath();
-            sym.MoveTo((float)((lb.XMm * (decimal)_imgW)), (float)((lb.YMm * (decimal)_imgH)));
-            sym.QuadTo((float)((lp.XMm * (decimal)_imgW)), (float)((lp.YMm * (decimal)_imgH)), (float)((lgn.XMm * (decimal)_imgW)), (float)((lgn.YMm * (decimal)_imgH)));
-            sym.LineTo((float)((lme.XMm * (decimal)_imgW)), (float)((lme.YMm * (decimal)_imgH)));
+            sym.MoveTo(lb.Value.X, lb.Value.Y);
+            sym.QuadTo(lp.Value.X, lp.Value.Y, lgn.Value.X, lgn.Value.Y);
+            sym.LineTo(lme.Value.X, lme.Value.Y);
             sym.Close();
             canvas.DrawPath(sym, paint);
         }
@@ -255,13 +273,14 @@ public class SkiaImageOverlayService : IImageOverlayService
     // ══════════════════════════════════════════════════════════════════════════
     // Soft-tissue profile — smooth cubic spline
     // ══════════════════════════════════════════════════════════════════════════
-    private void DrawAnatomicalProfileSpline(SKCanvas canvas, Dictionary<string, Landmark> lm)
+    private void DrawAnatomicalProfileSpline(SKCanvas canvas, RenderContext ctx)
     {
         string[] pts = { "GLA", "SoftN", "Prn", "Sn", "Ls", "StomU", "StomL", "Li", "Sm", "SoftPog", "SoftGn" };
 
         var points = pts
-            .Where(lm.ContainsKey)
-            .Select(c => new SKPoint((float)(lm[c].XMm * (decimal)_imgW), (float)(lm[c].YMm * (decimal)_imgH)))
+            .Select(c => GetPoint(c, ctx))
+            .Where(p => p.HasValue)
+            .Select(p => p!.Value)
             .ToList();
 
         if (points.Count < 3) return;
@@ -271,7 +290,7 @@ public class SkiaImageOverlayService : IImageOverlayService
         {
             IsAntialias = true,
             Color = ColProfile.WithAlpha(210),
-            StrokeWidth = 2.6f,
+            StrokeWidth = 2.6f * ctx.Scale,
             Style = SKPaintStyle.Stroke,
             StrokeCap = SKStrokeCap.Round,
             StrokeJoin = SKStrokeJoin.Round,
@@ -279,22 +298,30 @@ public class SkiaImageOverlayService : IImageOverlayService
         canvas.DrawPath(path, paint);
     }
 
-    private void DrawPharyngealAirway(SKCanvas canvas, Dictionary<string, Landmark> lm, AnalysisSession session)
+    private void DrawPharyngealAirway(SKCanvas canvas, AnalysisSession session, RenderContext ctx)
     {
-        if (!lm.TryGetValue("PNS", out var pns) || !lm.TryGetValue("Ba", out var ba)) return;
-        float px1 = (float)(pns.XMm * (decimal)_imgW);
-        float py1 = (float)(pns.YMm * (decimal)_imgH);
-        if (lm.TryGetValue("36", out var wall))
+        var pns = GetPoint("PNS", ctx);
+        var ba = GetPoint("Ba", ctx);
+        if (pns == null || ba == null) return;
+
+        var wall = GetPoint("36", ctx);
+        if (wall != null)
         {
-            float px2 = (float)(wall.XMm * (decimal)_imgW);
-            float py2 = (float)(wall.YMm * (decimal)_imgH);
-            using var p = new SKPaint { IsAntialias = true, Color = ColAdvanced.WithAlpha(160), StrokeWidth = 2.0f, Style = SKPaintStyle.Stroke };
-            canvas.DrawLine(px1, py1, px2, py2, p);
-            float dPx = MathF.Sqrt(MathF.Pow(px2 - px1, 2) + MathF.Pow(py2 - py1, 2));
+            using var p = new SKPaint
+            {
+                IsAntialias = true,
+                Color = ColAdvanced.WithAlpha(160),
+                StrokeWidth = 2.0f * ctx.Scale,
+                Style = SKPaintStyle.Stroke
+            };
+            canvas.DrawLine(pns.Value, wall.Value, p);
+            
+            float dPx = SKPoint.Distance(pns.Value, wall.Value);
             decimal ps = session.XRayImage?.PixelSpacingMm ?? 0.3m;
-            if (ps > 0) {
+            if (ps > 0)
+            {
                 float dMm = dPx * (float)ps;
-                DrawShadowedLabel(canvas, (px1 + px2) / 2 + 10, (py1 + py2) / 2, $"{dMm:F1}mm", ColAdvanced, _fs11);
+                DrawShadowedLabel(canvas, (pns.Value.X + wall.Value.X) / 2 + 10 * ctx.Scale, (pns.Value.Y + wall.Value.Y) / 2, $"{dMm:F1}mm", ColAdvanced, ctx.Fs11);
             }
         }
     }
@@ -324,120 +351,138 @@ public class SkiaImageOverlayService : IImageOverlayService
     // ══════════════════════════════════════════════════════════════════════════
     // Soft-tissue reference lines (E-line, NB extension)
     // ══════════════════════════════════════════════════════════════════════════
-    private void DrawSoftTissueLines(SKCanvas canvas, Dictionary<string, Landmark> lm)
+    private void DrawSoftTissueLines(SKCanvas canvas, RenderContext ctx)
     {
         using var dashed = new SKPaint
         {
             IsAntialias = true,
-            StrokeWidth = 1.5f,
+            StrokeWidth = 1.5f * ctx.Scale,
             Style = SKPaintStyle.Stroke,
-            PathEffect = SKPathEffect.CreateDash(new float[] { 9, 5 }, 0),
+            PathEffect = SKPathEffect.CreateDash(new float[] { 9 * ctx.Scale, 5 * ctx.Scale }, 0),
         };
 
-        if (lm.TryGetValue("Prn", out var prn) && lm.TryGetValue("SoftPog", out var spog))
+        var prn = GetPoint("Prn", ctx);
+        var spog = GetPoint("SoftPog", ctx);
+        if (prn != null && spog != null)
         {
             dashed.Color = ColProfile.WithAlpha(170);
-            canvas.DrawLine((float)((prn.XMm * (decimal)_imgW)), (float)((prn.YMm * (decimal)_imgH)),
-                            (float)((spog.XMm * (decimal)_imgW)), (float)((spog.YMm * (decimal)_imgH)), dashed);
-            DrawShadowedLabel(canvas, (float)((prn.XMm * (decimal)_imgW)) + 9, (float)((prn.YMm * (decimal)_imgH)) - 9,
-                "E-line", ColProfile.WithAlpha(210), _fs9);
+            canvas.DrawLine(prn.Value, spog.Value, dashed);
+            DrawShadowedLabel(canvas, prn.Value.X + 9 * ctx.Scale, prn.Value.Y - 9 * ctx.Scale, "E-line", ColProfile.WithAlpha(210), ctx.Fs9);
         }
 
-        if (lm.TryGetValue("N", out var n) && lm.TryGetValue("B", out var b))
+        var n = GetPoint("N", ctx);
+        var b = GetPoint("B", ctx);
+        if (n != null && b != null)
         {
             dashed.Color = ColAdvanced.WithAlpha(150);
-            float dx = (float)(((b.XMm * (decimal)_imgW)) - (n.XMm * (decimal)_imgW));
-            float dy = (float)(((b.YMm * (decimal)_imgH)) - (n.YMm * (decimal)_imgH));
-            canvas.DrawLine((float)((n.XMm * (decimal)_imgW)) - dx * 0.25f, (float)((n.YMm * (decimal)_imgH)) - dy * 0.25f,
-                            (float)((b.XMm * (decimal)_imgW)) + dx * 0.20f, (float)((b.YMm * (decimal)_imgH)) + dy * 0.20f, dashed);
-            DrawShadowedLabel(canvas, (float)((b.XMm * (decimal)_imgW)) + 10, (float)((b.YMm * (decimal)_imgH)),
-                "NB", ColAdvanced.WithAlpha(200), _fs9);
+            float dx = b.Value.X - n.Value.X;
+            float dy = b.Value.Y - n.Value.Y;
+            canvas.DrawLine(n.Value.X - dx * 0.25f, n.Value.Y - dy * 0.25f,
+                            b.Value.X + dx * 0.20f, b.Value.Y + dy * 0.20f, dashed);
+            DrawShadowedLabel(canvas, b.Value.X + 10 * ctx.Scale, b.Value.Y, "NB", ColAdvanced.WithAlpha(200), ctx.Fs9);
         }
     }
 
     // ══════════════════════════════════════════════════════════════════════════
     // Dental long axes
     // ══════════════════════════════════════════════════════════════════════════
-    private void DrawDentalAxes(SKCanvas canvas, Dictionary<string, Landmark> lm)
+    private void DrawDentalAxes(SKCanvas canvas, RenderContext ctx)
     {
         using var solid = new SKPaint
         {
             IsAntialias = true,
             Color = ColDental.WithAlpha(180),
-            StrokeWidth = 1.6f,
+            StrokeWidth = 1.6f * ctx.Scale,
             Style = SKPaintStyle.Stroke,
             StrokeCap = SKStrokeCap.Round,
         };
 
         // UI Outline
-        if (lm.TryGetValue("UI", out var ui) && lm.TryGetValue("U1_c", out var uic))
-            DrawToothSilhouette(canvas, ui, uic, isUpper: true, solid);
+        var ui = GetPoint("UI", ctx);
+        var uic = GetPoint("U1_c", ctx);
+        if (ui != null && uic != null)
+            DrawToothSilhouette(canvas, ui.Value, uic.Value, isUpper: true, solid, ctx);
 
         // LI Outline
-        if (lm.TryGetValue("LI", out var li) && lm.TryGetValue("L1_c", out var lic))
-            DrawToothSilhouette(canvas, li, lic, isUpper: false, solid);
+        var li = GetPoint("LI", ctx);
+        var lic = GetPoint("L1_c", ctx);
+        if (li != null && lic != null)
+            DrawToothSilhouette(canvas, li.Value, lic.Value, isUpper: false, solid, ctx);
 
         // Molars
-        if (lm.TryGetValue("U6", out var u6)) DrawMolarBlock(canvas, u6, isUpper: true, solid);
-        if (lm.TryGetValue("L6", out var l6)) DrawMolarBlock(canvas, l6, isUpper: false, solid);
+        var u6 = GetPoint("U6", ctx);
+        if (u6 != null) DrawMolarBlock(canvas, u6.Value, isUpper: true, solid, ctx);
+        
+        var l6 = GetPoint("L6", ctx);
+        if (l6 != null) DrawMolarBlock(canvas, l6.Value, isUpper: false, solid, ctx);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
     // Geometric Clinical Appraisals
     // ══════════════════════════════════════════════════════════════════════════
-    private void DrawClinicalAppraisals(SKCanvas canvas, Dictionary<string, Landmark> lm)
+    private void DrawClinicalAppraisals(SKCanvas canvas, RenderContext ctx)
     {
         using var paint = new SKPaint
         {
             IsAntialias = true,
             Color = new SKColor(200, 200, 255, 140),
-            StrokeWidth = 1.2f,
+            StrokeWidth = 1.2f * ctx.Scale,
             Style = SKPaintStyle.Stroke,
-            PathEffect = SKPathEffect.CreateDash(new float[] { 8, 4 }, 0)
+            PathEffect = SKPathEffect.CreateDash(new float[] { 8 * ctx.Scale, 4 * ctx.Scale }, 0)
         };
 
         // 1. Wits Appraisal
-        DrawWitsGeometry(canvas, lm, paint);
+        DrawWitsGeometry(canvas, paint, ctx);
 
         // 2. Angle of Convexity (N-A-Pog)
-        if (lm.TryGetValue("N", out var n) && lm.TryGetValue("A", out var a) && lm.TryGetValue("Pog", out var pog))
+        var n = GetPoint("N", ctx);
+        var a = GetPoint("A", ctx);
+        var pog = GetPoint("Pog", ctx);
+        if (n != null && a != null && pog != null)
         {
             paint.Color = ColAdvanced.WithAlpha(120);
-            canvas.DrawLine((float)((n.XMm * (decimal)_imgW)), (float)((n.YMm * (decimal)_imgH)), (float)((a.XMm * (decimal)_imgW)), (float)((a.YMm * (decimal)_imgH)), paint);
-            canvas.DrawLine((float)((a.XMm * (decimal)_imgW)), (float)((a.YMm * (decimal)_imgH)), (float)((pog.XMm * (decimal)_imgW)), (float)((pog.YMm * (decimal)_imgH)), paint);
+            canvas.DrawLine(n.Value, a.Value, paint);
+            canvas.DrawLine(a.Value, pog.Value, paint);
         }
 
         // 3. Y-Axis (Growth Direction: S-Gn)
-        if (lm.TryGetValue("S", out var s) && lm.TryGetValue("Gn", out var gn))
+        var s = GetPoint("S", ctx);
+        var gn = GetPoint("Gn", ctx);
+        if (s != null && gn != null)
         {
             paint.Color = ColGrowth.WithAlpha(110);
-            canvas.DrawLine((float)((s.XMm * (decimal)_imgW)), (float)((s.YMm * (decimal)_imgH)), (float)((gn.XMm * (decimal)_imgW)), (float)((gn.YMm * (decimal)_imgH)), paint);
-            DrawShadowedLabel(canvas, (float)((gn.XMm * (decimal)_imgW)) + 5, (float)((gn.YMm * (decimal)_imgH)) + 15, "Y-Axis", ColGrowth.WithAlpha(160), _fs9);
+            canvas.DrawLine(s.Value, gn.Value, paint);
+            DrawShadowedLabel(canvas, gn.Value.X + 5 * ctx.Scale, gn.Value.Y + 15 * ctx.Scale, "Y-Axis", ColGrowth.WithAlpha(160), ctx.Fs9);
         }
     }
 
-    private void DrawWitsGeometry(SKCanvas canvas, Dictionary<string, Landmark> lm, SKPaint paint)
+    private void DrawWitsGeometry(SKCanvas canvas, SKPaint paint, RenderContext ctx)
     {
         // Require molars and incisors to define the functional occlusal plane
-        if (!lm.TryGetValue("U6", out var u6) || !lm.TryGetValue("L6", out var l6) ||
-            !lm.TryGetValue("UI", out var ui) || !lm.TryGetValue("LI", out var li) ||
-            !lm.TryGetValue("A", out var a) || !lm.TryGetValue("B", out var b)) return;
+        var u6 = GetPoint("U6", ctx);
+        var l6 = GetPoint("L6", ctx);
+        var ui = GetPoint("UI", ctx);
+        var li = GetPoint("LI", ctx);
+        var a = GetPoint("A", ctx);
+        var b = GetPoint("B", ctx);
+
+        if (u6 == null || l6 == null || ui == null || li == null || a == null || b == null) return;
 
         // Dental midpoints for Occlusal Plane
-        var pMol = new Vector2(((float)((u6.XMm * (decimal)_imgW)) + (float)((l6.XMm * (decimal)_imgW))) / 2f, ((float)((u6.YMm * (decimal)_imgH)) + (float)((l6.YMm * (decimal)_imgH))) / 2f);
-        var pInc = new Vector2(((float)((ui.XMm * (decimal)_imgW)) + (float)((li.XMm * (decimal)_imgW))) / 2f, ((float)((ui.YMm * (decimal)_imgH)) + (float)((li.YMm * (decimal)_imgH))) / 2f);
+        var pMol = new Vector2((u6.Value.X + l6.Value.X) / 2f, (u6.Value.Y + l6.Value.Y) / 2f);
+        var pInc = new Vector2((ui.Value.X + li.Value.X) / 2f, (ui.Value.Y + li.Value.Y) / 2f);
 
         // Occlusal Plane line: P = pMol + t * v
         var v = Vector2.Normalize(pInc - pMol);
 
         // Extended OP for visual context
-        canvas.DrawLine(pMol.X - v.X * 100, pMol.Y - v.Y * 100, pInc.X + v.X * 100, pInc.Y + v.Y * 100, paint);
-        DrawShadowedLabel(canvas, pMol.X - v.X * 120, pMol.Y - v.Y * 120, "OccPlane", paint.Color, _fs9);
+        canvas.DrawLine(pMol.X - v.X * 100 * ctx.Scale, pMol.Y - v.Y * 100 * ctx.Scale, pInc.X + v.X * 100 * ctx.Scale, pInc.Y + v.Y * 100 * ctx.Scale, paint);
+        DrawShadowedLabel(canvas, pMol.X - v.X * 120 * ctx.Scale, pMol.Y - v.Y * 120 * ctx.Scale, "OccPlane", paint.Color, ctx.Fs9);
 
         // Projections
-        void Project(Landmark source, out Vector2 result)
+        void Project(SKPoint source, out Vector2 result)
         {
-            var p = new Vector2((float)((source.XMm * (decimal)_imgW)), (float)((source.YMm * (decimal)_imgH)));
+            var p = new Vector2(source.X, source.Y);
             float t = Vector2.Dot(p - pMol, v);
             result = pMol + t * v;
 
@@ -445,23 +490,23 @@ public class SkiaImageOverlayService : IImageOverlayService
             canvas.DrawLine(p.X, p.Y, result.X, result.Y, paint);
         }
 
-        Project(a, out var aProp);
-        Project(b, out var bProp);
+        Project(a.Value, out var aProp);
+        Project(b.Value, out var bProp);
 
         // AO-BO segment
         paint.Color = ColANB.WithAlpha(200);
-        paint.StrokeWidth = 2.0f;
+        paint.StrokeWidth = 2.0f * ctx.Scale;
         paint.PathEffect = null;
         canvas.DrawLine(aProp.X, aProp.Y, bProp.X, bProp.Y, paint);
     }
 
-    private void DrawToothSilhouette(SKCanvas canvas, Landmark tip, Landmark root, bool isUpper, SKPaint paint)
+    private void DrawToothSilhouette(SKCanvas canvas, SKPoint tip, SKPoint root, bool isUpper, SKPaint paint, RenderContext ctx)
     {
-        float tx = (float)((tip.XMm * (decimal)_imgW)); float ty = (float)((tip.YMm * (decimal)_imgH));
-        float rx = (float)((root.XMm * (decimal)_imgW)); float ry = (float)((root.YMm * (decimal)_imgH));
+        float tx = tip.X; float ty = tip.Y;
+        float rx = root.X; float ry = root.Y;
         float dx = rx - tx; float dy = ry - ty;
         float len = MathF.Sqrt(dx * dx + dy * dy);
-        if (len < 10f) return;
+        if (len < 10f * ctx.Scale) return;
         float ux = dx / len; float uy = dy / len;
         float px = -uy; float py = ux;
 
@@ -492,16 +537,16 @@ public class SkiaImageOverlayService : IImageOverlayService
         canvas.DrawPath(path, paint);
     }
 
-    private void DrawMolarBlock(SKCanvas canvas, Landmark point, bool isUpper, SKPaint paint)
+    private void DrawMolarBlock(SKCanvas canvas, SKPoint point, bool isUpper, SKPaint paint, RenderContext ctx)
     {
-        float x = (float)((point.XMm * (decimal)_imgW)), y = (float)((point.YMm * (decimal)_imgH));
-        float w = 26f, h = 20f;
+        float x = point.X, y = point.Y;
+        float w = 26f * ctx.Scale, h = 20f * ctx.Scale;
         float dir = isUpper ? -1 : 1;
 
         using var path = new SKPath();
         path.MoveTo(x - w / 2, y);
         // Anatomical cusps
-        path.CubicTo(x - w / 4, y + 4 * dir, x + w / 4, y + 4 * dir, x + w / 2, y);
+        path.CubicTo(x - w / 4, y + 4 * dir * ctx.Scale, x + w / 4, y + 4 * dir * ctx.Scale, x + w / 2, y);
         path.LineTo(x + w / 2, y + h * dir);
         path.LineTo(x - w / 2, y + h * dir);
         path.Close();
@@ -511,28 +556,28 @@ public class SkiaImageOverlayService : IImageOverlayService
     // ══════════════════════════════════════════════════════════════════════════
     // Angle-arc sectors (filled + stroked) at SNA, SNB, FMA
     // ══════════════════════════════════════════════════════════════════════════
-    private void DrawAngleArcSectors(SKCanvas canvas, Dictionary<string, Landmark> lm, AnalysisSession session)
+    private void DrawAngleArcSectors(SKCanvas canvas, AnalysisSession session, RenderContext ctx)
     {
         void DrawSector(string c1, string vertex, string c2, SKColor col, string mCode)
         {
-            if (!lm.TryGetValue(c1, out var p1) ||
-                !lm.TryGetValue(vertex, out var vc) ||
-                !lm.TryGetValue(c2, out var p2)) return;
+            var p1 = GetPoint(c1, ctx);
+            var vc = GetPoint(vertex, ctx);
+            var p2 = GetPoint(c2, ctx);
 
-            var v1 = Vector2.Normalize(new Vector2(
-                (float)(((p1.XMm * (decimal)_imgW)) - (vc.XMm * (decimal)_imgW)), (float)(((p1.YMm * (decimal)_imgH)) - (vc.YMm * (decimal)_imgH))));
-            var v2 = Vector2.Normalize(new Vector2(
-                (float)(((p2.XMm * (decimal)_imgW)) - (vc.XMm * (decimal)_imgW)), (float)(((p2.YMm * (decimal)_imgH)) - (vc.YMm * (decimal)_imgH))));
+            if (p1 == null || vc == null || p2 == null) return;
+
+            var v1 = Vector2.Normalize(new Vector2(p1.Value.X - vc.Value.X, p1.Value.Y - vc.Value.Y));
+            var v2 = Vector2.Normalize(new Vector2(p2.Value.X - vc.Value.X, p2.Value.Y - vc.Value.Y));
 
             float startAngle = MathF.Atan2(v1.Y, v1.X) * 180f / MathF.PI;
             float sweep = MathF.Atan2(v2.Y, v2.X) * 180f / MathF.PI - startAngle;
             if (sweep > 180) sweep -= 360;
             if (sweep < -180) sweep += 360;
 
-            float radius = 32f;
+            float radius = 32f * ctx.Scale;
             var rect = new SKRect(
-                (float)((vc.XMm * (decimal)_imgW)) - radius, (float)((vc.YMm * (decimal)_imgH)) - radius,
-                (float)((vc.XMm * (decimal)_imgW)) + radius, (float)((vc.YMm * (decimal)_imgH)) + radius);
+                vc.Value.X - radius, vc.Value.Y - radius,
+                vc.Value.X + radius, vc.Value.Y + radius);
 
             // Filled sector
             using var fill = new SKPaint
@@ -542,7 +587,7 @@ public class SkiaImageOverlayService : IImageOverlayService
                 Style = SKPaintStyle.Fill
             };
             using var arcPath = new SKPath();
-            arcPath.MoveTo((float)((vc.XMm * (decimal)_imgW)), (float)((vc.YMm * (decimal)_imgH)));
+            arcPath.MoveTo(vc.Value.X, vc.Value.Y);
             arcPath.ArcTo(rect, startAngle, sweep, false);
             arcPath.Close();
             canvas.DrawPath(arcPath, fill);
@@ -552,19 +597,19 @@ public class SkiaImageOverlayService : IImageOverlayService
             {
                 IsAntialias = true,
                 Color = col.WithAlpha(180),
-                StrokeWidth = 1.6f,
+                StrokeWidth = 1.6f * ctx.Scale,
                 Style = SKPaintStyle.Stroke,
             };
             canvas.DrawArc(rect, startAngle, sweep, false, stroke);
 
-            // Vertex Label (Value as in Image 2)
+            // Vertex Label
             var m = session.Measurements?.FirstOrDefault(mu => mu.MeasurementCode == mCode);
             if (m != null)
             {
                 float midAng = startAngle + sweep / 2f;
-                float lx = (float)((vc.XMm * (decimal)_imgW)) + radius * 1.5f * MathF.Cos(midAng * MathF.PI / 180f);
-                float ly = (float)((vc.YMm * (decimal)_imgH)) + radius * 1.5f * MathF.Sin(midAng * MathF.PI / 180f);
-                DrawShadowedLabel(canvas, lx, ly, $"{m.Value:F1}°", ColorForStatus(m.Status, col), _fs11);
+                float lx = vc.Value.X + radius * 1.5f * MathF.Cos(midAng * MathF.PI / 180f);
+                float ly = vc.Value.Y + radius * 1.5f * MathF.Sin(midAng * MathF.PI / 180f);
+                DrawShadowedLabel(canvas, lx, ly, $"{m.Value:F1}°", ColorForStatus(m.Status, col), ctx.Fs11);
             }
         }
 
@@ -576,26 +621,25 @@ public class SkiaImageOverlayService : IImageOverlayService
     // ══════════════════════════════════════════════════════════════════════════
     // Björk growth-vector arrow
     // ══════════════════════════════════════════════════════════════════════════
-    private void DrawBjorkGrowthVector(
-        SKCanvas canvas,
-        Dictionary<string, Landmark> lm,
-        AnalysisSession session)
+    private void DrawBjorkGrowthVector(SKCanvas canvas, AnalysisSession session, RenderContext ctx)
     {
-        if (!lm.TryGetValue("S", out var s) || !lm.TryGetValue("Go", out var go)) return;
+        var s = GetPoint("S", ctx);
+        var go = GetPoint("Go", ctx);
+        if (s == null || go == null) return;
 
         var jMeas = session.Measurements?.FirstOrDefault(m => m.MeasurementCode == "JRatio");
         float jRatio = (float)(jMeas?.Value ?? 62.0m);
         float dev = jRatio - 63.5f;
-        float arrLen = 56f + MathF.Abs(dev) * 2.5f;
+        float arrLen = (56f + MathF.Abs(dev) * 2.5f) * ctx.Scale;
 
-        float dx = (float)(((go.XMm * (decimal)_imgW)) - (s.XMm * (decimal)_imgW));
-        float dy = (float)(((go.YMm * (decimal)_imgH)) - (s.YMm * (decimal)_imgH));
+        float dx = go.Value.X - s.Value.X;
+        float dy = go.Value.Y - s.Value.Y;
         float mag = MathF.Sqrt(dx * dx + dy * dy);
         if (mag < 1f) return;
         float ux = dx / mag; float uy = dy / mag;
 
-        float ox = ((float)((s.XMm * (decimal)_imgW)) + (float)((go.XMm * (decimal)_imgW))) / 2f;
-        float oy = ((float)((s.YMm * (decimal)_imgH)) + (float)((go.YMm * (decimal)_imgH))) / 2f;
+        float ox = (s.Value.X + go.Value.X) / 2f;
+        float oy = (s.Value.Y + go.Value.Y) / 2f;
         float ex = ox + ux * arrLen;
         float ey = oy + uy * arrLen;
 
@@ -605,14 +649,14 @@ public class SkiaImageOverlayService : IImageOverlayService
         {
             IsAntialias = true,
             Color = col.WithAlpha(220),
-            StrokeWidth = 2.2f,
+            StrokeWidth = 2.2f * ctx.Scale,
             Style = SKPaintStyle.Stroke,
             StrokeCap = SKStrokeCap.Round
         };
         canvas.DrawLine(ox, oy, ex, ey, linePaint);
 
         // Arrowhead
-        float hl = 11f, ha = 0.42f;
+        float hl = 11f * ctx.Scale, ha = 0.42f;
         float ang = MathF.Atan2(uy, ux);
         using var headPath = new SKPath();
         headPath.MoveTo(ex, ey);
@@ -623,31 +667,27 @@ public class SkiaImageOverlayService : IImageOverlayService
         canvas.DrawPath(headPath, headFill);
 
         string lbl = dev > 4f ? "CCW growth" : dev < -4f ? "CW growth" : "Normal growth";
-        DrawShadowedLabel(canvas, ex + 7f, ey - 5f, lbl, col, _fs9);
+        DrawShadowedLabel(canvas, ex + 7f * ctx.Scale, ey - 5f * ctx.Scale, lbl, col, ctx.Fs9);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
     // Landmark points with confidence halos
     // ══════════════════════════════════════════════════════════════════════════
-    private void DrawLandmarkPoints(
-        SKCanvas canvas,
-        Dictionary<string, Landmark> lm,
-        AnalysisSession session)
+    private void DrawLandmarkPoints(SKCanvas canvas, AnalysisSession session, RenderContext ctx)
     {
         var meta = session.LandmarkMeta ?? new Dictionary<string, LandmarkMeta>();
 
         using var haloPaint = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill };
-        using var ringPaint = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = 1.2f };
+        using var ringPaint = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = 1.2f * ctx.Scale };
         using var dotPaint = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill };
-        using var labelPaint = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill };
-        using var labelFont = new SKFont(SKTypeface.Default, _fs9);
 
-        foreach (var (code, p) in lm)
+        foreach (var (code, p) in ctx.Landmarks)
         {
-            float x = (float)((p.XMm * (decimal)_imgW));
-            float y = (float)((p.YMm * (decimal)_imgH));
+            var pt = GetPoint(code, ctx);
+            if (pt == null) continue;
+
             float conf = 0.75f;
-            float errPx = 7f;
+            float errPx = 7f * ctx.Scale;
 
             if (meta.TryGetValue(code, out var m))
             {
@@ -660,90 +700,89 @@ public class SkiaImageOverlayService : IImageOverlayService
                           : conf > 0.65f ? ColIncreased
                           : ColDecreased;
 
-            // Minimalist ring halo (Single pass, subtle)
+            // Minimalist ring halo
             haloPaint.Color = ptCol.WithAlpha(conf > 0.80f ? (byte)30 : (byte)60);
-            canvas.DrawCircle(x, y, errPx * 1.4f, haloPaint);
+            canvas.DrawCircle(pt.Value, errPx * 1.4f, haloPaint);
 
             // Confidence ring
             ringPaint.Color = ptCol.WithAlpha(180);
-            canvas.DrawCircle(x, y, 3.8f, ringPaint);
+            canvas.DrawCircle(pt.Value, 3.8f * ctx.Scale, ringPaint);
 
-            // White core dot (Smaller for clean look)
+            // White core dot
             dotPaint.Color = SKColors.White.WithAlpha(230);
-            canvas.DrawCircle(x, y, 1.6f, dotPaint);
+            canvas.DrawCircle(pt.Value, 1.6f * ctx.Scale, dotPaint);
 
             // Label with shadow
-            DrawShadowedLabel(canvas, x + 5f, y - 4f, code, ptCol, _fs9);
+            DrawShadowedLabel(canvas, pt.Value.X + 5f * ctx.Scale, pt.Value.Y - 4f * ctx.Scale, code, ptCol, ctx.Fs9);
         }
     }
 
     // ══════════════════════════════════════════════════════════════════════════
     // Measurement callouts — pill labels with leader lines, grouped by zone
     // ══════════════════════════════════════════════════════════════════════════
-    private void DrawMeasurementCallouts(
-        SKCanvas canvas,
-        Dictionary<string, Landmark> lm,
-        AnalysisSession session,
-        int imgW, int imgH)
+    private void DrawMeasurementCallouts(SKCanvas canvas, AnalysisSession session, RenderContext ctx)
     {
         var byCode = session.Measurements?
             .ToDictionary(m => m.MeasurementCode, m => m)
             ?? new Dictionary<string, Measurement>();
 
-        // ── Zone A: cranial / angular (top, near N point) ────────────────────
-        // Placed as a stacked column to the right of centre
-        float zoneAX = imgW * 0.50f;
-        float zoneAY = imgH * 0.10f;
-        float rowH = _fs13 + 6f;
+        // ── Zone A: cranial / angular ────────────────────
+        float zoneAX = ctx.Width * 0.50f;
+        float zoneAY = ctx.Height * 0.10f;
+        float rowH = (13f + 6f) * ctx.Scale;
 
-        DrawCalloutColumn(canvas, byCode, lm, zoneAX, zoneAY, rowH, new[]
+        DrawCalloutColumn(canvas, byCode, zoneAX, zoneAY, rowH, new[]
         {
             ("SNA",  "N",  ColSNA,  "SNA"),
             ("SNB",  "N",  ColSNB,  "SNB"),
             ("ANB",  "N",  ColANB,  "ANB"),
             ("IMPA", "Go", ColIMPA, "IMPA"),
-        });
+        }, ctx);
 
-        // ── Zone B: vertical / skeletal (left margin, near Go) ───────────────
-        float zoneBX = imgW * 0.06f;
-        float zoneBY = imgH * 0.40f;
+        // ── Zone B: vertical / skeletal ───────────────
+        float zoneBX = ctx.Width * 0.06f;
+        float zoneBY = ctx.Height * 0.40f;
 
-        DrawCalloutColumn(canvas, byCode, lm, zoneBX, zoneBY, rowH, new[]
+        DrawCalloutColumn(canvas, byCode, zoneBX, zoneBY, rowH, new[]
         {
             ("FMA",    "Go", ColFMA,  "FMA"),
             ("JRatio", "Go", ColGrowth,"JRatio"),
-        });
+        }, ctx);
 
-        // ── Zone C: soft-tissue (right margin) ───────────────────────────────
-        float zoneCX = imgW * 0.80f;
-        float zoneCY = imgH * 0.55f;
+        // ── Zone C: soft-tissue ───────────────────────────────
+        float zoneCX = ctx.Width * 0.80f;
+        float zoneCY = ctx.Height * 0.55f;
 
-        DrawCalloutColumn(canvas, byCode, lm, zoneCX, zoneCY, rowH, new[]
+        DrawCalloutColumn(canvas, byCode, zoneCX, zoneCY, rowH, new[]
         {
             ("Wits",     "A",   ColAdvanced, "Wits"),
-            ("H-Angle",  "Ls",  ColProfile,  "H∠"),
+            ("H-Angle",  "Ls",  ColProfile,  "H\u2220"),
             ("APDI",     "B",   ColAdvanced, "APDI"),
             ("ODI",      "B",   ColAdvanced, "ODI"),
-        });
+        }, ctx);
 
-        // ── Zone D: dental measurements near face (as in reference image) ────
-        DrawCompactDentalMeasurements(canvas, byCode, lm, imgW);
+        // ── Zone D: dental measurements ────
+        DrawCompactDentalMeasurements(canvas, byCode, ctx);
 
         // ── IMPA bottom ───────────────────────────────────────────────────────
-        if (byCode.TryGetValue("IMPA", out var impa) && lm.TryGetValue("Me", out var me))
+        if (byCode.TryGetValue("IMPA", out var impa))
         {
-            string txt = $"{impa.Value:F1} °";
-            DrawPillLabel(canvas, (float)((me.XMm * (decimal)_imgW)) + 20f, (float)((me.YMm * (decimal)_imgH)) + 30f, txt,
-                ColorForStatus(impa.Status), _fs11);
+            var me = GetPoint("Me", ctx);
+            if (me != null)
+            {
+                string txt = $"{impa.Value:F1} \u00b0";
+                DrawPillLabel(canvas, me.Value.X + 20f * ctx.Scale, me.Value.Y + 30f * ctx.Scale, txt,
+                    ColorForStatus(impa.Status), ctx.Fs11);
+            }
         }
     }
 
     private void DrawCalloutColumn(
         SKCanvas canvas,
         Dictionary<string, Measurement> byCode,
-        Dictionary<string, Landmark> lm,
         float x, float y, float rowH,
-        (string code, string anchor, SKColor baseCol, string shortLabel)[] items)
+        (string code, string anchor, SKColor baseCol, string shortLabel)[] items,
+        RenderContext ctx)
     {
         float cy = y;
         foreach (var (code, anchor, baseCol, shortLabel) in items)
@@ -753,29 +792,27 @@ public class SkiaImageOverlayService : IImageOverlayService
             SKColor col = ColorForStatus(meas.Status, baseCol);
             string unit = meas.Unit switch
             {
-                MeasurementUnit.Degrees => "°",
+                MeasurementUnit.Degrees => "\u00b0",
                 MeasurementUnit.Percent => "%",
                 _ => "mm",
             };
             string statusMark = meas.Status switch
             {
-                MeasurementStatus.Increased => " ▲",
-                MeasurementStatus.Decreased => " ▼",
+                MeasurementStatus.Increased => " \u25b2",
+                MeasurementStatus.Decreased => " \u25bc",
                 _ => "",
             };
             string label = $"{shortLabel}: {meas.Value:F1}{unit}{statusMark}";
 
             // Leader line to anchor landmark
-            if (lm.TryGetValue(anchor, out var pt))
+            var pt = GetPoint(anchor, ctx);
+            if (pt != null)
             {
-                DrawLeaderLine(canvas,
-                    x, cy,
-                    (float)((pt.XMm * (decimal)_imgW)), (float)((pt.YMm * (decimal)_imgH)),
-                    col.WithAlpha(90));
+                DrawLeaderLine(canvas, x, cy, pt.Value.X, pt.Value.Y, col.WithAlpha(90), ctx);
             }
 
-            DrawPillLabel(canvas, x, cy, label, col, _fs11);
-            cy += rowH + 2f;
+            DrawPillLabel(canvas, x, cy, label, col, ctx.Fs11);
+            cy += rowH + 2f * ctx.Scale;
         }
     }
 
@@ -786,8 +823,7 @@ public class SkiaImageOverlayService : IImageOverlayService
     private void DrawCompactDentalMeasurements(
         SKCanvas canvas,
         Dictionary<string, Measurement> byCode,
-        Dictionary<string, Landmark> lm,
-        int imgW)
+        RenderContext ctx)
     {
         // Codes that render as compact numbers in the right-face region
         var compact = new (string code, string anchorLandmark, float offX, float offY)[]
@@ -801,25 +837,27 @@ public class SkiaImageOverlayService : IImageOverlayService
         foreach (var (code, anchor, ox, oy) in compact)
         {
             if (!byCode.TryGetValue(code, out var meas)) continue;
-            if (!lm.TryGetValue(anchor, out var pt)) continue;
-            float lx = (float)((pt.XMm * (decimal)_imgW)) + ox;
-            float ly = (float)((pt.YMm * (decimal)_imgH)) + oy;
+            var pt = GetPoint(anchor, ctx);
+            if (pt == null) continue;
+
+            float lx = pt.Value.X + ox * ctx.Scale;
+            float ly = pt.Value.Y + oy * ctx.Scale;
             SKColor col = ColorForStatus(meas.Status, ColAdvanced);
-            DrawShadowedLabel(canvas, lx, ly, $"{meas.Value:F1}", col, _fs11);
+            DrawShadowedLabel(canvas, lx, ly, $"{meas.Value:F1}", col, ctx.Fs11);
         }
     }
 
     // ══════════════════════════════════════════════════════════════════════════
     // Professional two-column legend panel
     // ══════════════════════════════════════════════════════════════════════════
-    private void DrawOnImageLegend(SKCanvas canvas, int imgW, int imgH)
+    private void DrawOnImageLegend(SKCanvas canvas, RenderContext ctx)
     {
-        float colW = imgW * 0.20f;
+        float colW = ctx.Width * 0.20f;
         float panW = colW * 2.05f;
-        float panH = imgH * 0.22f;
-        float mar = imgW * 0.012f;
+        float panH = ctx.Height * 0.22f;
+        float mar = ctx.Width * 0.012f;
         float px = mar;
-        float py = imgH - panH - mar;
+        float py = ctx.Height - panH - mar;
 
         // Background
         using var bg = new SKPaint
@@ -827,23 +865,23 @@ public class SkiaImageOverlayService : IImageOverlayService
             IsAntialias = true,
             Color = new SKColor(8, 12, 24, 200),
         };
-        canvas.DrawRoundRect(new SKRoundRect(new SKRect(px, py, px + panW, py + panH), 8f), bg);
+        canvas.DrawRoundRect(new SKRoundRect(new SKRect(px, py, px + panW, py + panH), 8f * ctx.Scale), bg);
 
         // Separator rule
         using var rulePaint = new SKPaint
         {
             IsAntialias = true,
             Color = new SKColor(255, 255, 255, 35),
-            StrokeWidth = 0.8f,
+            StrokeWidth = 0.8f * ctx.Scale,
             Style = SKPaintStyle.Stroke,
         };
-        canvas.DrawLine(px + 8, py + _fs13 + 10f, px + panW - 8, py + _fs13 + 10f, rulePaint);
-        canvas.DrawLine(px + colW, py + _fs13 + 12f, px + colW, py + panH - 6f, rulePaint);
+        float titleH = 13f * ctx.Scale;
+        canvas.DrawLine(px + 8 * ctx.Scale, py + titleH + 10f * ctx.Scale, px + panW - 8 * ctx.Scale, py + titleH + 10f * ctx.Scale, rulePaint);
+        canvas.DrawLine(px + colW, py + titleH + 12f * ctx.Scale, px + colW, py + panH - 6f * ctx.Scale, rulePaint);
 
         // Title
-        using var titleFont = new SKFont(SKTypeface.Default, _fs13) { Embolden = true };
         using var titlePaint = new SKPaint { IsAntialias = true, Color = SKColors.White };
-        canvas.DrawText("Tracing legend", px + 8, py + _fs13 + 4, titleFont, titlePaint);
+        canvas.DrawText("Tracing legend", px + 8 * ctx.Scale, py + titleH + 4 * ctx.Scale, ctx.Fs13, titlePaint);
 
         var leftRows = new (SKColor col, float dash, string lbl)[]
         {
@@ -865,16 +903,15 @@ public class SkiaImageOverlayService : IImageOverlayService
         using var linePaint = new SKPaint
         {
             IsAntialias = true,
-            StrokeWidth = 1.8f,
+            StrokeWidth = 1.8f * ctx.Scale,
             Style = SKPaintStyle.Stroke,
             StrokeCap = SKStrokeCap.Round,
         };
-        using var lblFont = new SKFont(SKTypeface.Default, _fs9);
         using var lblPaint = new SKPaint { IsAntialias = true, Color = new SKColor(210, 215, 220, 230) };
         using var dotPaint = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill };
 
-        float rowH = (panH - _fs13 - 18f) / Math.Max(leftRows.Length, rightRows.Length);
-        float ry = py + _fs13 + 18f;
+        float rowH = (panH - titleH - 18f * ctx.Scale) / Math.Max(leftRows.Length, rightRows.Length);
+        float ry = py + titleH + 18f * ctx.Scale;
 
         for (int i = 0; i < leftRows.Length; i++)
         {
@@ -882,9 +919,9 @@ public class SkiaImageOverlayService : IImageOverlayService
             float cy = ry + i * rowH + rowH / 2f;
             linePaint.Color = col.WithAlpha(210);
             linePaint.PathEffect = dash > 0
-                ? SKPathEffect.CreateDash(new float[] { dash, dash / 2 }, 0) : null;
-            canvas.DrawLine(px + 8, cy, px + 38, cy, linePaint);
-            canvas.DrawText(lbl, px + 46, cy + 4, lblFont, lblPaint);
+                ? SKPathEffect.CreateDash(new float[] { dash * ctx.Scale, dash / 2 * ctx.Scale }, 0) : null;
+            canvas.DrawLine(px + 8 * ctx.Scale, cy, px + 38 * ctx.Scale, cy, linePaint);
+            canvas.DrawText(lbl, px + 46 * ctx.Scale, cy + 4 * ctx.Scale, ctx.Fs9, lblPaint);
         }
 
         for (int i = 0; i < rightRows.Length; i++)
@@ -892,15 +929,15 @@ public class SkiaImageOverlayService : IImageOverlayService
             var (col, lbl) = rightRows[i];
             float cy = ry + i * rowH + rowH / 2f;
             dotPaint.Color = col.WithAlpha(210);
-            canvas.DrawCircle(px + colW + 14, cy, 5f, dotPaint);
-            canvas.DrawText(lbl, px + colW + 26, cy + 4, lblFont, lblPaint);
+            canvas.DrawCircle(px + colW + 14 * ctx.Scale, cy, 5f * ctx.Scale, dotPaint);
+            canvas.DrawText(lbl, px + colW + 26 * ctx.Scale, cy + 4 * ctx.Scale, ctx.Fs9, lblPaint);
         }
     }
 
     // ══════════════════════════════════════════════════════════════════════════
     // Calibration ruler — repositioned to top-right
     // ══════════════════════════════════════════════════════════════════════════
-    private void DrawCalibrationRuler(SKCanvas canvas, AnalysisSession session, int imgW, int imgH)
+    private void DrawCalibrationRuler(SKCanvas canvas, AnalysisSession session, RenderContext ctx)
     {
         double? ps = (double?)session.XRayImage?.PixelSpacingMm;
         if (ps == null || ps <= 0) return;
@@ -910,8 +947,8 @@ public class SkiaImageOverlayService : IImageOverlayService
         float rulerPx = rulerMm * mmToPx;
 
         // Top-right corner, clear of tracing
-        float x = imgW - rulerPx - 50f;
-        float y = 36f;
+        float x = ctx.Width - rulerPx - 50f * ctx.Scale;
+        float y = 36f * ctx.Scale;
 
         // Background pill
         using var bgPaint = new SKPaint
@@ -920,12 +957,11 @@ public class SkiaImageOverlayService : IImageOverlayService
             Color = new SKColor(10, 12, 25, 180),
         };
         canvas.DrawRoundRect(
-            new SKRoundRect(new SKRect(x - 8, y - 18, x + rulerPx + 60, y + 28), 5f),
+            new SKRoundRect(new SKRect(x - 8 * ctx.Scale, y - 18 * ctx.Scale, x + rulerPx + 60 * ctx.Scale, y + 28 * ctx.Scale), 5f * ctx.Scale),
             bgPaint);
 
-        using var linePaint = new SKPaint { IsAntialias = true, Color = SKColors.White.WithAlpha(240), StrokeWidth = 2.0f };
-        using var tickPaint = new SKPaint { IsAntialias = true, Color = SKColors.White.WithAlpha(255), StrokeWidth = 1.0f };
-        using var lblFont = new SKFont(SKTypeface.Default, _fs9) { Embolden = true };
+        using var linePaint = new SKPaint { IsAntialias = true, Color = SKColors.White.WithAlpha(240), StrokeWidth = 2.0f * ctx.Scale };
+        using var tickPaint = new SKPaint { IsAntialias = true, Color = SKColors.White.WithAlpha(255), StrokeWidth = 1.0f * ctx.Scale };
         using var lblPaint = new SKPaint { IsAntialias = true, Color = SKColors.White };
 
         canvas.DrawLine(x, y, x + rulerPx, y, linePaint);
@@ -933,14 +969,14 @@ public class SkiaImageOverlayService : IImageOverlayService
         for (int i = 0; i <= (int)rulerMm; i++)
         {
             float tx = x + i * mmToPx;
-            float th = i % 10 == 0 ? 12f : i % 5 == 0 ? 8f : 4f;
+            float th = (i % 10 == 0 ? 12f : i % 5 == 0 ? 8f : 4f) * ctx.Scale;
             canvas.DrawLine(tx, y, tx, y + th, tickPaint);
         }
 
         for (int i = 0; i <= (int)rulerMm; i += 10)
-            canvas.DrawText($"{i}", x + i * mmToPx - 4, y + 20, lblFont, lblPaint);
+            canvas.DrawText($"{i}", x + i * mmToPx - 4 * ctx.Scale, y + 20 * ctx.Scale, ctx.Fs9, lblPaint);
 
-        canvas.DrawText("mm", x + rulerPx + 6, y + 5, lblFont, lblPaint);
+        canvas.DrawText("mm", x + rulerPx + 6 * ctx.Scale, y + 5 * ctx.Scale, ctx.Fs9, lblPaint);
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -959,11 +995,11 @@ public class SkiaImageOverlayService : IImageOverlayService
     }
 
     /// <summary>Pill-shaped label with opaque dark background and coloured text.</summary>
-    private void DrawPillLabel(SKCanvas canvas, float x, float y, string text, SKColor color, float fontSize)
+    private void DrawPillLabel(SKCanvas canvas, float x, float y, string text, SKColor color, SKFont font)
     {
-        using var font = new SKFont(SKTypeface.Default, fontSize) { Embolden = true };
         float tw = font.MeasureText(text);
-        float pad = 5f;
+        float fontSize = font.Size;
+        float pad = 5f * (fontSize / 11f); // scaled padding
 
         using var bgPaint = new SKPaint
         {
@@ -971,7 +1007,7 @@ public class SkiaImageOverlayService : IImageOverlayService
             Color = new SKColor(0, 0, 0, 175),
         };
         canvas.DrawRoundRect(
-            new SKRoundRect(new SKRect(x - pad, y - fontSize, x + tw + pad, y + pad), 4f),
+            new SKRoundRect(new SKRect(x - pad, y - fontSize, x + tw + pad, y + pad), 4f * (fontSize / 11f)),
             bgPaint);
 
         using var txtPaint = new SKPaint { IsAntialias = true, Color = color };
@@ -979,9 +1015,8 @@ public class SkiaImageOverlayService : IImageOverlayService
     }
 
     /// <summary>Plain text with a dark drop-shadow for legibility on X-ray backgrounds.</summary>
-    private void DrawShadowedLabel(SKCanvas canvas, float x, float y, string text, SKColor color, float fontSize)
+    private void DrawShadowedLabel(SKCanvas canvas, float x, float y, string text, SKColor color, SKFont font)
     {
-        using var font = new SKFont(SKTypeface.Default, fontSize) { Embolden = true };
         using var shadow = new SKPaint { IsAntialias = true, Color = new SKColor(0, 0, 0, 160) };
         using var fg = new SKPaint { IsAntialias = true, Color = color };
         canvas.DrawText(text, x + 1, y + 1, font, shadow);
@@ -989,16 +1024,28 @@ public class SkiaImageOverlayService : IImageOverlayService
     }
 
     /// <summary>Dashed leader line between a label anchor and a landmark point.</summary>
-    private void DrawLeaderLine(SKCanvas canvas, float lx, float ly, float px, float py, SKColor color)
+    private void DrawLeaderLine(SKCanvas canvas, float lx, float ly, float px, float py, SKColor color, RenderContext ctx)
     {
         using var paint = new SKPaint
         {
             IsAntialias = true,
             Color = color,
-            StrokeWidth = 0.8f,
+            StrokeWidth = 0.8f * ctx.Scale,
             Style = SKPaintStyle.Stroke,
-            PathEffect = SKPathEffect.CreateDash(new float[] { 5, 4 }, 0),
+            PathEffect = SKPathEffect.CreateDash(new float[] { 5 * ctx.Scale, 4 * ctx.Scale }, 0),
         };
         canvas.DrawLine(lx, ly, px, py, paint);
+    }
+
+    /// <summary>Safely extracts a pixel-space point from a landmark code.</summary>
+    private static SKPoint? GetPoint(string code, RenderContext ctx)
+    {
+        if (ctx.Landmarks.TryGetValue(code, out var p) && p.XMm.HasValue && p.YMm.HasValue)
+        {
+            return new SKPoint(
+                (float)(p.XMm.Value * (decimal)ctx.Width),
+                (float)(p.YMm.Value * (decimal)ctx.Height));
+        }
+        return null;
     }
 }

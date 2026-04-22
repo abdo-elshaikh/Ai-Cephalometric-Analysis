@@ -14,7 +14,6 @@ public class Patient
     public string? Email { get; set; }
     public string? MedicalRecordNo { get; set; }
     public string? Notes { get; set; }
-    public bool IsDeleted { get; set; } = false;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public string? ContactNumber { get; set; }
     public DateTime UploadedAt { get; set; } = DateTime.UtcNow;

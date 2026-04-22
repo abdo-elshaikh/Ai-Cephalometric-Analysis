@@ -53,7 +53,7 @@ public class PatientController : ControllerBase
         return result.IsSuccess ? Ok(result.Data) : StatusCode(result.StatusCode, new { error = result.Error });
     }
 
-    /// <summary>Soft-delete a patient (admin or owner only)</summary>
+    /// <summary>Hard-delete a patient and all associated data (admin or owner only)</summary>
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> DeletePatient(Guid id, CancellationToken ct)
     {
