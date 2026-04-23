@@ -403,9 +403,6 @@ namespace CephAnalysis.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("boolean");
-
                     b.Property<string>("LastName")
                         .IsRequired()
                         .HasMaxLength(500)
@@ -433,8 +430,7 @@ namespace CephAnalysis.Infrastructure.Migrations
                     b.HasIndex("DoctorId");
 
                     b.HasIndex("MedicalRecordNo")
-                        .IsUnique()
-                        .HasFilter("\"MedicalRecordNo\" IS NOT NULL");
+                        .IsUnique();
 
                     b.ToTable("Patients");
                 });

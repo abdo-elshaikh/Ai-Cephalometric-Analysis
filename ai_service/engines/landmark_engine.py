@@ -418,21 +418,25 @@ def infer(
         base_landmarks = _make_fallback_landmarks(orig_W, orig_H)
         _apply_model_outputs_to_landmarks(base_landmarks, outputs, orig_W, orig_H)
 
-        # Pass B: mirrored inference (test-time augmentation)
-        flipped = np.ascontiguousarray(np.fliplr(img_np))
-        outputs_m = run_forward(flipped)
-        mirrored_landmarks = _make_fallback_landmarks(orig_W, orig_H)
-        _apply_model_outputs_to_landmarks(mirrored_landmarks, outputs_m, orig_W, orig_H)
-        _mirror_landmarks_x(mirrored_landmarks, orig_W)
-
         base_ok = _is_expected_orientation(base_landmarks)
-        mirror_ok = _is_expected_orientation(mirrored_landmarks)
+        # Mirrored inference improves robustness, but on CPU it doubles latency.
+        # The default deployment path uses CPU, so keep the faster single pass there.
+        if str(_device).startswith("cuda"):
+            flipped = np.ascontiguousarray(np.fliplr(img_np))
+            outputs_m = run_forward(flipped)
+            mirrored_landmarks = _make_fallback_landmarks(orig_W, orig_H)
+            _apply_model_outputs_to_landmarks(mirrored_landmarks, outputs_m, orig_W, orig_H)
+            _mirror_landmarks_x(mirrored_landmarks, orig_W)
 
-        if not base_ok and mirror_ok:
-            logger.info("S–N orientation mismatch in base pass; selecting mirrored pass.")
-            landmarks = mirrored_landmarks
-        elif base_ok and mirror_ok:
-            landmarks = _merge_landmarks(base_landmarks, mirrored_landmarks, orig_W, orig_H)
+            mirror_ok = _is_expected_orientation(mirrored_landmarks)
+
+            if not base_ok and mirror_ok:
+                logger.info("S–N orientation mismatch in base pass; selecting mirrored pass.")
+                landmarks = mirrored_landmarks
+            elif base_ok and mirror_ok:
+                landmarks = _merge_landmarks(base_landmarks, mirrored_landmarks, orig_W, orig_H)
+            else:
+                landmarks = base_landmarks
         else:
             landmarks = base_landmarks
 

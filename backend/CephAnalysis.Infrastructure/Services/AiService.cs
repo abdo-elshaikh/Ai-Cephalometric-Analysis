@@ -13,6 +13,7 @@ public class AiService : IAiService
 {
     private readonly HttpClient _http;
     private readonly string _serviceKey;
+    private readonly string _baseUrl;
     private static readonly JsonSerializerOptions _jsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
@@ -22,6 +23,7 @@ public class AiService : IAiService
     public AiService(HttpClient http, IConfiguration configuration)
     {
         _http = http;
+        _baseUrl = http.BaseAddress?.ToString().TrimEnd('/') ?? configuration["AiService:BaseUrl"] ?? "http://localhost:8000";
         _serviceKey = configuration["AiService:ServiceKey"] ?? "dev-service-key"; 
     }
 
@@ -62,6 +64,24 @@ public class AiService : IAiService
             ));
 
             return Result<IEnumerable<LandmarkDto>>.Success(dtos);
+        }
+        catch (TaskCanceledException) when (!ct.IsCancellationRequested)
+        {
+            return Result<IEnumerable<LandmarkDto>>.Failure(
+                "AI Service request timed out while detecting landmarks.",
+                504);
+        }
+        catch (HttpRequestException ex)
+        {
+            return Result<IEnumerable<LandmarkDto>>.Failure(
+                $"AI Service is unreachable at {_baseUrl} ({ex.Message}).",
+                503);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            return Result<IEnumerable<LandmarkDto>>.Failure(
+                "Landmark detection was canceled.",
+                499);
         }
         catch (Exception ex)
         {
@@ -106,6 +126,24 @@ public class AiService : IAiService
 
             return Result<IEnumerable<MeasurementDto>>.Success(dtos);
         }
+        catch (TaskCanceledException) when (!ct.IsCancellationRequested)
+        {
+            return Result<IEnumerable<MeasurementDto>>.Failure(
+                "AI Measurement request timed out.",
+                504);
+        }
+        catch (HttpRequestException ex)
+        {
+            return Result<IEnumerable<MeasurementDto>>.Failure(
+                $"AI Service is unreachable at {_baseUrl} ({ex.Message}).",
+                503);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            return Result<IEnumerable<MeasurementDto>>.Failure(
+                "Measurement calculation was canceled.",
+                499);
+        }
         catch (Exception ex)
         {
             return Result<IEnumerable<MeasurementDto>>.Failure($"Measurement service error: {ex.Message}", 500);
@@ -138,6 +176,20 @@ public class AiService : IAiService
                 result.OverjetMm, result.OverjetClassification, result.OverbitesMm, result.OverbiteClassification,
                 result.ConfidenceScore, result.Summary, result.Warnings));
         }
+        catch (TaskCanceledException) when (!ct.IsCancellationRequested)
+        {
+            return Result<DiagnosisDto>.Failure("AI Diagnosis request timed out.", 504);
+        }
+        catch (HttpRequestException ex)
+        {
+            return Result<DiagnosisDto>.Failure(
+                $"AI Service is unreachable at {_baseUrl} ({ex.Message}).",
+                503);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            return Result<DiagnosisDto>.Failure("Diagnosis classification was canceled.", 499);
+        }
         catch (Exception ex) { return Result<DiagnosisDto>.Failure($"Diagnosis error: {ex.Message}", 500); }
     }
 
@@ -161,6 +213,20 @@ public class AiService : IAiService
             var result = JsonSerializer.Deserialize<TreatmentResponseModel>(content, _jsonOptions);
 
             return Result<IEnumerable<TreatmentDto>>.Success(result?.Treatments ?? new List<TreatmentDto>());
+        }
+        catch (TaskCanceledException) when (!ct.IsCancellationRequested)
+        {
+            return Result<IEnumerable<TreatmentDto>>.Failure("AI Treatment request timed out.", 504);
+        }
+        catch (HttpRequestException ex)
+        {
+            return Result<IEnumerable<TreatmentDto>>.Failure(
+                $"AI Service is unreachable at {_baseUrl} ({ex.Message}).",
+                503);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            return Result<IEnumerable<TreatmentDto>>.Failure("Treatment suggestion was canceled.", 499);
         }
         catch (Exception ex) { return Result<IEnumerable<TreatmentDto>>.Failure($"Treatment error: {ex.Message}", 500); }
     }
@@ -228,6 +294,20 @@ public class AiService : IAiService
                 result.RenderMs);
 
             return Result<AiOverlayResponse>.Success(domainResult);
+        }
+        catch (TaskCanceledException) when (!ct.IsCancellationRequested)
+        {
+            return Result<AiOverlayResponse>.Failure("AI overlay request timed out.", 504);
+        }
+        catch (HttpRequestException ex)
+        {
+            return Result<AiOverlayResponse>.Failure(
+                $"AI Service is unreachable at {_baseUrl} ({ex.Message}).",
+                503);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            return Result<AiOverlayResponse>.Failure("Overlay generation was canceled.", 499);
         }
         catch (Exception ex)
         {

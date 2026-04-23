@@ -51,8 +51,8 @@ public static class DependencyInjection
         {
             var baseUrl = configuration["AiService:BaseUrl"] ?? "http://localhost:8000";
             client.BaseAddress = new Uri(baseUrl);
-            // 60s: overlay render generates 5 JPEG images, typically 3-8s on CPU
-            client.Timeout = TimeSpan.FromSeconds(60);
+            // Match the front-end abort window so landmark detection fails fast and consistently.
+            client.Timeout = TimeSpan.FromSeconds(120);
         });
 
         // ── Report Generator ──────────────────────────────────────────────
