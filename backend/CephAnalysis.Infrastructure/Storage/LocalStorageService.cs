@@ -32,8 +32,10 @@ public class LocalStorageService : IStorageService
 
     public Task<string> GetSignedUrlAsync(string storageUrl, TimeSpan expiry, CancellationToken ct = default)
     {
-        // For local storage, just return the path as a file URL
-        return Task.FromResult($"/files/{Path.GetFileName(storageUrl)}");
+        // storageUrl is already like "uploads/2026/04/guid_name.jpg"
+        // Ensure it starts with a leading slash for the frontend
+        var url = storageUrl.StartsWith("/") ? storageUrl : $"/{storageUrl}";
+        return Task.FromResult(url);
     }
 
     public Task DeleteFileAsync(string storageUrl, CancellationToken ct = default)

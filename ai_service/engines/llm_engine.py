@@ -103,7 +103,7 @@ def _extract_json(raw: str) -> Any:
     raise ValueError(f"Could not extract JSON from LLM response: {raw[:200]}")
 
 
-async def _gemini_generate(prompt: str, timeout: float = 15.0) -> str:
+async def _gemini_generate(prompt: str, timeout: float = 15.0, image_base64: Optional[str] = None) -> str:
     """
     Run a Gemini generation call in a thread-pool executor (Gemini SDK is synchronous).
     Raises asyncio.TimeoutError when the call exceeds `timeout` seconds.
@@ -113,9 +113,22 @@ async def _gemini_generate(prompt: str, timeout: float = 15.0) -> str:
         raise RuntimeError("Gemini API key not configured.")
 
     def _sync_call() -> str:
+        contents = []
+        if image_base64:
+            import base64
+            from google.genai import types
+            try:
+                b64_data = image_base64.split(",")[-1] if "," in image_base64 else image_base64
+                image_bytes = base64.b64decode(b64_data)
+                contents.append(types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"))
+            except Exception as e:
+                logger.warning(f"Failed to decode image for Gemini: {e}")
+        
+        contents.append(prompt)
+        
         response = client.models.generate_content(
             model=settings.gemini_model,
-            contents=prompt,
+            contents=contents,
         )
         return response.text.strip()
 
@@ -313,6 +326,7 @@ async def generate_generative_treatments(
     measurements: dict[str, float],
     soft_tissue_profile: str,
     patient_age: float | None = None,
+    image_base64: str | None = None,
 ) -> list[dict] | None:
     """
     Generate 3 evidence-based treatment plans from an LLM.
@@ -372,11 +386,21 @@ async def generate_generative_treatments(
             response_format = (
                 {"type": "json_object"} if _supports_json_mode(settings.openai_model) else None
             )
+            
+            user_content = []
+            user_content.append({"type": "text", "text": context})
+            if image_base64:
+                b64_data = image_base64.split(",")[-1] if "," in image_base64 else image_base64
+                user_content.append({
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/jpeg;base64,{b64_data}"}
+                })
+                
             resp = await openai_client.chat.completions.create(
                 model=settings.openai_model,
                 messages=[
                     {"role": "system", "content": system_prompt},
-                    {"role": "user",   "content": context},
+                    {"role": "user",   "content": user_content},
                 ],
                 response_format=response_format,
                 temperature=0.5,
@@ -394,7 +418,7 @@ async def generate_generative_treatments(
     # ── Provider 2: Gemini ────────────────────────────────────────────────────
     try:
         full_prompt = f"{system_prompt}\n\nClinical Context:\n{context}"
-        raw = await _gemini_generate(full_prompt, timeout=22)
+        raw = await _gemini_generate(full_prompt, timeout=22, image_base64=image_base64)
         plans = _parse_treatments(raw)
         if plans:
             logger.info(f"Gemini generated {len(plans)} treatment plans.")
@@ -402,5 +426,111 @@ async def generate_generative_treatments(
         logger.warning("Gemini returned unparseable treatment JSON.")
     except Exception as e:
         logger.error(f"Gemini generative treatments failed: {e}")
+
+    return None
+
+
+# ── Explainable AI (XAI) — Decision Transparency ─────────────────────────────
+
+_XAI_JSON_SCHEMA = (
+    "Return a JSON object with exactly these keys: "
+    "\"decision_chain\" (array of objects each with \"step\" (int), \"factor\" (str), \"evidence\" (str), \"impact\" (str 'High'|'Medium'|'Low')), "
+    "\"key_drivers\" (array of strings, max 3), "
+    "\"uncertainty_factors\" (array of strings), "
+    "\"clinical_confidence\" (str 'High'|'Moderate'|'Low'), "
+    "\"alternative_interpretation\" (str). "
+    "Return ONLY valid JSON — no markdown, no preamble."
+)
+
+
+async def generate_xai_explanation(
+    skeletal_class: str,
+    skeletal_probabilities: dict[str, float],
+    vertical_pattern: str,
+    measurements: dict[str, float],
+    treatment_name: str,
+    predicted_outcomes: dict[str, float],
+    uncertainty_landmarks: list[str] | None = None,
+) -> dict | None:
+    """
+    Explainable AI: Generate a structured reasoning chain that transparently
+    explains HOW the AI arrived at its diagnosis and treatment recommendation.
+
+    Returns a structured dict with decision_chain, key_drivers, and uncertainty_factors
+    so the frontend can render a visual audit trail of the clinical reasoning.
+    """
+    if not _llm_available():
+        return None
+
+    deviation_table = _build_deviation_table(measurements)
+
+    prob_text = ", ".join(
+        f"{cls.replace('Class', 'Class ')}: {round(p * 100)}%"
+        for cls, p in sorted(skeletal_probabilities.items(), key=lambda x: -x[1])
+    )
+
+    outcome_text = ", ".join(
+        f"{k}: {v:.1f}" for k, v in predicted_outcomes.items()
+    ) if predicted_outcomes else "No simulation data"
+
+    low_conf_text = (
+        f"Landmark uncertainty detected at: {', '.join(uncertainty_landmarks)}."
+        if uncertainty_landmarks else "No landmark uncertainty flags."
+    )
+
+    system_prompt = (
+        "You are an Explainable AI system for an orthodontic clinical decision support tool. "
+        "Your task is to produce a transparent, structured reasoning chain explaining exactly "
+        "why the AI system reached a specific diagnosis and treatment recommendation. "
+        "Be precise: reference the actual measurement values and norms. "
+        f"{_XAI_JSON_SCHEMA}"
+    )
+
+    user_prompt = (
+        f"AI DECISION AUDIT REQUEST\n\n"
+        f"Diagnosis:\n"
+        f"  Skeletal Class Selected: {skeletal_class}\n"
+        f"  Skeletal Probability Distribution: {prob_text}\n"
+        f"  Vertical Pattern: {vertical_pattern}\n\n"
+        f"Recommended Treatment: {treatment_name}\n"
+        f"Predicted Cephalometric Outcomes: {outcome_text}\n\n"
+        f"Landmark Confidence Status: {low_conf_text}\n\n"
+        f"Cephalometric Measurements (with norm deviations):\n{deviation_table}\n\n"
+        f"Generate the structured XAI reasoning chain:"
+    )
+
+    # ── Provider 1: OpenAI ────────────────────────────────────────────────────
+    if openai_client:
+        try:
+            response_format = (
+                {"type": "json_object"} if _supports_json_mode(settings.openai_model) else None
+            )
+            resp = await openai_client.chat.completions.create(
+                model=settings.openai_model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user",   "content": user_prompt},
+                ],
+                response_format=response_format,
+                temperature=0.2,
+                max_tokens=800,
+                timeout=16,
+            )
+            raw = resp.choices[0].message.content.strip()
+            data = _extract_json(raw)
+            logger.info("OpenAI XAI explanation OK")
+            return data
+        except Exception as e:
+            logger.warning(f"OpenAI XAI explanation failed: {e}")
+
+    # ── Provider 2: Gemini ────────────────────────────────────────────────────
+    try:
+        full_prompt = f"{system_prompt}\n\n{user_prompt}"
+        raw = await _gemini_generate(full_prompt, timeout=20)
+        data = _extract_json(raw)
+        logger.info("Gemini XAI explanation OK")
+        return data
+    except Exception as e:
+        logger.error(f"Gemini XAI explanation failed: {e}")
 
     return None

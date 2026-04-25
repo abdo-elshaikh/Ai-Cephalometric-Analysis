@@ -38,6 +38,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from PIL import Image, ImageDraw, ImageFont
+import cv2
 
 matplotlib.use("Agg")
 
@@ -51,11 +52,23 @@ C_ORANGE  = (234,  88,  12)
 C_RED     = (220,  38,  38)
 C_BLUE    = ( 37,  99, 235)
 
-ANAT_COLOR      = (22,  163,  74)
-SKELETAL_COLOR  = (147,  51, 234)
-DENTAL_COLOR    = ( 75,  85,  99)
+ANAT_COLOR      = (200, 200, 200)
+SKELETAL_COLOR  = C_RED
+DENTAL_COLOR    = C_BLUE
 C_TRACING       = (  0,   0,   0)
-SOFT_TISSUE_TRACE = (153, 27, 27)
+SOFT_TISSUE_TRACE = C_GREEN
+
+def _apply_clahe_to_pil(img: Image.Image) -> Image.Image:
+    """Enhance X-ray visibility using CLAHE so landmarks pop."""
+    cv_img = np.array(img)
+    if len(cv_img.shape) == 3:
+        gray = cv2.cvtColor(cv_img, cv2.COLOR_RGB2GRAY)
+    else:
+        gray = cv_img
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    enhanced = clahe.apply(gray)
+    enhanced_rgb = cv2.cvtColor(enhanced, cv2.COLOR_GRAY2RGB)
+    return Image.fromarray(enhanced_rgb)
 
 C_WHITE = (255, 255, 255)
 C_BLACK = (  0,   0,   0)
@@ -549,7 +562,7 @@ def _draw_tweed_lines(draw, lms, sx, sy):
 # ─────────────────────────────────────────────
 def _draw_soft_tissue(draw, lms, sx, sy, alpha=200, color=None):
     if color is None:
-        SOFT = (*ANAT_COLOR, alpha)
+        SOFT = (*SOFT_TISSUE_TRACE, alpha)
     elif len(color) == 3:
         SOFT = (*color, alpha)
     else:
@@ -572,15 +585,16 @@ def _draw_soft_tissue(draw, lms, sx, sy, alpha=200, color=None):
     soft_chain = ["SoftN", "GLA", "Prn", "Sn", "Ls", "Li", "SoftPog", "SoftGn"]
     pts = [pt(n) for n in soft_chain if pt(n)]
     if len(pts) >= 3:
-        _scipy_spline(draw, pts, fill=(153, 27, 27, 220), width=3)
+        _scipy_spline(draw, pts, fill=SOFT, width=3)
     elif len(pts) == 2:
-        draw.line(pts, fill=(153, 27, 27, 220), width=3)
+        draw.line(pts, fill=SOFT, width=3)
 
 
 # ─────────────────────────────────────────────
 #  Incisor / molar silhouettes
 # ─────────────────────────────────────────────
-def _draw_incisor_upper(draw, apex, tip, lms, sx, sy, color=(22, 163, 74, 230)):
+def _draw_incisor_upper(draw, apex, tip, lms, sx, sy, color=None):
+    if color is None: color = (*DENTAL_COLOR, 230)
     if apex is None or tip is None:
         return
     dx, dy = apex[0]-tip[0], apex[1]-tip[1]
@@ -616,7 +630,8 @@ def _draw_incisor_upper(draw, apex, tip, lms, sx, sy, color=(22, 163, 74, 230)):
     draw.polygon(pts, outline=color, fill=(*color[:3], 20))
 
 
-def _draw_incisor_lower(draw, apex, tip, lms, sx, sy, color=(22, 163, 174, 230)):
+def _draw_incisor_lower(draw, apex, tip, lms, sx, sy, color=None):
+    if color is None: color = (*DENTAL_COLOR, 230)
     if apex is None or tip is None:
         return
     dx, dy = apex[0]-tip[0], apex[1]-tip[1]
@@ -637,7 +652,8 @@ def _draw_incisor_lower(draw, apex, tip, lms, sx, sy, color=(22, 163, 174, 230))
     draw.polygon(pts, outline=color, fill=None)
 
 
-def _draw_molar(draw, lms, sx, sy, which="upper", color=(22, 163, 74, 230)):
+def _draw_molar(draw, lms, sx, sy, which="upper", color=None):
+    if color is None: color = (*DENTAL_COLOR, 230)
     if which == "upper":
         cusp = _lm(lms, "Cusp of upper first molar", "Second point on upper molar")
     else:
@@ -955,6 +971,10 @@ def render_xray_with_tracing(req: OverlayRequest,
     + confidence-aware landmark dots + abbreviated landmark labels.
     """
     base_img = Image.open(io.BytesIO(req.image_bytes)).convert("RGB")
+    
+    # 1. Apply CLAHE Pre-processing to boost X-ray visibility
+    base_img = _apply_clahe_to_pil(base_img)
+    
     orig_w, orig_h = base_img.size
     base_img = base_img.resize((canvas_w, canvas_h), Image.LANCZOS)
     sx, sy   = canvas_w / orig_w, canvas_h / orig_h
@@ -1009,6 +1029,7 @@ def render_xray_with_measurements(req: OverlayRequest,
     X-ray + anatomical tracing + color-coded measurement labels.
     """
     base_img = Image.open(io.BytesIO(req.image_bytes)).convert("RGB")
+    base_img = _apply_clahe_to_pil(base_img)
     orig_w, orig_h = base_img.size
     base_img = base_img.resize((canvas_w, canvas_h), Image.LANCZOS)
     sx, sy   = canvas_w / orig_w, canvas_h / orig_h
@@ -1140,6 +1161,7 @@ def render_tracing_only(req: OverlayRequest,
       • Color-coded measurement annotations
     """
     orig_img = Image.open(io.BytesIO(req.image_bytes)).convert("RGB")
+    orig_img = _apply_clahe_to_pil(orig_img)
     orig_w, orig_h = orig_img.size
     sx, sy = canvas_w / orig_w, canvas_h / orig_h
 

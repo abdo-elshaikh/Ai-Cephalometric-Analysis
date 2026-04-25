@@ -9,7 +9,7 @@ public interface IAiService
     Task<Result<IEnumerable<LandmarkDto>>> DetectLandmarksAsync(Guid imageId, Stream imageStream, decimal pixelSpacingMm, CancellationToken ct);
     Task<Result<IEnumerable<MeasurementDto>>> CalculateMeasurementsAsync(Guid sessionId, Dictionary<string, Point2D> landmarks, decimal pixelSpacingMm, CancellationToken ct);
     Task<Result<DiagnosisDto>> ClassifyDiagnosisAsync(Guid sessionId, Dictionary<string, double> measurements, CancellationToken ct);
-    Task<Result<IEnumerable<TreatmentDto>>> SuggestTreatmentAsync(Guid sessionId, string skeletalClass, string verticalPattern, Dictionary<string, double> measurements, double patientAge, CancellationToken ct);
+    Task<Result<IEnumerable<TreatmentDto>>> SuggestTreatmentAsync(Guid sessionId, string skeletalClass, string verticalPattern, Dictionary<string, double> measurements, double patientAge, CancellationToken ct, string? imageBase64 = null);
 
     /// <summary>
     /// Calls the Python AI service to generate all 5 clinical overlay images
@@ -24,6 +24,17 @@ public interface IAiService
         string? dateLabel,
         decimal? pixelSpacingMm,
         IEnumerable<string>? outputs,
+        CancellationToken ct);
+    
+    Task<Result<XaiResponseDto>> ExplainDecisionAsync(
+        Guid sessionId,
+        string skeletalClass,
+        Dictionary<string, double> skeletalProbabilities,
+        string verticalPattern,
+        Dictionary<string, double> measurements,
+        string treatmentName,
+        Dictionary<string, double> predictedOutcomes,
+        IEnumerable<string>? uncertaintyLandmarks,
         CancellationToken ct);
     
     Task<Result<object>> GetAnalysisNormsAsync(CancellationToken ct);
@@ -82,7 +93,23 @@ public record TreatmentDto(
     double ConfidenceScore,
     string Source,
     bool IsPrimary,
-    string? EvidenceReference = null
+    string? EvidenceReference = null,
+    Dictionary<string, double>? PredictedOutcomes = null
+);
+
+public record XAIDecisionStep(
+    int Step,
+    string Factor,
+    string Evidence,
+    string Impact
+);
+
+public record XaiResponseDto(
+    List<XAIDecisionStep> DecisionChain,
+    List<string> KeyDrivers,
+    List<string> UncertaintyFactors,
+    string ClinicalConfidence,
+    string AlternativeInterpretation
 );
 
 // ─── Overlay DTOs ────────────────────────────────────────────────────────────

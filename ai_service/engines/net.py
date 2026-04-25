@@ -1,6 +1,7 @@
 import glob
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import numpy as np
 from PIL import Image
 from torch.utils.data import Dataset
@@ -133,14 +134,25 @@ class UNet(nn.Module):
         self.up4   = Up(128, 64)
         self.outc  = OutConv(64, n_classes)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, apply_dropout: bool = False) -> torch.Tensor:
         x1 = self.inc(x)
         x2 = self.down1(x1)
         x3 = self.down2(x2)
         x4 = self.down3(x3)
         x5 = self.down4(x4)
+        
+        # Bayesian CNN: Monte Carlo Dropout at deep feature representations
+        if apply_dropout:
+            x5 = F.dropout2d(x5, p=0.2, training=True)
+            
         x  = self.up1(x5, x4)
+        if apply_dropout:
+            x = F.dropout2d(x, p=0.15, training=True)
+            
         x  = self.up2(x, x3)
+        if apply_dropout:
+            x = F.dropout2d(x, p=0.1, training=True)
+            
         x  = self.up3(x, x2)
         x  = self.up4(x, x1)
         return self.outc(x)

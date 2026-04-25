@@ -221,4 +221,14 @@ public class AnalysisController : ControllerBase
             ? Ok(result.Data)
             : StatusCode(result.StatusCode, new { error = result.Error });
     }
+
+    /// <summary>Generate an XAI explanation for a specific treatment plan decision</summary>
+    [HttpPost("sessions/{sessionId:guid}/explain-decision")]
+    public async Task<IActionResult> ExplainDecision(Guid sessionId, [FromBody] ExplainDecisionRequest request, CancellationToken ct)
+    {
+        var result = await _mediator.Send(new ExplainDecisionCommand(sessionId, request, CurrentUserId), ct);
+        return result.IsSuccess 
+            ? Ok(result.Data)
+            : StatusCode(result.StatusCode, new { error = result.Error });
+    }
 }

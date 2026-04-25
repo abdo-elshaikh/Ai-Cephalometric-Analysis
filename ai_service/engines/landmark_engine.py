@@ -4,6 +4,7 @@ import io
 import torch
 import numpy as np
 from PIL import Image
+import cv2
 from typing import Dict, Optional
 
 from torchvision import transforms
@@ -148,6 +149,12 @@ class ScientificRefiner:
 
         has_scale = pixel_spacing_mm is not None and pixel_spacing_mm > 0
         px_per_mm: float = (1.0 / pixel_spacing_mm) if has_scale else 0.0
+
+        # 0. Penalize known hard landmarks to favor ensemble/refiner stability
+        hard_landmarks = {"Go", "Po", "Or", "PNS", "Ar"}
+        for k in hard_landmarks:
+            if k in landmarks:
+                landmarks[k] = _update_confidence(landmarks[k], 0.90)
 
         # 1. Orientation check: Sella should be posterior (smaller x) to Nasion.
         if "S" in landmarks and "N" in landmarks:
@@ -294,6 +301,7 @@ def _apply_model_outputs_to_landmarks(
         pred_x = argsoftmax(flat, x_map, beta=1e-3)
         pred = torch.cat([pred_y, pred_x], dim=1).detach().cpu().numpy()
         max_logits, _, _ = get_heatmap_stats(outputs)
+        heatmaps_np = outputs[0].detach().cpu().numpy()
 
     for i, name in enumerate(LANDMARK_NAMES):
         raw_upper = str(name).strip().upper()
@@ -302,10 +310,31 @@ def _apply_model_outputs_to_landmarks(
             float(torch.sigmoid(torch.clamp(max_logits[i], -24.0, 24.0)).item()),
             4,
         )
+        
+        # Local sub-pixel refinement
+        cy, cx = int(pred[i][0]), int(pred[i][1])
+        r = 8  # window radius
+        y0, y1 = max(0, cy - r), min(H, cy + r + 1)
+        x0, x1 = max(0, cx - r), min(W, cx + r + 1)
+        
+        window = heatmaps_np[i, y0:y1, x0:x1]
+        
+        if window.size > 0:
+            window = window - np.min(window)
+            window_sum = np.sum(window)
+            if window_sum > 0:
+                y_grid, x_grid = np.mgrid[y0:y1, x0:x1]
+                fine_y = np.sum(y_grid * window) / window_sum
+                fine_x = np.sum(x_grid * window) / window_sum
+            else:
+                fine_y, fine_x = float(cy), float(cx)
+        else:
+            fine_y, fine_x = float(cy), float(cx)
+
         landmarks[canonical] = _clamp_to_image(
             LandmarkPoint(
-                x=float(pred[i][1] * scale_x),
-                y=float(pred[i][0] * scale_y),
+                x=float(fine_x * scale_x),
+                y=float(fine_y * scale_y),
                 confidence=conf,
             ),
             orig_w,
@@ -327,12 +356,11 @@ def _merge_landmarks(
     orig_h: int,
 ) -> Dict[str, LandmarkPoint]:
     """
-    Confidence-weighted fusion of two landmark predictions.
-
-    This acts as lightweight test-time augmentation and improves stability of
-    uncertain points without requiring model retraining.
+    Confidence-weighted fusion with epistemic uncertainty penalty.
     """
     merged: Dict[str, LandmarkPoint] = {}
+    diag = math.hypot(orig_w, orig_h) or 1000.0
+
     for key in set(primary.keys()) | set(secondary.keys()):
         p1 = primary.get(key)
         p2 = secondary.get(key)
@@ -349,10 +377,19 @@ def _merge_landmarks(
         c2 = max(float(p2.confidence or 0.5), 0.05)
         total = c1 + c2
 
+        # Epistemic Uncertainty: Spatial variance penalty
+        dist = math.hypot(p1.x - p2.x, p1.y - p2.y)
+        dist_ratio = min(dist / diag, 1.0)
+        # Heavy penalty if predictions jump around between passes
+        variance_penalty = max(0.4, 1.0 - (dist_ratio * 15.0)) 
+        
+        base_conf = max(c1, c2) * 0.99
+        final_conf = min(1.0, round(base_conf * variance_penalty, 4))
+
         fused = LandmarkPoint(
             x=((p1.x * c1) + (p2.x * c2)) / total,
             y=((p1.y * c1) + (p2.y * c2)) / total,
-            confidence=min(1.0, round(max(c1, c2) * 0.99, 4)),
+            confidence=final_conf,
         )
         merged[key] = _clamp_to_image(fused, orig_w, orig_h)
     return merged
@@ -395,6 +432,10 @@ def infer(
         img_pil = Image.open(io.BytesIO(image_bytes)).convert("L")
         orig_W, orig_H = img_pil.size
         img_np = np.array(img_pil)
+        
+        # Pre-processing: Apply CLAHE to enhance bony structures
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        img_np = clahe.apply(img_np)
     except Exception as e:
         logger.error(f"Failed to decode image: {e}")
         return get_fallback_landmarks(image_bytes)
@@ -406,39 +447,40 @@ def infer(
         return landmarks
 
     try:
-        def run_forward(gray: np.ndarray) -> torch.Tensor:
+        def run_forward(gray: np.ndarray, apply_dropout: bool = False) -> torch.Tensor:
             # Convert numpy to PIL for torchvision transforms
             pil_img = Image.fromarray(gray)
             t = pre_trans(pil_img).unsqueeze(0).to(_device)
             with torch.no_grad():
-                return _model(t)
+                return _model(t, apply_dropout=apply_dropout)
 
-        # Pass A: direct inference
-        outputs = run_forward(img_np)
+        # Pass A: direct inference (deterministic baseline)
+        outputs = run_forward(img_np, apply_dropout=False)
         base_landmarks = _make_fallback_landmarks(orig_W, orig_H)
         _apply_model_outputs_to_landmarks(base_landmarks, outputs, orig_W, orig_H)
 
-        base_ok = _is_expected_orientation(base_landmarks)
-        # Mirrored inference improves robustness, but on CPU it doubles latency.
-        # The default deployment path uses CPU, so keep the faster single pass there.
-        if str(_device).startswith("cuda"):
-            flipped = np.ascontiguousarray(np.fliplr(img_np))
-            outputs_m = run_forward(flipped)
-            mirrored_landmarks = _make_fallback_landmarks(orig_W, orig_H)
-            _apply_model_outputs_to_landmarks(mirrored_landmarks, outputs_m, orig_W, orig_H)
-            _mirror_landmarks_x(mirrored_landmarks, orig_W)
+        # Pass B: horizontal flip (Test-Time Augmentation + MC Dropout)
+        flipped = np.ascontiguousarray(np.fliplr(img_np))
+        outputs_m = run_forward(flipped, apply_dropout=True)
+        mirrored_landmarks = _make_fallback_landmarks(orig_W, orig_H)
+        _apply_model_outputs_to_landmarks(mirrored_landmarks, outputs_m, orig_W, orig_H)
+        _mirror_landmarks_x(mirrored_landmarks, orig_W)
 
-            mirror_ok = _is_expected_orientation(mirrored_landmarks)
+        # Pass C: gamma correction (Test-Time Augmentation + MC Dropout)
+        img_gamma = np.clip(((img_np / 255.0) ** 1.2) * 255.0, 0, 255).astype(np.uint8)
+        outputs_g = run_forward(img_gamma, apply_dropout=True)
+        gamma_landmarks = _make_fallback_landmarks(orig_W, orig_H)
+        _apply_model_outputs_to_landmarks(gamma_landmarks, outputs_g, orig_W, orig_H)
 
-            if not base_ok and mirror_ok:
-                logger.info("S–N orientation mismatch in base pass; selecting mirrored pass.")
-                landmarks = mirrored_landmarks
-            elif base_ok and mirror_ok:
-                landmarks = _merge_landmarks(base_landmarks, mirrored_landmarks, orig_W, orig_H)
-            else:
-                landmarks = base_landmarks
-        else:
-            landmarks = base_landmarks
+        # Pass D: Pure base with MC Dropout
+        outputs_mc = run_forward(img_np, apply_dropout=True)
+        mc_landmarks = _make_fallback_landmarks(orig_W, orig_H)
+        _apply_model_outputs_to_landmarks(mc_landmarks, outputs_mc, orig_W, orig_H)
+
+        # Ensemble fusion with Epistemic Uncertainty Tracking
+        landmarks = _merge_landmarks(base_landmarks, mirrored_landmarks, orig_W, orig_H)
+        landmarks = _merge_landmarks(landmarks, gamma_landmarks, orig_W, orig_H)
+        landmarks = _merge_landmarks(landmarks, mc_landmarks, orig_W, orig_H)
 
         landmarks = ScientificRefiner.refine(
             landmarks, orig_W, orig_H, pixel_spacing_mm=pixel_spacing_mm

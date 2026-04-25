@@ -108,8 +108,13 @@ public record GetStudyImagesQuery(Guid StudyId, string DoctorId) : IRequest<Resu
 public class GetStudyImagesHandler : IRequestHandler<GetStudyImagesQuery, Result<List<XRayImageDto>>>
 {
     private readonly IApplicationDbContext _db;
+    private readonly IStorageService _storage;
 
-    public GetStudyImagesHandler(IApplicationDbContext db) => _db = db;
+    public GetStudyImagesHandler(IApplicationDbContext db, IStorageService storage)
+    {
+        _db = db;
+        _storage = storage;
+    }
 
     public async Task<Result<List<XRayImageDto>>> Handle(GetStudyImagesQuery query, CancellationToken ct)
     {
@@ -127,7 +132,16 @@ public class GetStudyImagesHandler : IRequestHandler<GetStudyImagesQuery, Result
             .Where(i => i.StudyId == query.StudyId)
             .ToListAsync(ct);
 
-        return Result<List<XRayImageDto>>.Success(images.Select(UploadImageHandler.Map).ToList());
+        var dtos = new List<XRayImageDto>();
+        foreach (var img in images)
+        {
+            var dto = UploadImageHandler.Map(img);
+            // Ensure absolute URL
+            var resolvedUrl = await _storage.GetSignedUrlAsync(dto.StorageUrl, TimeSpan.FromHours(1), ct);
+            dtos.Add(dto with { StorageUrl = resolvedUrl });
+        }
+
+        return Result<List<XRayImageDto>>.Success(dtos);
     }
 }
 
@@ -138,7 +152,13 @@ public record GetImageQuery(Guid ImageId, string DoctorId) : IRequest<Result<XRa
 public class GetImageHandler : IRequestHandler<GetImageQuery, Result<XRayImageDto>>
 {
     private readonly IApplicationDbContext _db;
-    public GetImageHandler(IApplicationDbContext db) => _db = db;
+    private readonly IStorageService _storage;
+
+    public GetImageHandler(IApplicationDbContext db, IStorageService storage)
+    {
+        _db = db;
+        _storage = storage;
+    }
 
     public async Task<Result<XRayImageDto>> Handle(GetImageQuery query, CancellationToken ct)
     {
@@ -152,7 +172,9 @@ public class GetImageHandler : IRequestHandler<GetImageQuery, Result<XRayImageDt
         if (image.Study.Patient.DoctorId.ToString() != query.DoctorId)
             return Result<XRayImageDto>.Unauthorized("Not authorized to view this image.");
 
-        return Result<XRayImageDto>.Success(UploadImageHandler.Map(image));
+        var dto = UploadImageHandler.Map(image);
+        var resolvedUrl = await _storage.GetSignedUrlAsync(dto.StorageUrl, TimeSpan.FromHours(1), ct);
+        return Result<XRayImageDto>.Success(dto with { StorageUrl = resolvedUrl });
     }
 }
 
@@ -163,8 +185,13 @@ public record CalibrateImageCommand(Guid ImageId, CalibrateImageRequest Request,
 public class CalibrateImageHandler : IRequestHandler<CalibrateImageCommand, Result<XRayImageDto>>
 {
     private readonly IApplicationDbContext _db;
+    private readonly IStorageService _storage;
 
-    public CalibrateImageHandler(IApplicationDbContext db) => _db = db;
+    public CalibrateImageHandler(IApplicationDbContext db, IStorageService storage)
+    {
+        _db = db;
+        _storage = storage;
+    }
 
     public async Task<Result<XRayImageDto>> Handle(CalibrateImageCommand cmd, CancellationToken ct)
     {
@@ -195,6 +222,8 @@ public class CalibrateImageHandler : IRequestHandler<CalibrateImageCommand, Resu
 
         await _db.SaveChangesAsync(ct);
 
-        return Result<XRayImageDto>.Success(UploadImageHandler.Map(image));
+        var dto = UploadImageHandler.Map(image);
+        var resolvedUrl = await _storage.GetSignedUrlAsync(dto.StorageUrl, TimeSpan.FromHours(1), ct);
+        return Result<XRayImageDto>.Success(dto with { StorageUrl = resolvedUrl });
     }
 }

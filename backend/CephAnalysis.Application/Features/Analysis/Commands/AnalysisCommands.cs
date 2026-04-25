@@ -36,13 +36,25 @@ public record SessionDiagnosisDto(
     decimal? OverjetMm, string? OverjetClassification,
     decimal? OverbitesMm, string? OverbiteClassification,
     decimal? ConfidenceScore, string? SummaryText,
-    IEnumerable<string> Warnings);
+    IEnumerable<string> Warnings,
+    Dictionary<string, double>? SkeletalDifferential = null);
 
 public record SessionTreatmentDto(
     Guid Id, int PlanIndex, string TreatmentType, string TreatmentName,
     string Description, string? Rationale, string? Risks,
     short? EstimatedDurationMonths, decimal? ConfidenceScore,
-    string Source, bool IsPrimary, string? EvidenceReference);
+    string Source, bool IsPrimary, string? EvidenceReference,
+    Dictionary<string, double>? PredictedOutcomes = null);
+
+public record ExplainDecisionRequest(
+    string SkeletalClass,
+    Dictionary<string, double> SkeletalProbabilities,
+    string VerticalPattern,
+    Dictionary<string, double> Measurements,
+    string TreatmentName,
+    Dictionary<string, double> PredictedOutcomes,
+    IEnumerable<string>? UncertaintyLandmarks
+);
 
 public record LandmarkUpdateDto(string LandmarkCode, decimal X, decimal Y);
 
@@ -75,6 +87,8 @@ public record GetAnalysisHistoryQuery(
     DateTime? EndDate,
     string DoctorId,
     int PageSize = 100) : IRequest<Result<IEnumerable<AnalysisHistoryItemDto>>>;
+
+public record ExplainDecisionCommand(Guid SessionId, ExplainDecisionRequest Request, string DoctorId) : IRequest<Result<XaiResponseDto>>;
 
 public record UpdateSessionLandmarksCommand(Guid SessionId, string DoctorId, List<LandmarkUpdateDto> Landmarks) : IRequest<Result<bool>>;
 
@@ -142,15 +156,14 @@ public class DetectLandmarksHandler : IRequestHandler<DetectLandmarksCommand, Re
         if (image.Study.Patient.DoctorId.ToString() != cmd.DoctorId)
             return Result<IEnumerable<LandmarkDto>>.Unauthorized("Not authorized.");
 
-        // Require calibration before detection so pixel spacing is known (used by AI + downstream measurements).
-        if (!image.IsCalibrated || image.PixelSpacingMm is null || image.PixelSpacingMm <= 0)
-            return Result<IEnumerable<LandmarkDto>>.Failure("Image must be calibrated first (select 2 calibration points).", 400);
+        // Use calibrated spacing or fallback to a default value (e.g. 0.1 mm/px) if not calibrated
+        var pixelSpacing = (image.IsCalibrated && image.PixelSpacingMm > 0) ? image.PixelSpacingMm.Value : 0.1m;
 
         Stream stream;
         try { stream = await _storageService.DownloadFileAsync(image.StorageUrl, ct); }
         catch (Exception ex) { return Result<IEnumerable<LandmarkDto>>.Failure("Storage error: " + ex.Message); }
 
-        var aiResult = await _aiService.DetectLandmarksAsync(cmd.ImageId, stream, image.PixelSpacingMm.Value, ct);
+        var aiResult = await _aiService.DetectLandmarksAsync(cmd.ImageId, stream, pixelSpacing, ct);
         stream.Dispose();
 
         if (!aiResult.IsSuccess)
@@ -509,8 +522,14 @@ public class SuggestTreatmentHandler : IRequestHandler<SuggestTreatmentCommand, 
 {
     private readonly IApplicationDbContext _db;
     private readonly IAiService _aiService;
+    private readonly IStorageService _storageService;
 
-    public SuggestTreatmentHandler(IApplicationDbContext db, IAiService aiService) { _db = db; _aiService = aiService; }
+    public SuggestTreatmentHandler(IApplicationDbContext db, IAiService aiService, IStorageService storageService) 
+    { 
+        _db = db; 
+        _aiService = aiService; 
+        _storageService = storageService;
+    }
 
     public async Task<Result<IEnumerable<SessionTreatmentDto>>> Handle(SuggestTreatmentCommand cmd, CancellationToken ct)
     {
@@ -529,13 +548,27 @@ public class SuggestTreatmentHandler : IRequestHandler<SuggestTreatmentCommand, 
         var patient = session.XRayImage.Study.Patient;
         var patientAge = (DateTime.Today.Year - patient.DateOfBirth.Year);
 
+        string? base64Image = null;
+        try
+        {
+            using var stream = await _storageService.DownloadFileAsync(session.XRayImage.StorageUrl, ct);
+            using var ms = new MemoryStream();
+            await stream.CopyToAsync(ms, ct);
+            base64Image = Convert.ToBase64String(ms.ToArray());
+        }
+        catch (Exception)
+        {
+            // Ignore error and fall back to rule-based or text-only LLM if image download fails
+        }
+
         var treatResult = await _aiService.SuggestTreatmentAsync(
             cmd.SessionId,
             session.Diagnosis.SkeletalClass.ToString(),
             session.Diagnosis.VerticalPattern.ToString(),
             session.Measurements.ToDictionary(m => m.MeasurementCode, m => (double)m.Value),
             patientAge,
-            ct);
+            ct,
+            base64Image);
 
         if (!treatResult.IsSuccess)
             return Result<IEnumerable<SessionTreatmentDto>>.Failure(treatResult.Error ?? "Treatment error", treatResult.StatusCode);
@@ -818,7 +851,7 @@ public class GetLatestSessionForImageHandler : IRequestHandler<GetLatestSessionF
             .AsNoTracking()
             .FirstOrDefaultAsync(ct);
 
-        if (s is null) return Result<SessionDto>.NotFound();
+        if (s is null) return Result<SessionDto>.Success(null!);
 
         return Result<SessionDto>.Success(new SessionDto(
             s.Id, s.XRayImageId, s.Status.ToString(), s.ModelVersion,
@@ -1028,5 +1061,39 @@ public class GetAnalysisNormsHandler : IRequestHandler<GetAnalysisNormsQuery, Re
     public async Task<Result<object>> Handle(GetAnalysisNormsQuery request, CancellationToken ct)
     {
         return await _aiService.GetAnalysisNormsAsync(ct);
+    }
+}
+
+public class ExplainDecisionHandler : IRequestHandler<ExplainDecisionCommand, Result<XaiResponseDto>>
+{
+    private readonly IApplicationDbContext _db;
+    private readonly IAiService _aiService;
+
+    public ExplainDecisionHandler(IApplicationDbContext db, IAiService aiService)
+    {
+        _db = db;
+        _aiService = aiService;
+    }
+
+    public async Task<Result<XaiResponseDto>> Handle(ExplainDecisionCommand cmd, CancellationToken ct)
+    {
+        var session = await _db.AnalysisSessions
+            .Include(x => x.XRayImage).ThenInclude(x => x.Study).ThenInclude(x => x.Patient)
+            .FirstOrDefaultAsync(x => x.Id == cmd.SessionId, ct);
+
+        if (session is null) return Result<XaiResponseDto>.NotFound("Session not found.");
+        if (session.XRayImage.Study.Patient.DoctorId.ToString() != cmd.DoctorId)
+            return Result<XaiResponseDto>.Unauthorized();
+
+        return await _aiService.ExplainDecisionAsync(
+            cmd.SessionId,
+            cmd.Request.SkeletalClass,
+            cmd.Request.SkeletalProbabilities,
+            cmd.Request.VerticalPattern,
+            cmd.Request.Measurements,
+            cmd.Request.TreatmentName,
+            cmd.Request.PredictedOutcomes,
+            cmd.Request.UncertaintyLandmarks,
+            ct);
     }
 }

@@ -12,12 +12,13 @@ Evidence-based upgrades (v2):
 """
 
 from __future__ import annotations
+import math
 from config.settings import settings
 from utils.norms_util import norms_provider
 
 
-def _get_norm(code: str, fallback_min: float, fallback_max: float) -> tuple[float, float]:
-    rng = norms_provider.get_norm_range(code)
+def _get_norm(code: str, fallback_min: float, fallback_max: float, age: float | None = None, sex: str | None = None) -> tuple[float, float]:
+    rng = norms_provider.get_norm_range(code, age, sex)
     if rng:
         return rng[0], rng[1]
     return fallback_min, fallback_max
@@ -27,54 +28,60 @@ def _get_norm(code: str, fallback_min: float, fallback_max: float) -> tuple[floa
 # Skeletal class
 # ---------------------------------------------------------------------------
 
+def _gaussian(x: float, mu: float, sig: float) -> float:
+    return math.exp(-pow(x - mu, 2.) / (2 * pow(sig, 2.)))
+
+def _compute_skeletal_probabilities(corrected_anb: float, wits: float | None = None) -> dict[str, float]:
+    # Base ANB probabilities
+    p_i = _gaussian(corrected_anb, 2.0, 1.5)
+    p_ii = _gaussian(corrected_anb, 6.5, 2.5)
+    p_iii = _gaussian(corrected_anb, -3.0, 2.5)
+    
+    # Wits probabilistic adjustment
+    if wits is not None:
+        p_i *= _gaussian(wits, 0.0, 2.0)
+        p_ii *= _gaussian(wits, 5.0, 3.5)
+        p_iii *= _gaussian(wits, -5.0, 3.5)
+        
+    total = p_i + p_ii + p_iii
+    if total == 0:
+        return {"ClassI": 0.34, "ClassII": 0.33, "ClassIII": 0.33}
+        
+    return {
+        "ClassI": round((p_i / total), 3),
+        "ClassII": round((p_ii / total), 3),
+        "ClassIII": round((p_iii / total), 3),
+    }
+
 def classify_skeletal_class(
     anb: float,
     wits: float | None = None,
     sn_pp: float | None = None,
 ) -> dict[str, any]:
     """
-    Classify the skeletal AP relationship using ANB as the primary indicator,
-    refined by Hasund's rotation correction and bidirectional Wits appraisal.
-
-    Returns a dict with 'label', 'type', and 'corrected_anb'.
+    Classify the skeletal AP relationship using Probabilistic Modeling (Gaussian Mixtures).
+    Refined by Hasund's rotation correction and bidirectional Wits appraisal.
     """
-    # 1. Hasund's Correction — adjusts for rotated maxillae
-    # Norm SN-PP ≈ 8.0°. Correction = 0.5 × (SN-PP − 8)
+    # 1. Hasund's Correction
     corrected_anb = anb
     if sn_pp is not None:
         correction = 0.5 * (sn_pp - settings.sn_pp_mean)
         corrected_anb = anb - correction
 
-    # 2. Base classification
-    anb_min, anb_max = _get_norm("ANB", 0.0, 4.0)
-
-    if corrected_anb < anb_min:
-        base_class = "ClassIII"
-    elif corrected_anb <= anb_max:
-        base_class = "ClassI"
-    else:
-        base_class = "ClassII"
-
-    # 3. Wits refinement
-    final_class = base_class
-    if wits is not None:
-        if base_class == "ClassI":
-            if wits > 1.5:
-                final_class = "ClassII"
-            elif wits < -1.5:
-                final_class = "ClassIII"
-        elif base_class == "ClassII" and wits < -1.5:
-            final_class = "ClassI"
-        elif base_class == "ClassIII" and wits > 1.5:
-            final_class = "ClassI"
-
-    # 4. Borderline check — within 0.5° of either threshold
-    is_borderline = any(abs(corrected_anb - t) < 0.5 for t in [anb_min, anb_max])
+    # 2. Compute Probabilistic Output
+    probs = _compute_skeletal_probabilities(corrected_anb, wits)
+    
+    # 3. Best Class Selection
+    best_class = max(probs, key=probs.get)
+    
+    # 4. Borderline check — if the most likely class is < 65% confident
+    is_borderline = probs[best_class] < 0.65
 
     return {
-        "label": final_class,
+        "label": best_class,
         "type": "Borderline" if is_borderline else "Definitive",
         "corrected_anb": round(corrected_anb, 2),
+        "probabilities": probs
     }
 
 
@@ -82,12 +89,12 @@ def classify_skeletal_class(
 # Vertical pattern
 # ---------------------------------------------------------------------------
 
-def classify_vertical_pattern(fma: float, j_ratio: float | None = None) -> str:
+def classify_vertical_pattern(fma: float, j_ratio: float | None = None, age: float | None = None, sex: str | None = None) -> str:
     """
     Classify the vertical facial pattern using FMA as the primary indicator,
     refined by the Jarabak Ratio when available.
     """
-    fma_min, fma_max = _get_norm("FMA", 21.0, 29.0)
+    fma_min, fma_max = _get_norm("FMA", 21.0, 29.0, age, sex)
     if fma < fma_min:
         pattern = "LowAngle"
     elif fma <= fma_max:
@@ -283,6 +290,9 @@ def generate_summary(
     s_label = skeletal_result["label"]
     s_type  = skeletal_result["type"]
     anb     = skeletal_result["corrected_anb"]
+    probs   = skeletal_result.get("probabilities", {})
+
+    prob_text = f" ({probs.get(s_label, 0)*100:.0f}% probability)" if probs else ""
 
     class_desc = {
         "ClassI":   "normal jaw relationship (Class I)",
@@ -326,7 +336,7 @@ def generate_summary(
     inc_text = (". " + "; ".join(inc_parts).capitalize() + ".") if inc_parts else "."
 
     return (
-        f"Patient presents with a{borderline_text}{class_desc.get(s_label, s_label)} "
+        f"Patient presents with a{borderline_text}{class_desc.get(s_label, s_label)}{prob_text} "
         f"(corrected ANB = {anb:.1f}\u00b0){apdi_text} and a "
         f"{vertical_desc.get(vertical_pattern, vertical_pattern)}"
         f"{inc_text}{profile_text}"
@@ -344,19 +354,14 @@ def classify_diagnosis(
 ) -> dict:
     """Full diagnosis classification using advanced evidence-based methods."""
 
-    # ── Norm adjustments for age ──────────────────────────────────────────────
-    sna_norm_min, sna_norm_max = _get_norm("SNA", 80.0, 84.0)
-    if age and age < 12:
-        # Growing patients have a slightly more prognathic maxilla
-        sna_norm_min += 1.0
-        sna_norm_max += 2.0
-
-    snb_norm_min, snb_norm_max = _get_norm("SNB", 78.0, 82.0)
+    # ── Norm adjustments for age/sex ──────────────────────────────────────────────
+    sna_norm_min, sna_norm_max = _get_norm("SNA", 80.0, 84.0, age, sex)
+    snb_norm_min, snb_norm_max = _get_norm("SNB", 78.0, 82.0, age, sex)
     ui_na_norm_min, ui_na_norm_max = _get_norm(
-        "UI to NA (deg)", settings.ui_na_min, settings.ui_na_max
+        "UI to NA (deg)", settings.ui_na_min, settings.ui_na_max, age, sex
     )
     li_nb_norm_min, li_nb_norm_max = _get_norm(
-        "LI to NB (deg)", settings.li_nb_min, settings.li_nb_max
+        "LI to NB (deg)", settings.li_nb_min, settings.li_nb_max, age, sex
     )
 
     # ── Extract measurement values ────────────────────────────────────────────
@@ -391,7 +396,7 @@ def classify_diagnosis(
     skeletal_result     = classify_skeletal_class(anb, wits, sn_pp)
     apdi_class          = classify_apdi(fh_ab, pp_fh)
     odi_class           = classify_odi(ab_mp, pp_mp)
-    vertical_pattern    = classify_vertical_pattern(fma, j_ratio)
+    vertical_pattern    = classify_vertical_pattern(fma, j_ratio, age, sex)
     maxillary_position  = classify_jaw_position(sna, sna_norm_min, sna_norm_max)
     mandibular_position = classify_jaw_position(snb, snb_norm_min, snb_norm_max)
     upper_incisor       = classify_incisor(ui_na, ui_na_norm_min, ui_na_norm_max)
@@ -425,6 +430,7 @@ def classify_diagnosis(
         "overbite_mm":               overbite,
         "overbite_classification":   overbite_class,
         "confidence_score":          compute_confidence(measurements),
+        "skeletal_differential":     skeletal_result.get("probabilities"),
         "summary":                   summary,
         "warnings":                  warnings,
         "clinical_notes": [

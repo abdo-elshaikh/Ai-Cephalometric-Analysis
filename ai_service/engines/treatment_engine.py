@@ -124,6 +124,53 @@ TREATMENT_RULES: list[dict] = [
 ]
 
 
+def predict_treatment_outcome(treatment_id: str, measurements: dict[str, float], patient_age: Optional[float] = None) -> dict[str, float]:
+    """
+    Predictive Analytics: Simulate how this specific treatment modifies cephalometric metrics over time.
+    Provides data-driven insights into soft-tissue and hard-tissue changes.
+    """
+    predicted = measurements.copy()
+    
+    if treatment_id in ("c2-functional-twin", "c2-functional-herbst"):
+        # Functional appliances advance the mandible
+        if patient_age and patient_age <= 15:
+            if "SNB" in predicted: predicted["SNB"] += 2.0
+            if "ANB" in predicted and "SNA" in predicted: predicted["ANB"] = predicted["SNA"] - predicted["SNB"]
+            if "Ls-Eline" in predicted: predicted["Ls-Eline"] -= 1.0
+            if "Li-Eline" in predicted: predicted["Li-Eline"] += 1.0
+            
+    elif treatment_id == "c2-extraction-camouflage":
+        # Retracts incisors, flattens profile
+        if "UI-NA_DEG" in predicted: predicted["UI-NA_DEG"] -= 8.0
+        if "Ls-Eline" in predicted: predicted["Ls-Eline"] -= 2.5
+        if "Li-Eline" in predicted: predicted["Li-Eline"] -= 1.5
+        
+    elif treatment_id == "surg-bsso-mand":
+        # BSSO physically moves the mandible forward
+        anb = predicted.get("ANB", 7)
+        advancement = max(3.0, anb - 2.0) # Aim for ANB 2.0
+        if "SNB" in predicted: predicted["SNB"] += advancement
+        if "ANB" in predicted and "SNA" in predicted: predicted["ANB"] = predicted["SNA"] - predicted["SNB"]
+        if "Li-Eline" in predicted: predicted["Li-Eline"] += (advancement * 0.8) # Soft tissue ratio
+        
+    elif treatment_id == "surg-lefort-max":
+        # Le Fort I physically moves maxilla forward
+        anb = predicted.get("ANB", -3)
+        advancement = max(3.0, 2.0 - anb)
+        if "SNA" in predicted: predicted["SNA"] += advancement
+        if "ANB" in predicted and "SNB" in predicted: predicted["ANB"] = predicted["SNA"] - predicted["SNB"]
+        if "Ls-Eline" in predicted: predicted["Ls-Eline"] += (advancement * 0.9)
+        
+    elif treatment_id == "c3-facemask":
+        if patient_age and patient_age <= 11:
+            if "SNA" in predicted: predicted["SNA"] += 1.5
+            if "ANB" in predicted and "SNB" in predicted: predicted["ANB"] = predicted["SNA"] - predicted["SNB"]
+            if "Ls-Eline" in predicted: predicted["Ls-Eline"] += 1.5
+
+    # Only return metrics that actually changed
+    return {k: round(v, 2) for k, v in predicted.items() if k in measurements and abs(v - measurements[k]) > 0.1}
+
+
 def calculate_suitability(
     rule: dict,
     skeletal_class: str,
@@ -219,6 +266,7 @@ def suggest_treatment(
                 "confidence_score": round(score, 3),
                 "source": "RuleBased",
                 "is_primary": False,
+                "predicted_outcomes": predict_treatment_outcome(rule["id"], measurements, patient_age),
             })
 
     # Sort descending by confidence; take the top 3
@@ -241,6 +289,7 @@ def suggest_treatment(
             "confidence_score": 0.50,
             "source": "RuleBased",
             "is_primary": True,
+            "predicted_outcomes": {},
         }]
 
     return top_plans

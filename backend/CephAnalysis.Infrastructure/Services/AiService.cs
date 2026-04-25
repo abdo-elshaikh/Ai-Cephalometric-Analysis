@@ -195,11 +195,11 @@ public class AiService : IAiService
 
     public async Task<Result<IEnumerable<TreatmentDto>>> SuggestTreatmentAsync(
         Guid sessionId, string skeletalClass, string verticalPattern,
-        Dictionary<string, double> measurements, double patientAge, CancellationToken ct)
+        Dictionary<string, double> measurements, double patientAge, CancellationToken ct, string? imageBase64 = null)
     {
         try
         {
-            var requestModel = new TreatmentSuggestionRequest(sessionId.ToString(), skeletalClass, verticalPattern, measurements, patientAge);
+            var requestModel = new TreatmentSuggestionRequest(sessionId.ToString(), skeletalClass, verticalPattern, measurements, patientAge, imageBase64);
             var request = new HttpRequestMessage(HttpMethod.Post, "/ai/suggest-treatment")
             {
                 Content = new StringContent(JsonSerializer.Serialize(requestModel), Encoding.UTF8, "application/json")
@@ -231,6 +231,59 @@ public class AiService : IAiService
         catch (Exception ex) { return Result<IEnumerable<TreatmentDto>>.Failure($"Treatment error: {ex.Message}", 500); }
     }
 
+    public async Task<Result<XaiResponseDto>> ExplainDecisionAsync(
+        Guid sessionId,
+        string skeletalClass,
+        Dictionary<string, double> skeletalProbabilities,
+        string verticalPattern,
+        Dictionary<string, double> measurements,
+        string treatmentName,
+        Dictionary<string, double> predictedOutcomes,
+        IEnumerable<string>? uncertaintyLandmarks,
+        CancellationToken ct)
+    {
+        try
+        {
+            var requestModel = new XaiRequestPayload(
+                sessionId.ToString(),
+                skeletalClass,
+                skeletalProbabilities,
+                verticalPattern,
+                measurements,
+                treatmentName,
+                predictedOutcomes,
+                uncertaintyLandmarks
+            );
+
+            var request = new HttpRequestMessage(HttpMethod.Post, "/ai/explain-decision")
+            {
+                Content = new StringContent(JsonSerializer.Serialize(requestModel, _jsonOptions), Encoding.UTF8, "application/json")
+            };
+            request.Headers.Add("x-service-key", _serviceKey);
+
+            var response = await _http.SendAsync(request, ct);
+            if (!response.IsSuccessStatusCode)
+                return Result<XaiResponseDto>.Failure($"XAI Error: {response.StatusCode}", (int)response.StatusCode);
+
+            var content = await response.Content.ReadAsStringAsync(ct);
+            var result = JsonSerializer.Deserialize<XaiResponsePayload>(content, _jsonOptions);
+
+            if (result == null) return Result<XaiResponseDto>.Failure("Empty XAI response", 500);
+
+            return Result<XaiResponseDto>.Success(new XaiResponseDto(
+                result.DecisionChain,
+                result.KeyDrivers,
+                result.UncertaintyFactors,
+                result.ClinicalConfidence,
+                result.AlternativeInterpretation
+            ));
+        }
+        catch (Exception ex)
+        {
+            return Result<XaiResponseDto>.Failure($"XAI generation error: {ex.Message}", 500);
+        }
+    }
+
     public async Task<Result<AiOverlayResponse>> GenerateOverlaysAsync(
         Guid sessionId,
         Stream imageStream,
@@ -249,103 +302,89 @@ public class AiService : IAiService
             var base64Image = Convert.ToBase64String(ms.ToArray());
 
             var payload = new AiOverlayRequestPayload(
-                session_id: sessionId.ToString(),
-                image_base64: base64Image,
-                landmarks: landmarks.ToDictionary(
-                    kv => kv.Key,
-                    kv => new LandmarkPointRequest(kv.Value.X, kv.Value.Y)),
-                measurements: measurements.Select(m => new AiOverlayMeasurementPayload(
-                    m.Code, m.Name, m.Value, m.Unit,
-                    m.NormalValue, m.StdDeviation, m.Difference,
-                    m.GroupName, m.Status)).ToList(),
-                patient_label: patientLabel,
-                date_label: dateLabel,
-                pixel_spacing_mm: pixelSpacingMm.HasValue ? (double?)pixelSpacingMm.Value : null,
-                outputs: outputs != null && outputs.Any() 
-                    ? outputs.ToList() 
-                    : new List<string> { "xray_tracing", "xray_measurements", "wiggle_chart", "tracing_only", "measurement_table" }
+                sessionId.ToString(),
+                base64Image,
+                landmarks.ToDictionary(kv => kv.Key, kv => new LandmarkPointRequest(kv.Value.X, kv.Value.Y)),
+                measurements.Select(m => new AiOverlayMeasurementPayload(
+                    m.Code, m.Name, m.Value, m.Unit, m.NormalValue, m.StdDeviation, m.Difference, m.GroupName, m.Status
+                )).ToList(),
+                patientLabel,
+                dateLabel,
+                (double?)pixelSpacingMm,
+                outputs?.ToList() ?? new List<string>()
             );
 
             var request = new HttpRequestMessage(HttpMethod.Post, "/ai/generate-overlays")
             {
-                Content = new StringContent(
-                    JsonSerializer.Serialize(payload, _jsonOptions),
-                    Encoding.UTF8, "application/json")
+                Content = new StringContent(JsonSerializer.Serialize(payload, _jsonOptions), Encoding.UTF8, "application/json")
             };
             request.Headers.Add("x-service-key", _serviceKey);
 
             var response = await _http.SendAsync(request, ct);
-            if (!response.IsSuccessStatusCode)
-            {
-                var err = await response.Content.ReadAsStringAsync(ct);
-                return Result<AiOverlayResponse>.Failure(
-                    $"AI Overlay Error: {response.StatusCode} - {err}", (int)response.StatusCode);
-            }
+            if (!response.IsSuccessStatusCode) return Result<AiOverlayResponse>.Failure($"Overlay Error: {response.StatusCode}", (int)response.StatusCode);
 
-            var content = await response.Content.ReadAsStringAsync(ct);
-            var result  = JsonSerializer.Deserialize<AiOverlayResponsePayload>(content, _jsonOptions);
-            if (result?.Images == null)
-                return Result<AiOverlayResponse>.Failure("Invalid overlay response format.", 500);
+            var json = await response.Content.ReadAsStringAsync(ct);
+            var data = JsonSerializer.Deserialize<AiOverlayResponsePayload>(json, _jsonOptions);
 
-            var domainResult = new AiOverlayResponse(
-                result.SessionId ?? sessionId.ToString(),
-                result.Images.Select(i => new AiOverlayImageItem(
-                    i.Key, i.Label, i.ImageBase64, i.Width, i.Height)).ToList(),
-                result.RenderMs);
-
-            return Result<AiOverlayResponse>.Success(domainResult);
+            return Result<AiOverlayResponse>.Success(new AiOverlayResponse(
+                data?.SessionId ?? sessionId.ToString(),
+                data?.Images.Select(i => new AiOverlayImageItem(i.Key, i.Label, i.ImageBase64, i.Width, i.Height)).ToList() ?? new(),
+                data?.RenderMs ?? 0
+            ));
         }
-        catch (TaskCanceledException) when (!ct.IsCancellationRequested)
-        {
-            return Result<AiOverlayResponse>.Failure("AI overlay request timed out.", 504);
-        }
-        catch (HttpRequestException ex)
-        {
-            return Result<AiOverlayResponse>.Failure(
-                $"AI Service is unreachable at {_baseUrl} ({ex.Message}).",
-                503);
-        }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
-        {
-            return Result<AiOverlayResponse>.Failure("Overlay generation was canceled.", 499);
-        }
-        catch (Exception ex)
-        {
-            return Result<AiOverlayResponse>.Failure($"Overlay service error: {ex.Message}", 500);
-        }
+        catch (Exception ex) { return Result<AiOverlayResponse>.Failure($"Overlay error: {ex.Message}", 500); }
     }
 
     public async Task<Result<object>> GetAnalysisNormsAsync(CancellationToken ct)
     {
         try
         {
-            var request = new HttpRequestMessage(HttpMethod.Get, "/ai/analysis-norms");
+            var request = new HttpRequestMessage(HttpMethod.Get, "/ai/norms");
             request.Headers.Add("x-service-key", _serviceKey);
-
             var response = await _http.SendAsync(request, ct);
-            if (!response.IsSuccessStatusCode)
-            {
-                var err = await response.Content.ReadAsStringAsync(ct);
-                return Result<object>.Failure($"AI Norms Error: {response.StatusCode} - {err}", (int)response.StatusCode);
-            }
-
-            var content = await response.Content.ReadAsStringAsync(ct);
-            var result = JsonSerializer.Deserialize<object>(content, _jsonOptions);
-            return Result<object>.Success(result!);
+            if (!response.IsSuccessStatusCode) return Result<object>.Failure("Norms error", (int)response.StatusCode);
+            var json = await response.Content.ReadAsStringAsync(ct);
+            return Result<object>.Success(JsonSerializer.Deserialize<object>(json, _jsonOptions)!);
         }
-        catch (Exception ex)
-        {
-            return Result<object>.Failure($"Norms service error: {ex.Message}", 500);
-        }
+        catch (Exception ex) { return Result<object>.Failure(ex.Message, 500); }
     }
 
-    // ── Concrete DTOs to avoid Anonymous Type issues ────────────────────────
+    // ── Helper records & models ───────────────────────────────────────────────
+
+    private record LandmarkPointRequest(double x, double y);
+
+    private record TreatmentSuggestionRequest(
+        string session_id,
+        string skeletal_class,
+        string vertical_pattern,
+        Dictionary<string, double> measurements,
+        double patient_age,
+        string? image_base64
+    );
+
+    private record XaiRequestPayload(
+        string session_id,
+        string skeletal_class,
+        Dictionary<string, double> skeletal_probabilities,
+        string vertical_pattern,
+        Dictionary<string, double> measurements,
+        string treatment_name,
+        Dictionary<string, double> predicted_outcomes,
+        IEnumerable<string>? uncertainty_landmarks
+    );
+
+    private class XaiResponsePayload
+    {
+        [JsonPropertyName("decision_chain")] public List<XAIDecisionStep> DecisionChain { get; set; } = new();
+        [JsonPropertyName("key_drivers")] public List<string> KeyDrivers { get; set; } = new();
+        [JsonPropertyName("uncertainty_factors")] public List<string> UncertaintyFactors { get; set; } = new();
+        [JsonPropertyName("clinical_confidence")] public string ClinicalConfidence { get; set; } = "";
+        [JsonPropertyName("alternative_interpretation")] public string AlternativeInterpretation { get; set; } = "";
+    }
 
     private record LandmarkDetectionRequest(string session_id, string image_base64, double pixel_spacing_mm);
     private record MeasurementCalculationRequest(string session_id, Dictionary<string, LandmarkPointRequest> landmarks, double pixel_spacing_mm);
-    private record LandmarkPointRequest(double x, double y);
     private record DiagnosisClassificationRequest(string session_id, Dictionary<string, double> measurements);
-    private record TreatmentSuggestionRequest(string session_id, string skeletal_class, string vertical_pattern, Dictionary<string, double> measurements, double patient_age);
 
     private class LandmarkDetectionResponse
     {
@@ -373,6 +412,7 @@ public class AiService : IAiService
         [JsonPropertyName("confidence_score")] public double ConfidenceScore { get; set; }
         [JsonPropertyName("summary")] public string Summary { get; set; } = "";
         [JsonPropertyName("warnings")] public List<string> Warnings { get; set; } = new();
+        [JsonPropertyName("skeletal_differential")] public Dictionary<string, double>? SkeletalDifferential { get; set; }
     }
 
     private class TreatmentResponseModel { [JsonPropertyName("treatments")] public List<TreatmentDto> Treatments { get; set; } = new(); }

@@ -89,6 +89,7 @@ class TreatmentRequest(BaseModel):
     vertical_pattern: str
     measurements: dict[str, float]
     patient_age: Optional[float] = None
+    image_base64: Optional[str] = None
 
 
 class TreatmentItem(BaseModel):
@@ -102,6 +103,34 @@ class TreatmentItem(BaseModel):
     confidence_score: float
     source: str                  # RuleBased | ML | LLM | Hybrid
     is_primary: bool
+    predicted_outcomes: Optional[dict[str, float]] = None
+
+
+class XAIDecisionStep(BaseModel):
+    step: int
+    factor: str
+    evidence: str
+    impact: str
+
+
+class XAIRequest(BaseModel):
+    session_id: str
+    skeletal_class: str
+    skeletal_probabilities: dict[str, float]
+    vertical_pattern: str
+    measurements: dict[str, float]
+    treatment_name: str
+    predicted_outcomes: dict[str, float]
+    uncertainty_landmarks: Optional[list[str]] = None
+
+
+class XAIResponse(BaseModel):
+    session_id: str
+    decision_chain: list[XAIDecisionStep]
+    key_drivers: list[str]
+    uncertainty_factors: list[str]
+    clinical_confidence: str
+    alternative_interpretation: str
 
 
 class TreatmentResponse(BaseModel):

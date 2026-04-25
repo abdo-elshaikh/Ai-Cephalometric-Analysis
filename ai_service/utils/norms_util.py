@@ -83,6 +83,45 @@ class AnalysisNormsProvider:
                 return m  # Exact match on name or code
         return None
 
+    @classmethod
+    def _apply_dynamic_adjustments(cls, target: str, normal: float, r_min: float, r_max: float, age: Optional[float], sex: Optional[str]) -> tuple[float, float, float]:
+        """
+        Applies dynamic normative splines based on patient demographics.
+        Growth studies show significant variance in cephalometric norms before adulthood.
+        """
+        t = target.upper()
+        if age is not None:
+            # Mandibular growth (SNB) continues longer than maxillary (SNA), reducing ANB and FMA over time.
+            if t == "SNA":
+                if age < 12:
+                    normal += 1.5; r_min += 1.0; r_max += 2.0
+                elif age < 16:
+                    normal += 0.5; r_min += 0.5; r_max += 0.5
+            elif t == "SNB":
+                if age < 12:
+                    normal -= 2.0; r_min -= 2.0; r_max -= 2.0
+                elif age < 16:
+                    normal -= 1.0; r_min -= 1.0; r_max -= 1.0
+            elif t == "ANB":
+                if age < 12:
+                    normal += 3.5; r_min += 3.0; r_max += 4.0
+                elif age < 16:
+                    normal += 1.5; r_min += 1.5; r_max += 1.5
+            elif t == "FMA":
+                if age < 12:
+                    normal += 3.0; r_min += 3.0; r_max += 3.0
+                elif age < 16:
+                    normal += 1.5; r_min += 1.5; r_max += 1.5
+                    
+            # Sex dimorphism in late adolescent growth
+            if sex and sex.lower() in ["male", "m"] and age >= 16:
+                if t == "SNB":
+                    normal += 0.5; r_max += 1.0
+                elif t == "FMA":
+                    normal -= 1.0; r_min -= 1.0
+
+        return normal, r_min, r_max
+
     # ── Public accessors ───────────────────────────────────────────────────────
 
     @classmethod
@@ -96,9 +135,9 @@ class AnalysisNormsProvider:
         return list(cls._norms_data.get("analyses", {}).keys())
 
     @classmethod
-    def get_norm_range(cls, measurement_code: str) -> Optional[tuple[float, float]]:
+    def get_norm_range(cls, measurement_code: str, age: Optional[float] = None, sex: Optional[str] = None) -> Optional[tuple[float, float]]:
         """
-        Resolve (min, max) for a measurement by name or short code.
+        Resolve (min, max) for a measurement by name or short code, adjusted for age/sex.
 
         Search order: 'Full' composite first, then all other analyses in
         definition order. Returns None if no match is found.
@@ -111,13 +150,15 @@ class AnalysisNormsProvider:
             if m is not None:
                 r = m.get("range")
                 if r and len(r) == 2:
-                    return float(r[0]), float(r[1])
+                    normal = float(m.get("normal", (r[0]+r[1])/2))
+                    _, adj_min, adj_max = cls._apply_dynamic_adjustments(target, normal, float(r[0]), float(r[1]), age, sex)
+                    return adj_min, adj_max
         return None
 
     @classmethod
-    def get_norm_mean(cls, measurement_code: str) -> Optional[float]:
+    def get_norm_mean(cls, measurement_code: str, age: Optional[float] = None, sex: Optional[str] = None) -> Optional[float]:
         """
-        Return the 'normal' (mean) value for a measurement.
+        Return the 'normal' (mean) value for a measurement, adjusted for age/sex.
         Follows the same search order as :meth:`get_norm_range`.
         """
         if not cls._norms_data:
@@ -128,7 +169,9 @@ class AnalysisNormsProvider:
             if m is not None:
                 normal = m.get("normal")
                 if normal is not None:
-                    return float(normal)
+                    r = m.get("range", [normal, normal])
+                    adj_norm, _, _ = cls._apply_dynamic_adjustments(target, float(normal), float(r[0]), float(r[1]), age, sex)
+                    return adj_norm
         return None
 
     @classmethod
