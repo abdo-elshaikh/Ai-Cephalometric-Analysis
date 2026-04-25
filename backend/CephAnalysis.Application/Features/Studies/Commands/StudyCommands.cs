@@ -78,6 +78,27 @@ public class GetPatientStudiesHandler(IApplicationDbContext db) : IRequestHandle
     }
 }
 
+// ── Get All Studies For Doctor ───────────────────────────────────────────────
+
+public record GetAllStudiesQuery(string DoctorId) : IRequest<Result<List<StudyDto>>>;
+
+public class GetAllStudiesHandler(IApplicationDbContext db) : IRequestHandler<GetAllStudiesQuery, Result<List<StudyDto>>>
+{
+    private readonly IApplicationDbContext _db = db;
+
+    public async Task<Result<List<StudyDto>>> Handle(GetAllStudiesQuery query, CancellationToken ct)
+    {
+        var studies = await StudyQueryHelper.ProjectToDto(
+                _db.Studies
+                    .AsNoTracking()
+                    .Where(s => s.DoctorId.ToString() == query.DoctorId)
+                    .OrderByDescending(s => s.CreatedAt))
+            .ToListAsync(ct);
+
+        return Result<List<StudyDto>>.Success(studies);
+    }
+}
+
 // ── Get Study By Id ──────────────────────────────────────────────────────────
 
 public record GetStudyQuery(Guid StudyId, string DoctorId) : IRequest<Result<StudyDto>>;

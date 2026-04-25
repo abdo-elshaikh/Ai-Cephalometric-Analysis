@@ -451,7 +451,7 @@ export default function AnalysisPage() {
       ctx.translate(pan.x, pan.y);
       ctx.scale(zoom, zoom);
       const src = (cachedCanvas.current?.width ?? 0) > 0 ? cachedCanvas.current! : img;
-      ctx.drawImage(src as any, 0, 0);
+      ctx.drawImage(src as CanvasImageSource, 0, 0);
       ctx.restore();
     }
 
@@ -642,7 +642,7 @@ export default function AnalysisPage() {
       const src2 = (cachedCanvas.current?.width ?? 0) > 0 ? cachedCanvas.current! : imgRef.current;
       ctx.imageSmoothingEnabled = true;
       ctx.drawImage(
-        src2 as any,
+        src2 as CanvasImageSource,
         targetX - lR / lZ, targetY - lR / lZ, (lR * 2) / lZ, (lR * 2) / lZ,
         lx - lR, ly - lR, lR * 2, lR * 2
       );
@@ -834,7 +834,7 @@ export default function AnalysisPage() {
       return;
     }
     const t = e.touches[0];
-    handleMouseDown({ clientX: t.clientX, clientY: t.clientY } as any);
+    handleMouseDown({ clientX: t.clientX, clientY: t.clientY } as unknown as React.MouseEvent<HTMLCanvasElement>);
   };
 
   const handleTouchMove = useCallback((e: TouchEvent) => {
@@ -1334,7 +1334,7 @@ export default function AnalysisPage() {
                 onTouchStart={handleTouchStart}
                 onTouchEnd={e => {
                   const t = e.changedTouches[0];
-                  handleMouseUp({ clientX: t.clientX, clientY: t.clientY } as any);
+                  handleMouseUp({ clientX: t.clientX, clientY: t.clientY } as unknown as React.MouseEvent<HTMLCanvasElement>);
                 }}
                 onKeyDown={handleKeyDown}
               />
@@ -1429,7 +1429,7 @@ export default function AnalysisPage() {
             )}
 
             {/* Coordinates HUD */}
-            {image && imgRef.current && (
+            {image && (
               <div style={{
                 position: 'absolute', bottom: 18, right: 12,
                 display: 'flex', alignItems: 'center', gap: 10,

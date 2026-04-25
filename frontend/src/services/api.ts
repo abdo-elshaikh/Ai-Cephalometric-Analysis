@@ -35,6 +35,7 @@ export const patientsApi = {
 // ── Studies ───────────────────────────────────────────────────────────────────
 
 export const studiesApi = {
+  getAll: () => api.get<Study[]>('/studies').then(r => r.data),
   create: (body: CreateStudyRequest) => api.post<Study>('/studies', body).then(r => r.data),
   getByPatient: (patientId: string) => api.get<Study[]>(`/studies/patient/${patientId}`).then(r => r.data),
   get: (id: string) => api.get<Study>(`/studies/${id}`).then(r => r.data),

@@ -378,30 +378,191 @@ _KEY_LMS = {
 }
 
 
-def _draw_landmark_dots(draw: ImageDraw.ImageDraw,
-                         lms: dict[str, LandmarkPoint],
-                         sx: float, sy: float,
-                         key_set: Optional[set] = None):
+# ─────────────────────────────────────────────
+#  Angle arc annotation  (v3 — Dolphin-level)
+# ─────────────────────────────────────────────
+def _draw_angle_arc(
+    overlay: Image.Image,
+    vertex: tuple[float, float],
+    ray1_end: tuple[float, float],
+    ray2_end: tuple[float, float],
+    label: str,
+    color: tuple[int, int, int],
+    radius: float = 50.0,
+    line_width: int = 2,
+    font: Optional[ImageFont.ImageFont] = None,
+):
+    import math
+    vx, vy = vertex
+    ax, ay = ray1_end
+    bx, by = ray2_end
+
+    a1 = math.atan2(ay - vy, ax - vx)
+    a2 = math.atan2(by - vy, bx - vx)
+
+    diff = a2 - a1
+    while diff > math.pi:   diff -= 2 * math.pi
+    while diff < -math.pi:  diff += 2 * math.pi
+
+    BAx, BAy = ax - vx, ay - vy
+    BCx, BCy = bx - vx, by - vy
+    mag_ba = math.hypot(BAx, BAy)
+    mag_bc = math.hypot(BCx, BCy)
+    if mag_ba < 1e-6 or mag_bc < 1e-6:
+        return
+    cos_val = max(-1.0, min(1.0, (BAx*BCx + BAy*BCy) / (mag_ba * mag_bc)))
+    angle_deg = math.degrees(math.acos(cos_val))
+
+    arc_layer = Image.new("RGBA", overlay.size, (0, 0, 0, 0))
+    arc_draw  = ImageDraw.Draw(arc_layer)
+
+    alpha = 200
+    c_rgba = (*color, alpha)
+
+    def _dashed_line(x0, y0, x1, y1, dash_on=10, dash_off=6, width=1):
+        dist = math.hypot(x1-x0, y1-y0)
+        if dist < 1: return
+        ux, uy = (x1-x0)/dist, (y1-y0)/dist
+        pos = 0.0
+        drawing = True
+        while pos < dist:
+            nxt = min(pos + (dash_on if drawing else dash_off), dist)
+            if drawing:
+                arc_draw.line([
+                    (x0 + ux*pos, y0 + uy*pos),
+                    (x0 + ux*nxt, y0 + uy*nxt),
+                ], fill=(*color, 130), width=width)
+            pos = nxt
+            drawing = not drawing
+
+    _dashed_line(vx + math.cos(a1)*radius, vy + math.sin(a1)*radius,
+                 vx + math.cos(a1)*min(math.hypot(ax-vx, ay-vy), radius*3),
+                 vy + math.sin(a1)*min(math.hypot(ax-vx, ay-vy), radius*3),
+                 width=line_width)
+    _dashed_line(vx + math.cos(a2)*radius, vy + math.sin(a2)*radius,
+                 vx + math.cos(a2)*min(math.hypot(bx-vx, by-vy), radius*3),
+                 vy + math.sin(a2)*min(math.hypot(bx-vx, by-vy), radius*3),
+                 width=line_width)
+
+    bbox = [vx - radius, vy - radius, vx + radius, vy + radius]
+    start_deg = math.degrees(a1)
+    end_deg   = math.degrees(a2)
+    if diff < 0:
+        start_deg, end_deg = end_deg, start_deg
+    arc_draw.arc(bbox, start=start_deg, end=end_deg, fill=c_rgba, width=line_width + 1)
+
+    amid = a1 + diff / 2
+    lx = vx + (radius + 18) * math.cos(amid)
+    ly = vy + (radius + 18) * math.sin(amid)
+    if font is None:
+        font = _try_font(18, bold=True)
+    label_txt = f"{label} {angle_deg:.1f}°"
+    bbox_txt = arc_draw.textbbox((lx, ly), label_txt, font=font)
+    pad = 4
+    arc_draw.rectangle(
+        [bbox_txt[0]-pad, bbox_txt[1]-pad, bbox_txt[2]+pad, bbox_txt[3]+pad],
+        fill=(0, 0, 0, 180)
+    )
+    arc_draw.text((lx, ly), label_txt, font=font, fill=(*color, 240))
+
+    if overlay.mode != "RGBA":
+        overlay_rgba = overlay.convert("RGBA")
+        overlay_rgba.alpha_composite(arc_layer)
+        result = overlay_rgba.convert("RGB")
+        overlay.paste(result)
+    else:
+        overlay.alpha_composite(arc_layer)
+
+
+def _draw_landmark_crosshair(
+    overlay: Image.Image,
+    x: float, y: float,
+    color: tuple[int, int, int],
+    confidence: float = 1.0,
+    selected: bool = False,
+    arm: int = 14,
+    gap: int = 5,
+    line_width: int = 2,
+    label: str = "",
+    font: Optional[ImageFont.ImageFont] = None,
+):
+    layer = Image.new("RGBA", overlay.size, (0, 0, 0, 0))
+    d     = ImageDraw.Draw(layer)
+    col   = (*color, 230)
+    lw    = line_width + (1 if selected else 0)
+    arm_  = arm + (4 if selected else 0)
+    gap_  = gap
+
+    if confidence < 0.60:
+        for r in [arm_+10, arm_+16]:
+            d.ellipse([x-r, y-r, x+r, y+r],
+                      outline=(*C_RED, 60), width=1)
+
+    if selected:
+        d.ellipse([x-arm_-6, y-arm_-6, x+arm_+6, y+arm_+6],
+                  outline=(*color, 100), width=1)
+
+    d.line([(x-arm_, y), (x-gap_, y)], fill=col, width=lw)
+    d.line([(x+gap_, y), (x+arm_, y)], fill=col, width=lw)
+    d.line([(x, y-arm_), (x, y-gap_)], fill=col, width=lw)
+    d.line([(x, y+gap_), (x, y+arm_)], fill=col, width=lw)
+
+    r_dot = 3 if selected else 2
+    d.ellipse([x-r_dot, y-r_dot, x+r_dot, y+r_dot], fill=col)
+
+    if confidence > 0:
+        r_arc = arm_ - 4
+        sweep = confidence * 360
+        d.arc([x-r_arc, y-r_arc, x+r_arc, y+r_arc],
+              start=-90, end=-90+sweep,
+              fill=(*color, 160), width=2)
+
+    if label and font:
+        tx, ty = x + arm_ + 4, y - 12
+        bb = d.textbbox((tx, ty), label, font=font)
+        pad = 3
+        d.rectangle([bb[0]-pad, bb[1]-pad, bb[2]+pad, bb[3]+pad],
+                    fill=(0, 0, 0, 200))
+        d.rectangle([bb[0]-pad, bb[1]-pad, bb[0]-pad+3, bb[3]+pad],
+                    fill=(*color, 220))
+        d.text((tx, ty), label, font=font, fill=col)
+
+    if overlay.mode != "RGBA":
+        ov_rgba = overlay.convert("RGBA")
+        ov_rgba.alpha_composite(layer)
+        overlay.paste(ov_rgba.convert("RGB"))
+    else:
+        overlay.alpha_composite(layer)
+
+
+def _draw_landmark_dots(
+    overlay: Image.Image,
+    lms: dict[str, LandmarkPoint],
+    sx: float, sy: float,
+    key_set: Optional[set] = None
+):
     """
-    Draw landmark dots colour-coded by confidence:
-      green  (≥ 0.80) — model-confident
-      yellow (≥ 0.60) — moderate confidence
-      red    (< 0.60) — low confidence / placeholder
-    Key anatomical points are drawn with a larger radius.
+    Draw landmark dots colour-coded by confidence using Dolphin-style crosshairs.
     """
     for name, lm in lms.items():
         if key_set and name not in key_set:
             continue
         px, py = _scale(lm, sx, sy)
         is_key = name in _KEY_LMS
-        r      = 7 if is_key else 4
-        col    = (*_conf_color(lm.confidence), 220)
-        # Outer ring for key landmarks
+        col    = _conf_color(lm.confidence)
+        
         if is_key:
-            draw.ellipse([px-r-2, py-r-2, px+r+2, py+r+2],
-                         outline=(*C_BLACK, 160), width=1)
-        draw.ellipse([px-r, py-r, px+r, py+r],
-                     fill=col, outline=(*C_BLACK, 180), width=1)
+            _draw_landmark_crosshair(
+                overlay, px, py,
+                color=col,
+                confidence=lm.confidence,
+                selected=False,
+                arm=12, gap=4,
+            )
+        else:
+            d = ImageDraw.Draw(overlay)
+            r = 4
+            d.ellipse([px-r, py-r, px+r, py+r], fill=(*col, 220), outline=(0,0,0,180))
 
 
 # ─────────────────────────────────────────────
@@ -493,6 +654,23 @@ def _draw_steiner_lines(draw, lms, sx, sy, alpha=200):
 
     pline("Articulare", "Constructed Gonion (tangent)")
     pline("Sella Turcica", "Menton")
+
+    # Draw Dolphin-style angle arcs on the main overlay image
+    # Note: _draw_steiner_lines receives 'draw' which is an ImageDraw attached to 'img'
+    # We must assume the caller can pass the actual 'img' to draw arcs.
+    # To avoid changing the signature everywhere, we extract the image from the draw object.
+    overlay_img = getattr(draw, 'im', None) # PIL internal, or we can just try to pass the img
+    if hasattr(draw, '_image'):
+        overlay_img = draw._image
+    
+    if overlay_img and sella and nasion and ptA and ptB:
+        font = _try_font(20, bold=True)
+        # SNA
+        _draw_angle_arc(overlay_img, nasion, sella, ptA, "SNA", SKELETAL_COLOR, radius=55, font=font)
+        # SNB
+        _draw_angle_arc(overlay_img, nasion, sella, ptB, "SNB", SKELETAL_COLOR, radius=75, font=font)
+        # ANB
+        _draw_angle_arc(overlay_img, nasion, ptA, ptB, "ANB", (234, 88, 12), radius=35, font=font)
 
     # Occlusal plane
     if ui_tip and li_tip:
@@ -994,7 +1172,7 @@ def render_xray_with_tracing(req: OverlayRequest,
     _draw_anatomical_outlines(draw, lms, sx, sy, req=req)
     _draw_reference_planes(draw, lms, sx, sy)
     _draw_soft_tissue(draw, lms, sx, sy)
-    _draw_landmark_dots(draw, lms, sx, sy)
+    _draw_landmark_dots(overlay, lms, sx, sy)
     _draw_landmark_labels(draw, lms, sx, sy, font_size=18, dark_bg=True)
 
     result = Image.alpha_composite(base_img.convert("RGBA"), overlay).convert("RGB")
@@ -1041,7 +1219,7 @@ def render_xray_with_measurements(req: OverlayRequest,
     _draw_anatomical_outlines(draw, lms, sx, sy, req=req, color=C_BLACK)
     _draw_steiner_lines(draw, lms, sx, sy)
     _draw_soft_tissue(draw, lms, sx, sy, alpha=230, color=(*SOFT_TISSUE_TRACE, 230))
-    _draw_landmark_dots(draw, lms, sx, sy)
+    _draw_landmark_dots(overlay, lms, sx, sy)
     _draw_landmark_labels(draw, lms, sx, sy, font_size=16, dark_bg=True)
 
     # Measurement annotations
@@ -1180,7 +1358,7 @@ def render_tracing_only(req: OverlayRequest,
     _draw_anatomical_outlines(draw, lms, sx, sy, req=req, color=C_BLACK)
     _draw_reference_planes(draw, lms, sx, sy)
     _draw_soft_tissue(draw, lms, sx, sy, alpha=255, color=(*SOFT_TISSUE_TRACE, 255))
-    _draw_landmark_dots(draw, lms, sx, sy)
+    _draw_landmark_dots(overlay, lms, sx, sy)
     _draw_landmark_labels(draw, lms, sx, sy, font_size=18, dark_bg=False)
 
     # Measurement labels

@@ -9,15 +9,17 @@ import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { NetworkIndicator } from '@/components/NetworkIndicator';
 
 // Lazy load pages
-const LoginPage        = lazy(() => import('@/pages/LoginPage'));
-const RegisterPage     = lazy(() => import('@/pages/RegisterPage'));
-const DashboardPage    = lazy(() => import('@/pages/DashboardPage'));
-const PatientsPage     = lazy(() => import('@/pages/PatientsPage'));
-const PatientDetailPage= lazy(() => import('@/pages/PatientDetailPage'));
-const AnalysisPage     = lazy(() => import('@/pages/AnalysisPage'));
-const ResultsPage      = lazy(() => import('@/pages/ResultsPage'));
-const HistoryPage      = lazy(() => import('@/pages/HistoryPage'));
-const ReportsPage      = lazy(() => import('@/pages/ReportsPage'));
+const LoginPage = lazy(() => import('@/pages/LoginPage'));
+const RegisterPage = lazy(() => import('@/pages/RegisterPage'));
+const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
+const PatientsPage = lazy(() => import('@/pages/PatientsPage'));
+const PatientDetailPage = lazy(() => import('@/pages/PatientDetailPage'));
+const AnalysisPage = lazy(() => import('@/pages/AnalysisPage'));
+const DolphinViewer = lazy(() => import('@/pages/DolphinViewer'));
+const ResultsPage = lazy(() => import('@/pages/ResultsPage'));
+const HistoryPage = lazy(() => import('@/pages/HistoryPage'));
+const ReportsPage = lazy(() => import('@/pages/ReportsPage'));
+const StudiesPage = lazy(() => import('@/pages/StudiesPage'));
 
 const qc = new QueryClient({
   defaultOptions: {
@@ -30,7 +32,7 @@ const qc = new QueryClient({
 
 function PageLoader() {
   return (
-    <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'60vh' }}>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh' }}>
       <Spinner size={28} />
     </div>
   );
@@ -45,28 +47,30 @@ export default function App() {
             <Toaster position="top-right" richColors closeButton />
             <NetworkIndicator />
             <Suspense fallback={<PageLoader />}>
-            <Routes>
-              {/* Public */}
-              <Route path="/login"    element={<LoginPage />} />
-              <Route path="/register" element={<RegisterPage />} />
+              <Routes>
+                {/* Public */}
+                <Route path="/login" element={<LoginPage />} />
+                <Route path="/register" element={<RegisterPage />} />
 
-              {/* Protected (AppShell handles auth guard) */}
-              <Route element={<AppShell />}>
-                <Route index element={<Navigate to="/dashboard" replace />} />
-                <Route path="/dashboard" element={<DashboardPage />} />
-                <Route path="/patients"  element={<PatientsPage />} />
-                <Route path="/patients/:id" element={<PatientDetailPage />} />
-                <Route path="/analysis"     element={<AnalysisPage />} />
-                <Route path="/analysis/:studyId" element={<AnalysisPage />} />
-                <Route path="/results/:sessionId" element={<ResultsPage />} />
-                <Route path="/history"   element={<HistoryPage />} />
-                <Route path="/reports"   element={<ReportsPage />} />
-              </Route>
+                {/* Protected (AppShell handles auth guard) */}
+                <Route element={<AppShell />}>
+                  <Route index element={<Navigate to="/dashboard" replace />} />
+                  <Route path="/dashboard" element={<DashboardPage />} />
+                  <Route path="/patients" element={<PatientsPage />} />
+                  <Route path="/patients/:id" element={<PatientDetailPage />} />
+                  <Route path="/studies" element={<StudiesPage />} />
+                  <Route path="/analysis" element={<AnalysisPage />} />
+                  <Route path="/analysis/:studyId" element={<AnalysisPage />} />
+                  <Route path="/viewer/:studyId" element={<DolphinViewer />} />
+                  <Route path="/results/:sessionId" element={<ResultsPage />} />
+                  <Route path="/history" element={<HistoryPage />} />
+                  <Route path="/reports" element={<ReportsPage />} />
+                </Route>
 
-              {/* Catch-all */}
-              <Route path="*" element={<Navigate to="/dashboard" replace />} />
-            </Routes>
-          </Suspense>
+                {/* Catch-all */}
+                <Route path="*" element={<Navigate to="/dashboard" replace />} />
+              </Routes>
+            </Suspense>
           </ErrorBoundary>
         </BrowserRouter>
       </AuthProvider>

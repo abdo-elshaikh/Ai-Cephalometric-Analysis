@@ -36,6 +36,16 @@ public class StudyController : ControllerBase
             : StatusCode(result.StatusCode, new { error = result.Error });
     }
 
+    /// <summary>Get all studies for the logged-in clinician</summary>
+    [HttpGet]
+    public async Task<IActionResult> GetAllStudies(CancellationToken ct)
+    {
+        var result = await _mediator.Send(new GetAllStudiesQuery(CurrentUserId), ct);
+        return result.IsSuccess 
+            ? Ok(result.Data)
+            : StatusCode(result.StatusCode, new { error = result.Error });
+    }
+
     /// <summary>Get a single study by id (doctor must own the study)</summary>
     [HttpGet("{id:guid}")]
     public async Task<IActionResult> GetStudy(Guid id, CancellationToken ct)

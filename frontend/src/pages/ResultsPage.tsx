@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -12,9 +12,389 @@ import Modal from '@/components/ui/Modal';
 import {
   ArrowLeft, FileText, Download, BarChart2,
   Activity, Brain, Stethoscope, AlertTriangle, CheckCircle2,
-  HelpCircle, ShieldCheck, Eye, Search,
+  HelpCircle, ShieldCheck, Eye, Search, Maximize2,
+  Minimize2, RotateCcw, Layers3, PanelRightOpen, PanelRightClose,
+  SkipBack, SkipForward, Play, Pause, Move,
 } from 'lucide-react';
 import { XAIRequest, XAIResponse, XAIDecisionStep } from '@/types';
+
+type OverlayItem = { label: string; url: string };
+
+function OverlayDiagnosticViewer({ overlays }: { overlays: OverlayItem[] }) {
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [compareIndex, setCompareIndex] = useState(Math.min(1, Math.max(0, overlays.length - 1)));
+  const [showCompare, setShowCompare] = useState(false);
+  const [compareLayout, setCompareLayout] = useState<'side-by-side' | 'blend'>('side-by-side');
+  const [linkView, setLinkView] = useState(true);
+  const [blendOpacity, setBlendOpacity] = useState(50);
+  const [showFilmstrip, setShowFilmstrip] = useState(true);
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [brightness, setBrightness] = useState(100);
+  const [contrast, setContrast] = useState(100);
+  const [saturate, setSaturate] = useState(100);
+  const [invert, setInvert] = useState(false);
+  const [isPanning, setIsPanning] = useState(false);
+  const [isCine, setIsCine] = useState(false);
+  const [cineFps, setCineFps] = useState(2);
+  const dragRef = useRef<{ startX: number; startY: number; panX: number; panY: number } | null>(null);
+
+  const primary = overlays[activeIndex];
+  const secondary = overlays[compareIndex] ?? overlays[0];
+
+  const imageFilter = useMemo(() => {
+    const invertExpr = invert ? ' invert(1)' : '';
+    return `brightness(${brightness}%) contrast(${contrast}%) saturate(${saturate}%)${invertExpr}`;
+  }, [brightness, contrast, saturate, invert]);
+
+  const resetViewport = () => {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+  };
+
+  const resetWindow = () => {
+    setBrightness(100);
+    setContrast(100);
+    setSaturate(100);
+    setInvert(false);
+  };
+
+  const clampIndex = (idx: number) => (idx + overlays.length) % overlays.length;
+
+  const goPrev = () => setActiveIndex((i) => clampIndex(i - 1));
+  const goNext = () => setActiveIndex((i) => clampIndex(i + 1));
+
+  useEffect(() => {
+    if (!isCine || overlays.length < 2) return;
+    const timer = window.setInterval(() => {
+      setActiveIndex((i) => (i + 1) % overlays.length);
+    }, Math.max(120, Math.floor(1000 / cineFps)));
+    return () => window.clearInterval(timer);
+  }, [isCine, cineFps, overlays.length]);
+
+  useEffect(() => {
+    if (!showCompare) return;
+    if (compareIndex === activeIndex) {
+      setCompareIndex((activeIndex + 1) % overlays.length);
+    }
+  }, [activeIndex, compareIndex, overlays.length, showCompare]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft') setActiveIndex((i) => clampIndex(i - 1));
+      if (e.key === 'ArrowRight') setActiveIndex((i) => clampIndex(i + 1));
+      if (e.key === '+' || e.key === '=') setZoom((z) => Math.min(6, z + 0.2));
+      if (e.key === '-' || e.key === '_') setZoom((z) => Math.max(0.4, z - 0.2));
+      if (e.key === '0') resetViewport();
+      if (e.key.toLowerCase() === 'c') setShowCompare((v) => !v);
+      if (e.key.toLowerCase() === 'f') setShowFilmstrip((v) => !v);
+      if (e.key.toLowerCase() === 'x') {
+        setCompareLayout((v) => (v === 'side-by-side' ? 'blend' : 'side-by-side'));
+      }
+      if (e.key === ' ') {
+        e.preventDefault();
+        setIsCine((v) => !v);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [overlays.length]);
+
+  const applyWindowPreset = (preset: 'neutral' | 'bone' | 'soft') => {
+    if (preset === 'neutral') {
+      setBrightness(100);
+      setContrast(100);
+      setSaturate(100);
+      setInvert(false);
+      return;
+    }
+    if (preset === 'bone') {
+      setBrightness(112);
+      setContrast(142);
+      setSaturate(82);
+      setInvert(false);
+      return;
+    }
+    setBrightness(118);
+    setContrast(108);
+    setSaturate(120);
+    setInvert(false);
+  };
+
+  const onPointerDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (zoom <= 1) return;
+    setIsPanning(true);
+    dragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      panX: pan.x,
+      panY: pan.y,
+    };
+  };
+
+  const onPointerMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isPanning || !dragRef.current) return;
+    const dx = e.clientX - dragRef.current.startX;
+    const dy = e.clientY - dragRef.current.startY;
+    setPan({ x: dragRef.current.panX + dx, y: dragRef.current.panY + dy });
+  };
+
+  const onPointerUp = () => {
+    setIsPanning(false);
+    dragRef.current = null;
+  };
+
+  const onWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const delta = e.deltaY < 0 ? 0.15 : -0.15;
+    setZoom((z) => Math.max(0.4, Math.min(6, z + delta)));
+  };
+
+  return (
+    <div className="overlay-studio card animate-fade">
+      <div className="overlay-studio-header">
+        <div className="overlay-studio-heading">
+          <Layers3 size={16} />
+          <div>
+            <h3>Diagnostic Overlay Studio</h3>
+            <p>
+              {activeIndex + 1}/{overlays.length} • {primary?.label}
+            </p>
+          </div>
+        </div>
+
+        <div className="overlay-studio-actions">
+          <button className="btn btn-secondary btn-sm" onClick={goPrev} title="Previous (Left)">
+            <SkipBack size={14} />
+          </button>
+          <button className="btn btn-secondary btn-sm" onClick={goNext} title="Next (Right)">
+            <SkipForward size={14} />
+          </button>
+          <button className="btn btn-secondary btn-sm" onClick={() => setShowCompare((v) => !v)}>
+            {showCompare ? <Minimize2 size={14} /> : <Maximize2 size={14} />} {showCompare ? 'Single' : 'Compare'}
+          </button>
+          {showCompare && (
+            <select
+              value={compareLayout}
+              className="form-select overlay-compare-layout"
+              onChange={(e) => setCompareLayout(e.target.value as 'side-by-side' | 'blend')}
+              title="Compare layout"
+            >
+              <option value="side-by-side">Split</option>
+              <option value="blend">Blend</option>
+            </select>
+          )}
+          <button className="btn btn-secondary btn-sm" onClick={() => setShowFilmstrip((v) => !v)}>
+            {showFilmstrip ? <PanelRightClose size={14} /> : <PanelRightOpen size={14} />} Strip
+          </button>
+          <a href={primary?.url} target="_blank" rel="noreferrer" className="btn btn-primary btn-sm">
+            <Download size={14} /> Export
+          </a>
+        </div>
+      </div>
+
+      <div className="overlay-studio-toolbar">
+        <div className="overlay-control-inline">
+          <Move size={13} />
+          <span>Zoom</span>
+          <input
+            type="range"
+            min={40}
+            max={600}
+            value={Math.round(zoom * 100)}
+            onChange={(e) => setZoom(Number(e.target.value) / 100)}
+          />
+          <span>{Math.round(zoom * 100)}%</span>
+        </div>
+        <div className="overlay-control-inline">
+          <span>B</span>
+          <input type="range" min={60} max={180} value={brightness} onChange={(e) => setBrightness(Number(e.target.value))} />
+          <span>{brightness}</span>
+        </div>
+        <div className="overlay-control-inline">
+          <span>C</span>
+          <input type="range" min={60} max={180} value={contrast} onChange={(e) => setContrast(Number(e.target.value))} />
+          <span>{contrast}</span>
+        </div>
+        <div className="overlay-control-inline">
+          <span>S</span>
+          <input type="range" min={0} max={220} value={saturate} onChange={(e) => setSaturate(Number(e.target.value))} />
+          <span>{saturate}</span>
+        </div>
+        <label className="overlay-toggle">
+          <input type="checkbox" checked={invert} onChange={(e) => setInvert(e.target.checked)} />
+          Invert
+        </label>
+        {showCompare && (
+          <label className="overlay-toggle">
+            <input type="checkbox" checked={linkView} onChange={(e) => setLinkView(e.target.checked)} />
+            Link view
+          </label>
+        )}
+        {showCompare && compareLayout === 'blend' && (
+          <div className="overlay-control-inline">
+            <span>Blend</span>
+            <input type="range" min={0} max={100} value={blendOpacity} onChange={(e) => setBlendOpacity(Number(e.target.value))} />
+            <span>{blendOpacity}%</span>
+          </div>
+        )}
+        <div className="overlay-preset-group">
+          <button className="btn btn-ghost btn-sm" onClick={() => applyWindowPreset('neutral')}>Neutral</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => applyWindowPreset('bone')}>Bone</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => applyWindowPreset('soft')}>Soft</button>
+        </div>
+        <button className="btn btn-ghost btn-sm" onClick={resetViewport}>Reset View</button>
+        <button className="btn btn-ghost btn-sm" onClick={resetWindow}>
+          <RotateCcw size={13} /> Reset Window
+        </button>
+      </div>
+
+      <div className="overlay-studio-body">
+        <div className={`overlay-main-panel ${showCompare && compareLayout === 'side-by-side' ? 'is-compare' : ''}`}>
+          <div
+            className="overlay-viewport"
+            onMouseDown={onPointerDown}
+            onMouseMove={onPointerMove}
+            onMouseUp={onPointerUp}
+            onMouseLeave={onPointerUp}
+            onWheel={onWheel}
+            role="presentation"
+          >
+            <div className="overlay-viewport-stack">
+              <img
+                src={primary?.url}
+                alt={primary?.label}
+                className={`overlay-image ${isPanning ? 'is-panning' : ''}`}
+                style={{
+                  transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                  filter: imageFilter,
+                }}
+                draggable={false}
+              />
+
+              {showCompare && compareLayout === 'blend' && (
+                <img
+                  src={secondary?.url}
+                  alt={secondary?.label}
+                  className="overlay-image overlay-image-secondary"
+                  style={{
+                    opacity: blendOpacity / 100,
+                    transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                    filter: imageFilter,
+                  }}
+                  draggable={false}
+                />
+              )}
+            </div>
+            <div className="overlay-corner-label">Primary: {primary?.label}</div>
+            {showCompare && compareLayout === 'blend' && (
+              <div className="overlay-corner-label overlay-corner-label-right">
+                Blend secondary: {secondary?.label}
+              </div>
+            )}
+          </div>
+
+          {showCompare && compareLayout === 'side-by-side' && (
+            <div className="overlay-viewport secondary">
+              <img
+                src={secondary?.url}
+                alt={secondary?.label}
+                className="overlay-image"
+                style={linkView
+                  ? {
+                    transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                    filter: imageFilter,
+                  }
+                  : { filter: imageFilter }}
+                draggable={false}
+              />
+              <div className="overlay-corner-label">Secondary: {secondary?.label}</div>
+            </div>
+          )}
+        </div>
+
+        {showFilmstrip && (
+          <aside className="overlay-filmstrip">
+            <div className="overlay-filmstrip-header">
+              <h4>Series</h4>
+              <div className="overlay-cine-controls">
+                <button className="btn btn-ghost btn-sm" onClick={() => setIsCine((v) => !v)}>
+                  {isCine ? <Pause size={13} /> : <Play size={13} />} {isCine ? 'Pause' : 'Cine'}
+                </button>
+                <select
+                  value={cineFps}
+                  onChange={(e) => setCineFps(Number(e.target.value))}
+                  className="form-select"
+                  style={{ width: 86, padding: '6px 28px 6px 10px', fontSize: 12 }}
+                >
+                  {[1, 2, 4, 6, 8].map((fps) => (
+                    <option key={fps} value={fps}>{fps} fps</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="overlay-thumb-list">
+              {overlays.map((ov, idx) => {
+                const isActive = idx === activeIndex;
+                const isSecondary = showCompare && idx === compareIndex;
+                return (
+                  <div
+                    key={ov.label}
+                    className={`overlay-thumb ${isActive ? 'active' : ''} ${isSecondary ? 'secondary' : ''}`}
+                    onClick={() => setActiveIndex(idx)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') setActiveIndex(idx);
+                    }}
+                  >
+                    <img src={ov.url} alt={ov.label} draggable={false} />
+                    <div className="overlay-thumb-meta">
+                      <strong>{ov.label}</strong>
+                      <div className="overlay-thumb-meta-actions">
+                        {showCompare && (
+                          <button
+                            className="btn btn-ghost btn-sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setCompareIndex(idx);
+                            }}
+                          >
+                            Compare
+                          </button>
+                        )}
+                        <a
+                          href={ov.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="btn btn-ghost btn-sm"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <Download size={12} />
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </aside>
+        )}
+      </div>
+
+      <div className="overlay-studio-hintbar">
+        <span>Shortcuts: Left/Right navigate</span>
+        <span>+/- zoom</span>
+        <span>0 reset view</span>
+        <span>C compare</span>
+        <span>X split/blend</span>
+        <span>F filmstrip</span>
+        <span>Space cine</span>
+      </div>
+    </div>
+  );
+}
 
 function statusBadge(s: MeasurementStatus) {
   const map: Record<MeasurementStatus, string> = { Normal: 'success', Increased: 'warning', Decreased: 'info' };
@@ -539,25 +919,7 @@ export default function ResultsPage() {
           loadingOv ? <Spinner /> : !overlays?.length ? (
             <EmptyState icon={<BarChart2 size={28} />} title="No overlays yet" desc="Generate overlays after finalizing the session." />
           ) : (
-            <div className="grid-3">
-              {overlays.map(ov => (
-                <div key={ov.label} className="card">
-                  <div className="card-header" style={{ paddingBottom:12 }}>
-                    <h3 className="card-title" style={{ fontSize:13 }}>{ov.label}</h3>
-                    <a href={ov.url} target="_blank" rel="noreferrer" className="btn btn-ghost btn-icon btn-sm">
-                      <Download size={14} />
-                    </a>
-                  </div>
-                  <div style={{ padding:'0 16px 16px' }}>
-                    <img
-                      src={ov.url}
-                      alt={ov.label}
-                      style={{ width:'100%', borderRadius:'var(--radius)', objectFit:'contain', background:'#000' }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
+            <OverlayDiagnosticViewer overlays={overlays} />
           )
         )}
       </div>
@@ -606,7 +968,7 @@ export default function ResultsPage() {
                 <label key={opt.key} style={{ display:'flex', alignItems:'center', gap:10, cursor:'pointer' }}>
                   <input
                     type="checkbox"
-                    checked={(reportOpts as any)[opt.key]}
+                    checked={reportOpts[opt.key as keyof typeof reportOpts]}
                     onChange={e => setReportOpts({ ...reportOpts, [opt.key]: e.target.checked })}
                     style={{ width:18, height:18, accentColor:'var(--accent)' }}
                   />

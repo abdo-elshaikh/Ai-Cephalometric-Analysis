@@ -6,7 +6,7 @@ import { patientsApi, studiesApi } from '@/services/api';
 import { Study, CreateStudyRequest, StudyType, StudyStatus } from '@/types';
 import Modal from '@/components/ui/Modal';
 import { Skeleton, EmptyState } from '@/components/ui/Loading';
-import { ArrowLeft, FolderOpen, Plus, Edit2, Trash2, FlaskConical } from 'lucide-react';
+import { ArrowLeft, FolderOpen, Plus, Edit2, Trash2, FlaskConical, Zap } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -161,6 +161,9 @@ export default function PatientDetailPage() {
                       <div style={{ display:'flex', gap:6 }}>
                         <button className="btn btn-ghost btn-icon" title="Open Analysis" onClick={() => navigate(`/analysis/${s.id}`)}>
                           <FlaskConical size={15} />
+                        </button>
+                        <button className="btn btn-ghost btn-icon" title="Clinical Viewer" onClick={() => navigate(`/viewer/${s.id}`)}>
+                          <Zap size={15} color="var(--accent)" />
                         </button>
                         <button className="btn btn-ghost btn-icon" title="Edit" onClick={() => { 
                           setSelectedStudy(s); 
