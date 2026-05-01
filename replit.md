@@ -89,6 +89,57 @@ See `.env.example`:
 - `STORAGE_PROVIDER` — `Local`, `S3`, or `Azure`
 - `VITE_BACKEND_API_BASE_URL` — Backend URL (default: http://localhost:5180)
 
+## Frontend Design System — ClinicalComponents.tsx
+
+The core design-system module (`src/components/_core/ClinicalComponents.tsx`) exports:
+
+| Component | Purpose |
+|-----------|---------|
+| `Card` | Glassmorphism card with optional glow |
+| `Pill` | Status badge (success/warning/danger/info/accent/neutral) |
+| `KpiCard` | Metric tile with icon and delta |
+| `PageHeader` | Eyebrow + title + description + actions |
+| `TabBar<T>` | Horizontal tab navigation with badge support |
+| `DeviationBar` | Bullet-chart bar showing value vs. normal range |
+| `SectionHeader` | Labelled subsection divider |
+| `PrimaryBtn / SecondaryBtn / DangerBtn / IconBtn` | Button variants |
+| `TextInput / SearchInput / Select / Field` | Form inputs |
+| `Modal` | Radix Dialog-based modal |
+| `EmptyState` | Empty placeholder with CTA |
+| `ThemeToggle` | Dark/light mode switch |
+
+### DeviationBar Details
+
+`<DeviationBar value={m.value} normal={m.normal} severity={m.severity} />`
+
+Parses the `normal` string (e.g. `"80-84"`, `"≥3"`, `"<5"`) to render:
+- Green zone = normative band
+- Colored marker = patient's value (green/yellow/orange/red by severity)
+
+## ViewerPage — CephPreview SVG Viewer
+
+The embedded SVG viewer (`CephPreview`) supports:
+
+- **80 landmarks** rendered as crosshair reticles color-coded by anatomical group
+- **11 cephalometric tracing planes**: SN, FH, NA, NB, N-Pog, Mandibular Plane, Go-Me, Incisal, Occlusal, E-Line, Facial Profile
+- Extended lines (60px beyond endpoints) for realistic cephalometric tracing appearance
+- **Grouped landmark inventory**: 7 anatomical groups (Cranial Base, Maxilla, Mandible, Dental, Soft Tissue, Airway/CVM, Ricketts), each collapsible
+- **Minimap** (bottom-right corner) visible during zoom showing current viewport position
+- Zoom (scroll wheel or ±buttons) + pan (Alt+drag or middle-mouse)
+- Per-group landmark color coding (blue=cranial, green=maxilla, amber=mandible, purple=dental, pink=soft tissue, sky=airway, fuchsia=Ricketts)
+
+## ResultsPage — Tabbed Analysis View
+
+Five tabs:
+
+| Tab | Contents |
+|-----|---------|
+| **Overview** | Diagnosis card, confidence bar, top-8 measurements with deviation bars, top treatment recommendation |
+| **Measurements** | Collapsible group sections (Steiner/Skeletal, McNamara, Vertical/Jarabak, Dental, Soft Tissue, Airway/CVM), each with deviation bars; search + filter-by-abnormal |
+| **Treatment** | Expandable treatment option cards with evidence level, retention recommendation, duration, complexity |
+| **Growth** | CVM staging guide (Baccetti 2002 CS1–CS6) + Proffit/Petrovic growth prediction timeline |
+| **Reports** | PDF/Word export buttons + generated report list with preview/download |
+
 ## Key Frontend Dependencies
 
 - React 19, Wouter (routing), Vite 7

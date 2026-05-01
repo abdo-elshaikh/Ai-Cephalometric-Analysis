@@ -504,6 +504,135 @@ export function EmptyState({
   );
 }
 
+// ─── Deviation Bar ─────────────────────────────────────────────────────────────
+
+/**
+ * Visual bullet-chart bar that places the patient's value against the normal range.
+ * Green zone = normative band. Marker color encodes severity.
+ */
+export function DeviationBar({
+  value,
+  normal,
+  severity,
+}: {
+  value: number;
+  normal: string;
+  severity: "Normal" | "Mild" | "Moderate" | "Severe";
+}) {
+  const range = parseNormalRange(normal);
+  if (!range) {
+    return (
+      <div className="h-2.5 w-full rounded-full bg-muted/40">
+        <div className="h-full w-1 bg-muted-foreground/40 rounded-full" />
+      </div>
+    );
+  }
+  const [lo, hi] = range;
+  const span = hi - lo;
+  const pad = Math.max(span * 0.8, 2);
+  const barMin = lo - pad;
+  const barMax = hi + pad;
+  const barSpan = barMax - barMin;
+
+  const normStartPct = Math.max(0, ((lo - barMin) / barSpan) * 100);
+  const normWidthPct = Math.min(100 - normStartPct, (span / barSpan) * 100);
+  const valuePct = Math.max(1, Math.min(99, ((value - barMin) / barSpan) * 100));
+
+  const markerColor =
+    severity === "Normal" ? "bg-success" :
+    severity === "Mild" ? "bg-warning" :
+    severity === "Moderate" ? "bg-orange-500" : "bg-destructive";
+
+  return (
+    <div className="relative h-2.5 w-full rounded-full bg-muted/40">
+      <div
+        className="absolute top-0 h-full rounded-sm bg-success/25 border-x border-success/40"
+        style={{ left: `${normStartPct}%`, width: `${normWidthPct}%` }}
+      />
+      <div
+        className={cn("absolute top-1/2 -translate-y-1/2 -translate-x-1/2 h-3.5 w-1.5 rounded-full shadow-sm", markerColor)}
+        style={{ left: `${valuePct}%` }}
+      />
+    </div>
+  );
+}
+
+function parseNormalRange(normal: string): [number, number] | null {
+  const m = normal.match(/^(-?[\d.]+)\s*[–\-]\s*(-?[\d.]+)/);
+  if (m) return [parseFloat(m[1]), parseFloat(m[2])];
+  const gte = normal.match(/^[≥>]\s*([\d.]+)/);
+  if (gte) { const v = parseFloat(gte[1]); return [v, v + 4]; }
+  const lte = normal.match(/^[≤<]\s*([\d.]+)/);
+  if (lte) { const v = parseFloat(lte[1]); return [v - 4, v]; }
+  return null;
+}
+
+// ─── Tab Bar ──────────────────────────────────────────────────────────────────
+
+export function TabBar<T extends string>({
+  tabs,
+  active,
+  onChange,
+  className,
+}: {
+  tabs: { id: T; label: string; icon?: React.ComponentType<{ className?: string }>; badge?: string | number }[];
+  active: T;
+  onChange: (id: T) => void;
+  className?: string;
+}) {
+  return (
+    <div className={cn("flex items-center gap-1 rounded-2xl border border-border/40 bg-muted/20 p-1.5", className)}>
+      {tabs.map(tab => {
+        const Icon = tab.icon;
+        const isActive = tab.id === active;
+        return (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => onChange(tab.id)}
+            className={cn(
+              "relative flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition-all duration-200",
+              isActive
+                ? "bg-card text-foreground shadow-sm border border-border/40"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted/30"
+            )}
+          >
+            {Icon && <Icon className="h-3.5 w-3.5" />}
+            {tab.label}
+            {tab.badge !== undefined && (
+              <span className={cn(
+                "flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[9px] font-bold",
+                isActive ? "bg-primary/15 text-primary" : "bg-muted/60 text-muted-foreground"
+              )}>
+                {tab.badge}
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Section Header ────────────────────────────────────────────────────────────
+
+export function SectionHeader({
+  label,
+  children,
+  className,
+}: {
+  label: string;
+  children?: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={cn("flex items-center justify-between gap-3 mb-5", className)}>
+      <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-muted-foreground">{label}</p>
+      {children && <div className="flex items-center gap-2">{children}</div>}
+    </div>
+  );
+}
+
 /** Theme toggle switch */
 export function ThemeToggle() {
   const { theme, toggleTheme } = useTheme();

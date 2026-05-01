@@ -2,7 +2,15 @@ import {
   type CaseRecord, 
   type CaseStatus 
 } from "@/lib/mappers";
-import { type CaseWorkflowStep as WorkflowStep } from "@/lib/clinical";
+
+export type WorkflowStep = {
+  key: string;
+  label: string;
+  detail: string;
+  done: boolean;
+  href: string;
+  cta: string;
+};
 
 export function statusTone(status: CaseStatus): "success" | "accent" | "info" | "warning" | "neutral" {
   if (status === "Report ready" || status === "Reviewed" || status === "AI completed") return "success";
