@@ -1,5 +1,5 @@
-from pydantic import BaseModel, Field
-from typing import Optional
+from pydantic import BaseModel, Field, ConfigDict
+from typing import Optional, Any
 
 
 # ── Landmark schemas ────────────────────────────────────────────────────────
@@ -71,9 +71,11 @@ class DiagnosisRequest(BaseModel):
 
 
 class DiagnosisResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
     session_id: str
     skeletal_class: str          # ClassI | ClassII | ClassIII
-    skeletal_type: str           # Definitive | Borderline
+    skeletal_type: str           # Definitive | Borderline | Conflicting
     corrected_anb: float
     apdi_classification: Optional[str] = None
     odi_classification: Optional[str] = None
@@ -83,10 +85,15 @@ class DiagnosisResponse(BaseModel):
     upper_incisor_inclination: str
     lower_incisor_inclination: str
     soft_tissue_profile: str     # Normal | Protrusive | Retrusive | Unknown
+    facial_convexity: Optional[str] = None
     overjet_mm: Optional[float] = None
     overjet_classification: Optional[str] = None
     overbite_mm: Optional[float] = None
     overbite_classification: Optional[str] = None
+    bolton_discrepancy: Optional[dict[str, Any]] = None
+    cvm_staging: Optional[dict[str, Any]] = None
+    airway_assessment: Optional[dict[str, Any]] = None
+    skeletal_differential: Optional[dict[str, float]] = None
     confidence_score: float
     summary: str
     warnings: list[str] = Field(default_factory=list)

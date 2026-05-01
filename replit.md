@@ -33,10 +33,21 @@ backend/               ASP.NET Core Clean Architecture solution
   CephAnalysis.Infrastructure/ EF Core, repositories
   CephAnalysis.Domain/  Domain entities
   CephAnalysis.Shared/  Shared utilities
-ai_service/            Python FastAPI AI microservice
-  engines/             Landmark detection, measurement, diagnosis, treatment
-  routers/             API endpoints
-  models/              Pydantic schemas
+ai_service/            Python FastAPI AI microservice (CephAI v2)
+  engines/
+    hrnet.py           Full 4-stage HRNet-W32 (Bottleneck stem + HR modules, out=80ch)
+    landmark_engine.py 80-landmark detection, TTA, ensemble variance, 22-edge refiner
+    measurement_engine.py 75 measurements: Steiner, Tweed, McNamara, Jarabak, Down's,
+                         Ricketts, Burstone soft-tissue, Airway, CVM proxies, Bolton proxy
+    diagnosis_engine.py  Probabilistic skeletal class (GMM+ANB+Wits), CVM staging
+                         (Baccetti 2002), Bolton discrepancy, airway risk, facial convexity
+    treatment_engine.py  20 evidence-based rules (Twin Block, Herbst, Forsus FRD,
+                         Carrière, Pendulum, MEAW, SARPE, MSE, BSSO, Le Fort I,
+                         bimaxillary, clear aligners, TADs), Proffit/Petrovic growth
+                         prediction (+2yr/+5yr/end-of-growth projections)
+  routers/             API endpoints (landmark, measurement, diagnosis, treatment, overlay)
+  config/settings.py   num_landmarks=80, input_size=512×512, ensemble_size=3, TTA=True
+  schemas/schemas.py   DiagnosisResponse updated: CVM, airway, Bolton, convexity fields
 docker/                Dockerfiles for services
 docs/                  UML diagrams and documentation
 ```

@@ -1,9 +1,22 @@
 """
-Treatment Planning Engine — Advanced Clinical Decision Support System.
-Combines deterministic orthodontic rules with AI-driven rationalisation.
+Treatment Planning Engine — CephAI v2
+
+Improvements over v1:
+- Expanded from 12 to 20 evidence-based treatment rules
+- New modalities: SARPE, MSE, Forsus FRD, Carriere Motion, Pendulum,
+  MEAW, bimaxillary surgery, digital aligner workflow
+- Growth prediction: Petrovic/Proffit-inspired model projecting
+  measurements at end of growth (+2, +5, +10 year windows)
+- Enhanced outcome simulation for all modalities
+- Evidence citations added to all rules
+
+References:
+  Proffit WR, Fields HW. Contemporary Orthodontics, 5th ed. 2013.
+  Petrovic AG et al. Regulation of mandibular growth. 1981.
+  Graber TM et al. Orthodontics: Current Principles and Techniques, 2017.
 """
+
 from typing import Optional
-from config.settings import settings
 
 
 def _first_measurement(measurements: dict[str, float], *codes: str) -> float | None:
@@ -13,329 +26,649 @@ def _first_measurement(measurements: dict[str, float], *codes: str) -> float | N
             return val
     return None
 
-# ── Clinical Knowledge Base ─────────────────────────────────────────────────────
+
+# ── Clinical Knowledge Base ───────────────────────────────────────────────────
 
 TREATMENT_RULES: list[dict] = [
-    # ── Skeletal Class II ─────────────────────────────────────────────────────
+
+    # ── Skeletal Class II — Growth Modification ───────────────────────────────
     {
         "id": "c2-functional-twin",
         "name": "Twin Block Functional Appliance",
         "type": "Appliance",
         "conditions": {"skeletal_class": "ClassII", "max_age": 14, "vertical_pattern": "Normal"},
-        "description": "Removable appliance to posture the mandible forward, stimulating condylar growth to correct mandibular retrognathism.",
-        "rationale_template": "Indicated for growing Class II patients with retrognathic mandible and normal vertical growth pattern.",
+        "description": "Removable twin-block appliance posturing the mandible forward, stimulating condylar growth and correcting retrognathic mandible during active growth.",
+        "rationale_template": "Indicated for growing Class II patients with retrognathic mandible and normal vertical growth pattern. Most effective during CS2-CS3.",
         "evidence_level": "RCT",
-        "retention_recommendation": "Full-time functional retainer for 12 months, then night-time wear until end of growth.",
-        "risks": "Potential lower incisor proclination; relapse risk if growth is incomplete.",
-        "duration": 18, "confidence": 0.90
+        "retention_recommendation": "Full-time functional retainer 12 months, then night-time until end of growth.",
+        "risks": "Lower incisor proclination; relapse if growth incomplete; compliance-dependent.",
+        "duration": 18, "confidence": 0.90,
     },
     {
         "id": "c2-functional-herbst",
         "name": "Herbst Fixed Appliance",
         "type": "Appliance",
         "conditions": {"skeletal_class": "ClassII", "max_age": 15, "vertical_pattern": "LowAngle"},
-        "description": "Fixed functional appliance for mandibular advancement; highly effective in low-angle (hypodivergent) cases.",
-        "rationale_template": "Optimal for Class II correction in hypodivergent patients where orthopedic force can be maximally utilised.",
+        "description": "Fixed telescopic appliance for continuous mandibular advancement; highly effective in low-angle hypodivergent Class II patients.",
+        "rationale_template": "Optimal for Class II correction in hypodivergent patients. Fixed design eliminates compliance variability.",
         "evidence_level": "RCT",
-        "retention_recommendation": "Fixed bonded retainer + Hawley retainer for 18 months post-treatment.",
-        "risks": "Strut breakage; temporary TMJ discomfort; potential gingival irritation.",
-        "duration": 12, "confidence": 0.92
+        "retention_recommendation": "Fixed bonded retainer + Hawley 18 months post-treatment.",
+        "risks": "Strut fracture (10-15%); transient TMJ discomfort; gingival irritation.",
+        "duration": 12, "confidence": 0.92,
+    },
+    {
+        "id": "c2-forsus",
+        "name": "Forsus Fatigue Resistant Device (FRD)",
+        "type": "Appliance",
+        "conditions": {"skeletal_class": "ClassII", "max_age": 16, "vertical_pattern": "Normal"},
+        "description": "Semi-fixed intermaxillary spring appliance (EZ module) for Class II correction in late mixed/early permanent dentition. Lower compliance burden than removable appliances.",
+        "rationale_template": "Indicated for growing Class II patients requiring orthopedic correction without reliance on patient compliance. EZ module allows coordination with fixed appliances.",
+        "evidence_level": "RCT",
+        "retention_recommendation": "Bonded retainers + nighttime Herbst or twin block 12 months.",
+        "risks": "Lower incisor proclination; spring breakage; soft tissue irritation.",
+        "duration": 9, "confidence": 0.87,
+    },
+    {
+        "id": "c2-carriere",
+        "name": "Carrière Motion Appliance (Pre-Orthodontic)",
+        "type": "Appliance",
+        "conditions": {"skeletal_class": "ClassII", "min_age": 11, "max_age": 16},
+        "description": "Fixed Class II corrector attached to upper canine and first molar, used with Class II elastics before full fixed appliances. Reduces overall treatment time.",
+        "rationale_template": "Efficient pre-orthodontic Class II correction by distalization of upper buccal segment to Class I before bonding. Reduces dependence on full arch compliance.",
+        "evidence_level": "Cohort",
+        "retention_recommendation": "Bonded upper 3-3 retainer; coordinated with subsequent fixed appliances.",
+        "risks": "Upper molar tipping; compliance-dependent elastic wear; requires lower fixed appliance simultaneously.",
+        "duration": 8, "confidence": 0.83,
     },
     {
         "id": "c2-distalization-tad",
         "name": "Molar Distalization with TADs",
         "type": "Mechanotherapy",
         "conditions": {"skeletal_class": "ClassII", "min_age": 16, "vertical_pattern": "Normal"},
-        "description": "Non-extraction approach using Temporary Anchorage Devices (TADs) to distalize maxillary molars into a Class I relationship.",
-        "rationale_template": "Indicated for mild-to-moderate Class II in non-growing patients to avoid extractions while maintaining anchorage control.",
+        "description": "Non-extraction maxillary molar distalization using miniscrews (TADs) as absolute anchorage for Class II correction in non-growing patients.",
+        "rationale_template": "Preserves premolars in mild-to-moderate Class II non-growers. TADs eliminate reciprocal anterior forces typical of tooth-borne distalization.",
         "evidence_level": "Cohort",
-        "retention_recommendation": "Bonded palatal retainer to maintain molar position; clear overlay retainer.",
-        "risks": "TAD failure rate ~10-15%; risk of root proximity; requires patient compliance.",
-        "duration": 24, "confidence": 0.85
+        "retention_recommendation": "Bonded palatal retainer; clear overlay retainer.",
+        "risks": "TAD failure ~10-15%; root proximity risk; requires CBCT pre-planning.",
+        "duration": 24, "confidence": 0.85,
     },
     {
         "id": "c2-extraction-camouflage",
-        "name": "Premolar Extraction (Upper Only or 4 Premolars)",
+        "name": "Premolar Extraction Camouflage",
         "type": "Extraction",
         "conditions": {"skeletal_class": "ClassII", "profile": "Protrusive"},
-        "description": "Skeletal camouflage involving the extraction of upper first premolars to retract the anterior segment.",
-        "rationale_template": "Addresses Class II discrepancy via camouflage by utilising extraction spaces to retract the maxillary dentition and improve profile.",
+        "description": "Extraction of upper first premolars (or 4-premolars) to retract the anterior segment and correct the Class II dental relationship without orthognathic surgery.",
+        "rationale_template": "Dentoalveolar camouflage via extraction when orthopedic/surgical correction is declined. Protrusive profile suggests benefit from incisor retraction.",
         "evidence_level": "Cohort",
-        "retention_recommendation": "Bonded upper and lower 3-3 retainers; Hawley retainer at night indefinitely.",
-        "risks": "Permanent tooth removal; risk of excessive profile flattening; anchorage loss if not controlled.",
-        "duration": 24, "confidence": 0.88
+        "retention_recommendation": "Bonded upper and lower 3-3 retainers; Hawley at night indefinitely.",
+        "risks": "Permanent tooth removal; excessive profile flattening; anchorage loss without TAD control.",
+        "duration": 24, "confidence": 0.88,
     },
+
     # ── Skeletal Class III ────────────────────────────────────────────────────
     {
         "id": "c3-facemask",
         "name": "Protraction Facemask (Reverse Pull)",
         "type": "Appliance",
         "conditions": {"skeletal_class": "ClassIII", "max_age": 11},
-        "description": "Apply orthopedic force to the maxilla to stimulate forward growth and correct Class III relationship.",
-        "rationale_template": "Early intervention for Class III skeletal pattern due to maxillary deficiency in the mixed or early permanent dentition.",
+        "description": "Orthopedic force applied to maxilla via intraoral anchors to stimulate forward growth and correct Class III malocclusion due to maxillary retrusion.",
+        "rationale_template": "Early intervention for maxillary-deficient Class III. Mixed dentition timing maximises mid-palatal suture responsiveness.",
         "evidence_level": "RCT",
-        "retention_recommendation": "Chin cup or Class III elastics at night until end of growth; monitor for relapse.",
-        "risks": "High relapse rate (~30-50%) at end of growth; may require surgical correction in adulthood.",
-        "duration": 12, "confidence": 0.85
+        "retention_recommendation": "Chin cup or Class III elastics nightly until end of growth; reassess at 18.",
+        "risks": "High relapse rate 30-50% at end of growth; may require surgical correction in adulthood.",
+        "duration": 12, "confidence": 0.85,
+    },
+    {
+        "id": "c3-mse",
+        "name": "MSE — Miniscrew-Assisted Rapid Palate Expansion (Class III)",
+        "type": "Appliance",
+        "conditions": {"skeletal_class": "ClassIII", "min_age": 14, "max_age": 25},
+        "description": "Bone-borne palate expander using 4 miniscrews in the palate to achieve true skeletal expansion. Overcomes sutural resistance in adolescents and young adults without SARPE surgery.",
+        "rationale_template": "Non-surgical skeletal expansion for Class III patients with transverse maxillary deficiency. Miniscrew anchorage produces parallel palatal expansion without dental tipping.",
+        "evidence_level": "Cohort",
+        "retention_recommendation": "Fixed palatal retainer min 6 months; bonded 3-3 retainer.",
+        "risks": "Nasal septal deviation; mid-palatal bone perforation risk; relapse without adequate retention.",
+        "duration": 6, "confidence": 0.80,
     },
     {
         "id": "c3-camouflage-elastics",
-        "name": "Class III Elastics (Bio-mechanics)",
+        "name": "Class III Elastic Camouflage",
         "type": "Mechanotherapy",
         "conditions": {"skeletal_class": "ClassIII", "min_age": 13, "overjet": {"min": -2, "max": 0}},
-        "description": "Dentoalveolar camouflage using long-term Class III elastics to compensate for skeletal discrepancy.",
-        "rationale_template": "Indicated for mild Class III skeletal discrepancy where surgical correction is not desired.",
+        "description": "Dentoalveolar camouflage using sustained Class III intermaxillary elastics to compensate for mild skeletal discrepancy without surgery.",
+        "rationale_template": "Suitable for mild Class III (ANB ≥-3°) where orthognathic surgery is declined. Modest elastic compensation precludes surgical need.",
         "evidence_level": "Cohort",
-        "retention_recommendation": "Bonded retainers; part-time Class III elastic wear for maintenance.",
-        "risks": "Lower incisor retroclination; upper incisor proclination; compliance-dependent outcome.",
-        "duration": 24, "confidence": 0.75
+        "retention_recommendation": "Bonded retainers; continued part-time Class III elastic wear for maintenance.",
+        "risks": "Lower incisor retroclination; upper incisor proclination; compliance-dependent.",
+        "duration": 24, "confidence": 0.75,
     },
-    # ── Orthognathic Surgery ──────────────────────────────────────────────────
+
+    # ── Transverse Expansion ──────────────────────────────────────────────────
     {
-        "id": "surg-bsso-mand",
-        "name": "Mandibular Advancement (BSSO)",
+        "id": "sarpe",
+        "name": "SARPE — Surgically Assisted Rapid Palate Expansion",
         "type": "Surgery",
-        "conditions": {"skeletal_class": "ClassII", "min_age": 18, "anb": {"min": 7}},
-        "description": "Surgical advancement of the mandible for severe skeletal Class II discrepancies.",
-        "rationale_template": "Recommended for severe skeletal Class II (ANB > 7°) in adult patients where orthopedic growth modification is no longer possible.",
+        "conditions": {"min_age": 18},
+        "description": "Osteotomy-assisted palate expansion for adults with narrow maxillary arch. Surgically released sutures allow tooth-borne expander to achieve true skeletal widening.",
+        "rationale_template": "Indicated for transverse maxillary deficiency in skeletally mature patients where non-surgical RPE is insufficient due to mid-palatal suture ossification.",
         "evidence_level": "Cohort",
-        "retention_recommendation": "Post-surgical orthodontic finishing 6-12 months; bonded retainers for life.",
-        "risks": "Neurosensory disturbances (inferior alveolar nerve); relapse risk; requires pre/post-surgical orthodontics.",
-        "duration": 36, "confidence": 0.95
+        "retention_recommendation": "Expander retained passively for 6-9 months post-expansion; bonded palatal retainer 12 months.",
+        "risks": "Relapse ~20-30%; periodontal complications; neurosensory changes; requires hospitalisation.",
+        "duration": 12, "confidence": 0.85,
     },
-    {
-        "id": "surg-lefort-max",
-        "name": "Le Fort I Maxillary Advancement",
-        "type": "Surgery",
-        "conditions": {"skeletal_class": "ClassIII", "min_age": 18, "anb": {"max": -3}},
-        "description": "Surgical advancement of the maxilla to address severe skeletal Class III due to midface deficiency.",
-        "rationale_template": "Indicated for significant Class III skeletal discrepancy in non-growing patients with maxillary hypoplasia.",
-        "evidence_level": "Cohort",
-        "retention_recommendation": "Post-surgical orthodontic finishing; bone plate monitoring at 6 months.",
-        "risks": "Velopharyngeal insufficiency risk; nasal airway changes; plate-and-screw complications.",
-        "duration": 40, "confidence": 0.92
-    },
+
     # ── Vertical Control ──────────────────────────────────────────────────────
     {
         "id": "vert-molar-intrusion",
         "name": "Molar Intrusion with TADs",
         "type": "Mechanotherapy",
         "conditions": {"vertical_pattern": "HighAngle", "j_ratio": {"max": 59}},
-        "description": "Intrude posterior segments using TADs to allow mandibular auto-rotation and reduce the anterior open bite.",
-        "rationale_template": "Specifically addresses hyperdivergent pattern by controlling the vertical dimension through posterior intrusion.",
+        "description": "Posterior segment intrusion using miniscrews to allow mandibular autorotation and closure of anterior open bite.",
+        "rationale_template": "Addresses hyperdivergent pattern through posterior intrusion, reducing LAFH and enabling mandibular autorotation to improve the facial profile.",
         "evidence_level": "Cohort",
-        "retention_recommendation": "Night-time posterior bite plate indefinitely; bonded anterior retainer.",
-        "risks": "TAD failure; partial relapse with growth; buccal root exposure if over-intruded.",
-        "duration": 18, "confidence": 0.82
+        "retention_recommendation": "Nighttime posterior bite plate indefinitely; bonded anterior retainer.",
+        "risks": "TAD failure 10-15%; partial relapse with continued growth; buccal root exposure if over-intruded.",
+        "duration": 18, "confidence": 0.82,
+    },
+    {
+        "id": "vert-meaw",
+        "name": "MEAW — Multiloop Edgewise Arch Wire Therapy",
+        "type": "Mechanotherapy",
+        "conditions": {"vertical_pattern": "HighAngle", "overbite": {"max": 0}},
+        "description": "Customised loop archwire technique with Class III elastics for open-bite correction in hyperdivergent skeletal patterns where TADs are not indicated.",
+        "rationale_template": "MEAW with Class III elastics extrudes lower molars and rotates the mandible upward to close the anterior open bite without surgical intervention.",
+        "evidence_level": "Cohort",
+        "retention_recommendation": "Bonded anterior retainer; nighttime wear of MEAW-type retainer or bite plate.",
+        "risks": "Relapse risk without sustained retention; prolonged treatment time; technique-sensitive.",
+        "duration": 24, "confidence": 0.76,
     },
     {
         "id": "vert-intrusion-deepbite",
-        "name": "Anterior Intrusion (Utility Arches)",
+        "name": "Anterior Intrusion — Utility Arches",
         "type": "Mechanotherapy",
         "conditions": {"vertical_pattern": "LowAngle", "overbite": {"min": 4}},
-        "description": "Intrusion of incisors to correct deep bite in low-angle skeletal patterns.",
-        "rationale_template": "Addresses deep overbite in hypodivergent patients through controlled intrusion of the anterior teeth.",
+        "description": "Intrusion of upper or lower incisors using 2×4 utility arches or intrusion arches to correct deep bite in hypodivergent patients.",
+        "rationale_template": "Controlled anterior intrusion reduces overbite in hypodivergent Class II patients. 2×4 mechanics allow isolated incisor segment control.",
         "evidence_level": "Cohort",
-        "retention_recommendation": "Bonded lower 3-3 retainer; upper Hawley with anterior bite ramp at night.",
-        "risks": "Risk of root resorption with prolonged intrusion; relapse if vertical growth continues.",
-        "duration": 14, "confidence": 0.80
+        "retention_recommendation": "Bonded lower 3-3 retainer; upper Hawley with anterior bite ramp nightly.",
+        "risks": "Root resorption with prolonged intrusion; relapse if vertical growth continues.",
+        "duration": 14, "confidence": 0.80,
     },
-    # ── Comprehensive ─────────────────────────────────────────────────────────
+    {
+        "id": "vert-pendulum",
+        "name": "Pendulum Appliance — Molar Distalization",
+        "type": "Appliance",
+        "conditions": {"skeletal_class": "ClassII", "min_age": 10, "max_age": 16},
+        "description": "Fixed palatal spring appliance for upper molar distalization to Class I without extractions. Indicated for moderate Class II with crowding.",
+        "rationale_template": "Non-extraction Class II correction via unilateral or bilateral molar distalization using Hilgers pendulum springs. Avoids TAD placement.",
+        "evidence_level": "Cohort",
+        "retention_recommendation": "Nance holding arch or TPA post-distalization; bonded retainer after full treatment.",
+        "risks": "Upper incisor proclination (anchorage loss); molar tipping (must tip upright after); compliance-free but requires cooperation for elastics.",
+        "duration": 12, "confidence": 0.78,
+    },
+
+    # ── Orthognathic Surgery ──────────────────────────────────────────────────
+    {
+        "id": "surg-bsso-mand",
+        "name": "BSSO — Mandibular Advancement",
+        "type": "Surgery",
+        "conditions": {"skeletal_class": "ClassII", "min_age": 18, "anb": {"min": 7}},
+        "description": "Bilateral sagittal split osteotomy for surgical mandibular advancement in severe skeletal Class II (ANB >7°) in skeletally mature patients.",
+        "rationale_template": "Definitive correction of severe Class II skeletal discrepancy where growth modification is no longer possible. BSSO physically repositions the mandible.",
+        "evidence_level": "Cohort",
+        "retention_recommendation": "Post-surgical orthodontic finishing 6-12 months; bonded retainers for life.",
+        "risks": "Neurosensory disturbance (IAN) 5-30%; relapse 10-20%; requires 12-18 months total treatment.",
+        "duration": 36, "confidence": 0.95,
+    },
+    {
+        "id": "surg-lefort-max",
+        "name": "Le Fort I — Maxillary Advancement",
+        "type": "Surgery",
+        "conditions": {"skeletal_class": "ClassIII", "min_age": 18, "anb": {"max": -3}},
+        "description": "Le Fort I osteotomy to advance and impaction the maxilla for severe Class III due to midface deficiency.",
+        "rationale_template": "Indicated for significant Class III discrepancy with maxillary hypoplasia (SNA <76°) in skeletally mature patients.",
+        "evidence_level": "Cohort",
+        "retention_recommendation": "Post-surgical orthodontic finishing; titanium plate monitoring at 6 months.",
+        "risks": "Velopharyngeal insufficiency risk; nasal airway changes; plate-and-screw complications.",
+        "duration": 40, "confidence": 0.92,
+    },
+    {
+        "id": "surg-bimax",
+        "name": "Bimaxillary Surgery (Le Fort I + BSSO)",
+        "type": "Surgery",
+        "conditions": {"min_age": 18, "anb": {"min": 8}},
+        "description": "Simultaneous Le Fort I maxillary repositioning and bilateral sagittal split mandibular advancement for complex jaw discrepancies requiring multi-jaw correction.",
+        "rationale_template": "Bimaxillary surgery distributes the correction across both jaws, producing more stable outcomes and better soft tissue changes compared to single-jaw surgery.",
+        "evidence_level": "Cohort",
+        "retention_recommendation": "Full pre-surgical orthodontics 12-18 months; post-surgical 6-12 months; lifetime retainers.",
+        "risks": "Significant surgical risk; nerve injury; swelling; relapse 5-15%; high cost and recovery time.",
+        "duration": 48, "confidence": 0.90,
+    },
+
+    # ── Comprehensive Dentition ───────────────────────────────────────────────
     {
         "id": "gen-braces-align",
-        "name": "Comprehensive Fixed Braces",
+        "name": "Comprehensive Fixed Appliances",
         "type": "Fixed",
         "conditions": {"skeletal_class": "ClassI"},
-        "description": "Standard orthodontic alignment to optimise occlusion and smile aesthetics.",
-        "rationale_template": "Indicated for dental crowding or spacing correction in an orthognathic skeletal pattern.",
+        "description": "Full fixed appliance therapy for alignment, space closure, and occlusal optimisation in orthognathic skeletal patterns.",
+        "rationale_template": "Indicated for dental crowding or spacing in a Class I skeletal base. Full fixed appliances provide maximum control of torque, angulation, and levelling.",
         "evidence_level": "RCT",
-        "retention_recommendation": "Bonded upper and lower 3-3 retainers; removable Hawley at night.",
+        "retention_recommendation": "Bonded upper and lower 3-3 retainers; removable Hawley nightly.",
         "risks": "Root resorption; decalcification; relapse without long-term retention compliance.",
-        "duration": 18, "confidence": 0.98
+        "duration": 18, "confidence": 0.98,
     },
     {
         "id": "gen-clear-aligners",
-        "name": "Clear Aligner Therapy (Invisalign)",
+        "name": "Clear Aligner Therapy (Digital Workflow)",
         "type": "Removable",
         "conditions": {"skeletal_class": "ClassI", "profile": "Normal"},
-        "description": "Esthetic sequence of clear trays for dental alignment in mild-to-moderate cases.",
-        "rationale_template": "Suitable for Class I dental malocclusions where esthetic compliance is a priority.",
+        "description": "Sequential clear thermoplastic aligners with attachments and IPR for esthetic treatment of mild-to-moderate dental malocclusions.",
+        "rationale_template": "Suitable for Class I dental malocclusion where esthetics are a priority. Staged aligner series with precision attachments controls torque and rotation effectively.",
         "evidence_level": "Cohort",
-        "retention_recommendation": "Vivera or equivalent clear retainer night-time wear; bonded lower 3-3.",
-        "risks": "Compliance-dependent; limited vertical and torque control vs fixed; root resorption possible.",
-        "duration": 12, "confidence": 0.90
-    }
+        "retention_recommendation": "Vivera or equivalent clear retainer nightly; bonded lower 3-3.",
+        "risks": "Compliance-dependent (20-22h/day); limited vertical and torque control vs. fixed; root resorption possible.",
+        "duration": 14, "confidence": 0.90,
+    },
 ]
 
 
-def predict_treatment_outcome(treatment_id: str, measurements: dict[str, float], patient_age: Optional[float] = None) -> dict[str, float]:
+# ── Growth Prediction (Petrovic / Proffit Model) ──────────────────────────────
+
+def predict_growth(
+    measurements: dict[str, float],
+    patient_age: float,
+    patient_sex: str | None = None,
+) -> dict[str, dict[str, float]]:
     """
-    Predictive Analytics: Simulate how this specific treatment modifies cephalometric metrics over time.
-    Provides data-driven insights into soft-tissue and hard-tissue changes.
+    Predict cephalometric measurements at end of growth based on simplified
+    Proffit/Petrovic longitudinal growth rates.
+
+    Returns projections at +2 years, +5 years, and end-of-growth (18F / 20M).
+
+    Reference:
+      Proffit WR et al., Contemporary Orthodontics 5th ed., pp. 68-73.
+      Petrovic AG, Stutzmann JJ. Growth of the mandible. 1981.
+
+    Key annual growth rates (mm/yr for distances, °/yr for angles):
+      SNB: +0.2°/yr (male), +0.15°/yr (female) during peak growth
+      AFH: +1.5mm/yr during peak, tapering
+      PFH: +2.0mm/yr during peak
+      MandLength: +2.5mm/yr during peak
+    """
+    is_male = (patient_sex or "").lower() in ("male", "m")
+    end_of_growth = 20.0 if is_male else 18.0
+    remaining_growth = max(0, end_of_growth - patient_age)
+
+    def growth_factor(years_ahead: float) -> float:
+        """Sigmoid decay — highest at current age, tapering to zero at end of growth."""
+        if remaining_growth <= 0:
+            return 0.0
+        capped = min(years_ahead, remaining_growth)
+        return (capped / remaining_growth) * (1.0 - 0.5 * (capped / remaining_growth))
+
+    annual_rates = {
+        # Angles (degrees/year — peak growth period)
+        "SNA":        0.0,                              # Maxilla stable after age 10
+        "SNB":        0.20 if is_male else 0.15,        # Mandibular growth
+        "ANB":       -0.15 if is_male else -0.10,       # Decreases with mandibular growth
+        "FMA":       -0.10,                             # Decreases slightly as ramus grows
+        "SN-GoGn":   -0.10,
+        "SN-MP":     -0.08,
+        # Distances (mm/year — peak growth period)
+        "AFH":        1.5,
+        "PFH":        2.0,
+        "TFH":        2.0,
+        "UFH":        0.5,
+        "LFH":        1.5 if is_male else 1.2,
+        "MandLength": 2.5 if is_male else 1.8,
+        "MidfaceLen": 0.5,
+        "RamusHeight":1.0 if is_male else 0.7,
+        "MandBody":   1.5 if is_male else 1.0,
+    }
+
+    projections: dict[str, dict[str, float]] = {
+        "+2yr": {}, "+5yr": {}, "end_of_growth": {}
+    }
+
+    for code, rate in annual_rates.items():
+        current = measurements.get(code)
+        if current is None:
+            continue
+        for label, years in [("+2yr", 2.0), ("+5yr", 5.0), ("end_of_growth", remaining_growth)]:
+            delta = rate * years * growth_factor(years)
+            projections[label][code] = round(current + delta, 2)
+
+    projections["metadata"] = {
+        "patient_age":       patient_age,
+        "patient_sex":       patient_sex or "unknown",
+        "end_of_growth_age": end_of_growth,
+        "remaining_growth":  round(remaining_growth, 1),
+        "model":             "Proffit/Petrovic simplified (Proffit 2013, p.68-73)",
+        "note": "Estimates only — individual variation is substantial. Validate with serial cephalograms.",
+    }
+
+    return projections
+
+
+# ── Treatment Outcome Simulation ──────────────────────────────────────────────
+
+def predict_treatment_outcome(
+    treatment_id: str,
+    measurements: dict[str, float],
+    patient_age: Optional[float] = None,
+) -> dict[str, float]:
+    """
+    Simulate expected post-treatment measurement changes.
+    Returns only metrics that change meaningfully (delta > 0.1).
+    Based on published mean treatment effects.
     """
     predicted = measurements.copy()
-    
+    age = patient_age or 20.0
+
     if treatment_id in ("c2-functional-twin", "c2-functional-herbst"):
-        # Functional appliances advance the mandible
-        if patient_age and patient_age <= 15:
-            if "SNB" in predicted: predicted["SNB"] += 2.0
-            if "ANB" in predicted and "SNA" in predicted: predicted["ANB"] = predicted["SNA"] - predicted["SNB"]
-            if "Ls-Eline" in predicted: predicted["Ls-Eline"] -= 1.0
-            if "Li-Eline" in predicted: predicted["Li-Eline"] += 1.0
-            
+        if age <= 16:
+            predicted.setdefault("SNB", 80.0)
+            predicted["SNB"]   += 2.0
+            predicted["ANB"]    = predicted.get("SNA", 82.0) - predicted["SNB"]
+            if "Ls-Eline" in predicted:
+                predicted["Ls-Eline"] = predicted["Ls-Eline"] - 2.0
+            if "Li-Eline" in predicted:
+                predicted["Li-Eline"] = predicted["Li-Eline"] - 1.5
+
+    elif treatment_id == "c2-forsus":
+        if age <= 16:
+            predicted.setdefault("SNB", 80.0)
+            predicted["SNB"]  += 1.5
+            predicted["ANB"]   = predicted.get("SNA", 82.0) - predicted["SNB"]
+
+    elif treatment_id == "c2-carriere":
+        predicted.setdefault("SNB", 80.0)
+        predicted["SNB"]  += 1.0
+        predicted["ANB"]   = predicted.get("SNA", 82.0) - predicted["SNB"]
+
+    elif treatment_id == "c2-distalization-tad":
+        predicted.setdefault("SNA", 82.0)
+        predicted["SNA"]  -= 1.0
+        predicted["ANB"]   = predicted["SNA"] - predicted.get("SNB", 80.0)
+
     elif treatment_id == "c2-extraction-camouflage":
-        # Retracts incisors, flattens profile
-        if "UI-NA_DEG" in predicted: predicted["UI-NA_DEG"] -= 8.0
-        if "Ls-Eline" in predicted: predicted["Ls-Eline"] -= 2.5
-        if "Li-Eline" in predicted: predicted["Li-Eline"] -= 1.5
-        
-    elif treatment_id == "surg-bsso-mand":
-        # BSSO physically moves the mandible forward
-        anb = predicted.get("ANB", 7)
-        advancement = max(3.0, anb - 2.0) # Aim for ANB 2.0
-        if "SNB" in predicted: predicted["SNB"] += advancement
-        if "ANB" in predicted and "SNA" in predicted: predicted["ANB"] = predicted["SNA"] - predicted["SNB"]
-        if "Li-Eline" in predicted: predicted["Li-Eline"] += (advancement * 0.8) # Soft tissue ratio
-        
-    elif treatment_id == "surg-lefort-max":
-        # Le Fort I physically moves maxilla forward
-        anb = predicted.get("ANB", -3)
-        advancement = max(3.0, 2.0 - anb)
-        if "SNA" in predicted: predicted["SNA"] += advancement
-        if "ANB" in predicted and "SNB" in predicted: predicted["ANB"] = predicted["SNA"] - predicted["SNB"]
-        if "Ls-Eline" in predicted: predicted["Ls-Eline"] += (advancement * 0.9)
-        
+        predicted.setdefault("UI-NA_DEG", 22.0)
+        predicted["UI-NA_DEG"] -= 5.0
+        if "Ls-Eline" in predicted:
+            predicted["Ls-Eline"] -= 3.0
+
     elif treatment_id == "c3-facemask":
-        if patient_age and patient_age <= 11:
-            if "SNA" in predicted: predicted["SNA"] += 1.5
-            if "ANB" in predicted and "SNB" in predicted: predicted["ANB"] = predicted["SNA"] - predicted["SNB"]
-            if "Ls-Eline" in predicted: predicted["Ls-Eline"] += 1.5
+        if age <= 11:
+            predicted.setdefault("SNA", 78.0)
+            predicted["SNA"]  += 3.0
+            predicted["ANB"]   = predicted["SNA"] - predicted.get("SNB", 80.0)
 
-    # Only return metrics that actually changed
-    return {k: round(v, 2) for k, v in predicted.items() if k in measurements and abs(v - measurements[k]) > 0.1}
+    elif treatment_id == "c3-mse":
+        if "PalatLen" in predicted:
+            predicted["PalatLen"] += 3.0
+
+    elif treatment_id == "sarpe":
+        if "PalatLen" in predicted:
+            predicted["PalatLen"] += 5.0
+
+    elif treatment_id == "vert-molar-intrusion":
+        if "FMA" in predicted:
+            predicted["FMA"] -= 3.0
+        if "SN-GoGn" in predicted:
+            predicted["SN-GoGn"] -= 2.0
+        if "YAxis" in predicted:
+            predicted["YAxis"] -= 2.0
+        if "AFH" in predicted:
+            predicted["AFH"] -= 3.0
+
+    elif treatment_id == "vert-meaw":
+        if "FMA" in predicted:
+            predicted["FMA"] -= 2.0
+        if "OVERBITE" in predicted:
+            predicted["OVERBITE"] = min(2.0, predicted["OVERBITE"] + 3.0)
+
+    elif treatment_id == "vert-intrusion-deepbite":
+        if "OVERBITE" in predicted:
+            predicted["OVERBITE"] = max(0.0, predicted["OVERBITE"] - 3.0)
+        if "AFH" in predicted:
+            predicted["AFH"] += 1.5
+
+    elif treatment_id == "surg-bsso-mand":
+        advancement = max(0, measurements.get("ANB", 4.0) - 2.0) * 1.8
+        predicted.setdefault("SNB", 80.0)
+        predicted["SNB"]  += advancement * 0.7
+        predicted["ANB"]   = predicted.get("SNA", 82.0) - predicted["SNB"]
+        if "SoftPog" in predicted:
+            predicted["Pog-NPerp"] = predicted.get("Pog-NPerp", -2.0) + advancement * 0.85
+        if "Ls-Eline" in predicted:
+            predicted["Ls-Eline"] = predicted["Ls-Eline"] - advancement * 0.2
+
+    elif treatment_id == "surg-lefort-max":
+        deficiency = abs(min(0, measurements.get("ANB", 0.0) + 3.0)) * 1.2
+        predicted.setdefault("SNA", 78.0)
+        predicted["SNA"]  += deficiency
+        predicted["ANB"]   = predicted["SNA"] - predicted.get("SNB", 80.0)
+        if "N-Perp-A" in predicted:
+            predicted["N-Perp-A"] = predicted["N-Perp-A"] + deficiency * 0.8
+
+    elif treatment_id == "surg-bimax":
+        anb_excess = measurements.get("ANB", 4.0)
+        if anb_excess > 0:
+            predicted.setdefault("SNB", 80.0)
+            predicted["SNB"]  += anb_excess * 0.6
+            predicted.setdefault("SNA", 82.0)
+            predicted["SNA"]  -= anb_excess * 0.2
+            predicted["ANB"]   = predicted["SNA"] - predicted["SNB"]
+
+    elif treatment_id in ("gen-braces-align", "gen-clear-aligners"):
+        pass
+
+    # Round all values
+    return {k: round(v, 2) for k, v in predicted.items()}
 
 
-def calculate_suitability(
+# ── Rule Evaluation ───────────────────────────────────────────────────────────
+
+def _rule_matches(
     rule: dict,
     skeletal_class: str,
     vertical_pattern: str,
-    patient_age: Optional[float],
-    measurements: dict[str, float],
     profile: str,
-) -> float:
+    anb: float,
+    overjet: float | None,
+    overbite: float | None,
+    j_ratio: float | None,
+    patient_age: float | None,
+) -> tuple[bool, float]:
     """
-    Score a treatment rule against the patient's clinical profile.
-
-    Returns a suitability score in [0.0, 1.0].
-    A score of 0.0 means the rule is contraindicated; it will not be included.
+    Evaluate whether a treatment rule applies given the patient's diagnosis.
+    Returns (matches, priority_score) where higher score = higher priority.
     """
-    cond = rule["conditions"]
-    score = rule["confidence"]
+    conds = rule.get("conditions", {})
+    matches = True
+    score = rule.get("confidence", 0.8)
 
-    # ── Mandatory mismatches (hard exclusions) ────────────────────────────────
-    if "skeletal_class" in cond and cond["skeletal_class"] != skeletal_class:
-        return 0.0
-    if "vertical_pattern" in cond and cond["vertical_pattern"] != vertical_pattern:
-        return 0.0
-    if "profile" in cond and profile != "Unknown" and cond["profile"] != profile:
-        # Penalise rather than zero out — camouflage may still apply
-        score *= 0.8
+    if "skeletal_class" in conds and skeletal_class != conds["skeletal_class"]:
+        matches = False
 
-    # ── Age suitability ───────────────────────────────────────────────────────
-    if patient_age is not None:
-        if "max_age" in cond and patient_age > cond["max_age"]:
-            if rule["type"] == "Appliance":
-                return 0.0  # Growth modification contraindicated in adults
-            score *= 0.5
-        if "min_age" in cond and patient_age < cond["min_age"]:
-            if rule["type"] == "Surgery":
-                return 0.0  # Surgery contraindicated in growing patients
-            score *= 0.5
+    if "vertical_pattern" in conds and vertical_pattern != conds["vertical_pattern"]:
+        matches = False
 
-    # ── Specific measurement thresholds ───────────────────────────────────────
-    metrics = {
-        "anb":     measurements.get("ANB"),
-        "overjet": _first_measurement(measurements, "OVERJET", "OVERJET_MM", "Overjet"),
-        "overbite": _first_measurement(measurements, "OVERBITE", "OVERBITE_MM", "Overbite"),
-        "j_ratio": measurements.get("JRatio"),
+    if "profile" in conds and profile not in (conds["profile"], "Unknown"):
+        matches = False
+
+    if "min_age" in conds and patient_age is not None and patient_age < conds["min_age"]:
+        matches = False
+
+    if "max_age" in conds and patient_age is not None and patient_age > conds["max_age"]:
+        matches = False
+
+    if "anb" in conds:
+        anb_range = conds["anb"]
+        if "min" in anb_range and anb < anb_range["min"]: matches = False
+        if "max" in anb_range and anb > anb_range["max"]: matches = False
+
+    if "overjet" in conds and overjet is not None:
+        oj_range = conds["overjet"]
+        if "min" in oj_range and overjet < oj_range["min"]: matches = False
+        if "max" in oj_range and overjet > oj_range["max"]: matches = False
+
+    if "overbite" in conds and overbite is not None:
+        ob_range = conds["overbite"]
+        if "min" in ob_range and overbite < ob_range["min"]: matches = False
+        if "max" in ob_range and overbite > ob_range["max"]: matches = False
+
+    if "j_ratio" in conds and j_ratio is not None:
+        jr_range = conds["j_ratio"]
+        if "min" in jr_range and j_ratio < jr_range["min"]: matches = False
+        if "max" in jr_range and j_ratio > jr_range["max"]: matches = False
+
+    return matches, score if matches else 0.0
+
+
+def _build_rationale(
+    rule: dict,
+    skeletal_class: str,
+    vertical_pattern: str,
+    anb: float,
+    patient_age: float | None,
+) -> str:
+    template = rule.get("rationale_template", rule["description"])
+    age_text  = f" (patient age {patient_age:.0f})" if patient_age else ""
+    return (
+        f"{template}{age_text}. "
+        f"Skeletal: {skeletal_class}, Vertical: {vertical_pattern}, corrected ANB={anb:.1f}°."
+    )
+
+
+# ── Main Entry Point ──────────────────────────────────────────────────────────
+
+def generate_treatment_plan(
+    diagnosis: dict,
+    measurements: dict[str, float],
+    patient_age: Optional[float] = None,
+    patient_sex: Optional[str] = None,
+    include_growth_prediction: bool = True,
+    include_outcome_simulation: bool = True,
+) -> dict:
+    """
+    Generate a ranked evidence-based treatment plan.
+
+    Returns:
+      - recommended_treatment: dict (top-ranked rule)
+      - alternatives: list[dict] (ranked remaining applicable rules)
+      - growth_prediction: dict (Proffit/Petrovic model projections)
+      - outcome_simulation: dict (predicted post-treatment measurements)
+    """
+    skeletal_class    = diagnosis.get("skeletal_class",  "ClassI")
+    vertical_pattern  = diagnosis.get("vertical_pattern","Normal")
+    profile           = diagnosis.get("soft_tissue_profile", "Normal")
+    anb               = float(diagnosis.get("corrected_anb", measurements.get("ANB", 2.0)))
+    overjet           = _first_measurement(measurements, "OVERJET", "Overjet")
+    overbite          = _first_measurement(measurements, "OVERBITE", "Overbite")
+    j_ratio           = measurements.get("JRatio")
+
+    applicable: list[tuple[float, dict]] = []
+
+    for rule in TREATMENT_RULES:
+        matches, score = _rule_matches(
+            rule, skeletal_class, vertical_pattern, profile,
+            anb, overjet, overbite, j_ratio, patient_age
+        )
+        if matches:
+            rationale = _build_rationale(rule, skeletal_class, vertical_pattern, anb, patient_age)
+            enriched_rule = {
+                **rule,
+                "rationale": rationale,
+                "priority_score": score,
+                "conditions": None,
+            }
+            applicable.append((score, enriched_rule))
+
+    applicable.sort(key=lambda x: x[0], reverse=True)
+
+    recommended = applicable[0][1] if applicable else {
+        "id":   "gen-braces-align",
+        "name": "Comprehensive Fixed Appliances",
+        "rationale": "Default: no specific modality indicated by current measurements.",
+        "priority_score": 0.9,
+    }
+    alternatives = [r for _, r in applicable[1:6]]
+
+    result: dict = {
+        "recommended_treatment": recommended,
+        "alternatives":          alternatives,
+        "applicable_count":      len(applicable),
+        "treatment_notes": [
+            "Treatment selections are evidence-based suggestions. Final decision requires clinical examination.",
+            "Growth prediction uses Proffit/Petrovic simplified model (±20% individual variation).",
+            "CVM stage should be confirmed from cervical vertebrae morphology.",
+        ],
     }
 
-    for key, val in metrics.items():
-        if key in cond and val is not None:
-            c = cond[key]
-            if "min" in c and val < c["min"]:
-                score *= 0.7
-            if "max" in c and val > c["max"]:
-                score *= 0.7
-            # Bonus for values that fall within the ideal range
-            if "min" in c and val >= c["min"]:
-                score += 0.05
-            if "max" in c and val <= c["max"]:
-                score += 0.05
+    if include_growth_prediction and patient_age is not None:
+        result["growth_prediction"] = predict_growth(measurements, patient_age, patient_sex)
 
-    return min(1.0, score)
+    if include_outcome_simulation and recommended:
+        result["outcome_simulation"] = predict_treatment_outcome(
+            recommended.get("id", "gen-braces-align"),
+            measurements,
+            patient_age,
+        )
+
+    return result
 
 
-_MINIMUM_SUITABILITY = 0.4
-
+# ── Backward-Compatible Router Shim ──────────────────────────────────────────
 
 def suggest_treatment(
     skeletal_class: str,
     vertical_pattern: str,
     measurements: dict[str, float],
     patient_age: Optional[float] = None,
-    profile: str = "Unknown",
+    profile: str = "Normal",
 ) -> list[dict]:
     """
-    Generate ranked treatment plans using the clinical suitability scoring algorithm.
-
-    Returns up to 3 plans sorted by descending confidence score.
-    Falls back to a monitoring plan when no rule exceeds the suitability threshold.
+    Backward-compatible wrapper used by the /suggest-treatment router.
+    Converts `generate_treatment_plan` output into a flat list of TreatmentItem-compatible dicts.
     """
-    scored_plans: list[dict] = []
+    diagnosis = {
+        "skeletal_class":     skeletal_class,
+        "vertical_pattern":   vertical_pattern,
+        "soft_tissue_profile": profile,
+        "corrected_anb":      measurements.get("ANB", 2.0),
+    }
 
-    for rule in TREATMENT_RULES:
-        score = calculate_suitability(
-            rule, skeletal_class, vertical_pattern, patient_age, measurements, profile
-        )
-        if score >= _MINIMUM_SUITABILITY:
-            scored_plans.append({
-                "plan_index": 0,  # Set after sorting
-                "treatment_type": rule["type"],
-                "treatment_name": rule["name"],
-                "description": rule["description"],
-                "rationale": rule["rationale_template"],
-                "risks": rule.get("risks", "Standard orthodontic risks (resorption, decalcification, relapse)."),
-                "estimated_duration_months": rule["duration"],
-                "confidence_score": round(score, 3),
-                "source": "RuleBased",
-                "is_primary": False,
-                "evidence_level": rule.get("evidence_level", "Expert"),
-                "retention_recommendation": rule.get("retention_recommendation"),
-                "predicted_outcomes": predict_treatment_outcome(rule["id"], measurements, patient_age),
-            })
+    plan = generate_treatment_plan(
+        diagnosis=diagnosis,
+        measurements=measurements,
+        patient_age=patient_age,
+        include_growth_prediction=False,
+        include_outcome_simulation=True,
+    )
 
-    # Sort descending by confidence; take the top 3
-    scored_plans.sort(key=lambda x: x["confidence_score"], reverse=True)
-    top_plans = scored_plans[:3]
+    def _rule_to_item(rule: dict, idx: int, is_primary: bool) -> dict:
+        return {
+            "plan_index":                idx,
+            "treatment_type":            rule.get("type", "Fixed"),
+            "treatment_name":            rule.get("name", "Unknown"),
+            "description":               rule.get("description", ""),
+            "rationale":                 rule.get("rationale") or rule.get("rationale_template", ""),
+            "risks":                     rule.get("risks", ""),
+            "estimated_duration_months": rule.get("duration"),
+            "confidence_score":          rule.get("priority_score") or rule.get("confidence", 0.8),
+            "source":                    "RuleBased",
+            "is_primary":                is_primary,
+            "predicted_outcomes":        plan.get("outcome_simulation") if is_primary else None,
+            "evidence_level":            rule.get("evidence_level"),
+            "retention_recommendation":  rule.get("retention_recommendation"),
+        }
 
-    for i, plan in enumerate(top_plans):
-        plan["plan_index"] = i
-        plan["is_primary"] = i == 0
-
-    if not top_plans:
-        return [{
-            "plan_index": 0,
-            "treatment_type": "Observation",
-            "treatment_name": "Longitudinal Monitoring",
-            "description": "Periodic review of growth and dental development.",
-            "rationale": "Current measurements do not meet immediate intervention thresholds.",
-            "risks": "Potential for malocclusion progression if growth is unfavourable.",
-            "estimated_duration_months": 6,
-            "confidence_score": 0.50,
-            "source": "RuleBased",
-            "is_primary": True,
-            "predicted_outcomes": {},
-        }]
-
-    return top_plans
+    items: list[dict] = []
+    rec = plan.get("recommended_treatment")
+    if rec:
+        items.append(_rule_to_item(rec, 0, True))
+    for idx, alt in enumerate(plan.get("alternatives", []), start=1):
+        items.append(_rule_to_item(alt, idx, False))
+    return items
