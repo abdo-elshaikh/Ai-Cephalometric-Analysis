@@ -9,6 +9,8 @@ import traceback
 import time
 from routers import landmark, measurement, diagnosis, treatment, overlay
 from config.settings import settings
+# use env variables for sensitive info like API keys, model paths, and database URLs, with validation and defaults in config/settings.py
+from utils.security import verify_service_key
 
 START_TIME = time.time()
 
@@ -103,11 +105,12 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+logger.info(f"CORS allowed origins: {settings.allowed_origins}")
 
 app.add_exception_handler(Exception, global_exception_handler)
 app.add_exception_handler(HTTPException, http_exception_handler)
@@ -124,7 +127,7 @@ app.include_router(overlay.router,     prefix="/ai", tags=["Overlay"])
 @app.get("/health", tags=["Health"])
 async def health_check() -> dict:
     """Detailed telemetry endpoint for dashboard visualisation."""
-    from engines.landmark_engine import _model
+    from engines.landmark_engine import _ensemble
 
     return {
         "status": "healthy",
@@ -132,7 +135,8 @@ async def health_check() -> dict:
         "service": "CephAnalysis AI Service",
         "version": "1.0.0",
         "engine": {
-            "model_loaded": _model is not None,
+            "model_loaded": len(_ensemble) > 0,
+            "ensemble_size": len(_ensemble),
             "device": settings.device,
             "landmarks_count": settings.num_landmarks,
         },

@@ -60,7 +60,10 @@ public class AiService : IAiService
             var dtos = result.Landmarks.Select(kv => new LandmarkDto(
                 kv.Key, 
                 new Point2D(kv.Value.X, kv.Value.Y), 
-                kv.Value.Confidence
+                kv.Value.Confidence,
+                kv.Value.Provenance,
+                kv.Value.DerivedFrom,
+                kv.Value.ExpectedErrorMm
             ));
 
             return Result<IEnumerable<LandmarkDto>>.Success(dtos);
@@ -90,14 +93,24 @@ public class AiService : IAiService
     }
 
     public async Task<Result<IEnumerable<MeasurementDto>>> CalculateMeasurementsAsync(
-        Guid sessionId, Dictionary<string, Point2D> landmarks, decimal pixelSpacingMm, CancellationToken ct)
+        Guid sessionId,
+        Dictionary<string, Point2D> landmarks,
+        decimal pixelSpacingMm,
+        CancellationToken ct,
+        Dictionary<string, string>? landmarkProvenance = null,
+        bool isCbctDerived = false)
     {
         try
         {
             var requestModel = new MeasurementCalculationRequest(
                 sessionId.ToString(),
-                landmarks.ToDictionary(kv => kv.Key, kv => new LandmarkPointRequest(kv.Value.X, kv.Value.Y)),
-                (double)pixelSpacingMm
+                landmarks.ToDictionary(kv => kv.Key, kv => new LandmarkPointRequest(
+                    kv.Value.X,
+                    kv.Value.Y,
+                    landmarkProvenance?.GetValueOrDefault(kv.Key)
+                )),
+                (double)pixelSpacingMm,
+                isCbctDerived
             );
 
             var request = new HttpRequestMessage(HttpMethod.Post, "/ai/calculate-measurements")
@@ -121,7 +134,8 @@ public class AiService : IAiService
                 return Result<IEnumerable<MeasurementDto>>.Failure("Invalid response format.", 500);
 
             var dtos = result.Measurements.Select(m => new MeasurementDto(
-                m.Code, m.Name, m.Category, m.MeasurementType, (double)m.Value, m.Unit, (double)m.NormalMin, (double)m.NormalMax, m.Status, (double?)m.Deviation, m.LandmarkRefs
+                m.Code, m.Name, m.Category, m.MeasurementType, (double)m.Value, m.Unit, (double)m.NormalMin, (double)m.NormalMax, m.Status, (double?)m.Deviation, m.LandmarkRefs,
+                m.QualityStatus, m.ReviewReasons, m.LandmarkProvenance
             ));
 
             return Result<IEnumerable<MeasurementDto>>.Success(dtos);
@@ -171,10 +185,14 @@ public class AiService : IAiService
             if (result == null) return Result<DiagnosisDto>.Failure("Invalid diagnosis response.", 500);
 
             return Result<DiagnosisDto>.Success(new DiagnosisDto(
-                result.SkeletalClass, result.VerticalPattern, result.MaxillaryPosition, result.MandibularPosition,
+                result.SkeletalClass, result.VerticalPattern, 
+                result.SkeletalType, result.CorrectedAnb,
+                result.ApdiClassification, result.OdiClassification,
+                result.MaxillaryPosition, result.MandibularPosition,
                 result.UpperIncisorInclination, result.LowerIncisorInclination, result.SoftTissueProfile,
                 result.OverjetMm, result.OverjetClassification, result.OverbitesMm, result.OverbiteClassification,
-                result.ConfidenceScore, result.Summary, result.Warnings));
+                result.ConfidenceScore, result.Summary, result.Warnings, result.ClinicalNotes,
+                result.CorrectedAnb, true, result.OdiClassification, null, result.SkeletalDifferential));
         }
         catch (TaskCanceledException) when (!ct.IsCancellationRequested)
         {
@@ -301,6 +319,26 @@ public class AiService : IAiService
             await imageStream.CopyToAsync(ms, ct);
             var base64Image = Convert.ToBase64String(ms.ToArray());
 
+            var overlayOutputs = outputs?
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList()
+                ?? new List<string>();
+
+            if (overlayOutputs.Count == 0)
+            {
+                // Keep aligned with ai_service.schemas.OverlayRequest defaults.
+                overlayOutputs = new List<string>
+                {
+                    "xray_tracing",
+                    "xray_measurements",
+                    "wiggle_chart",
+                    "tracing_only",
+                    "measurement_table",
+                    "ceph_report"
+                };
+            }
+
             var payload = new AiOverlayRequestPayload(
                 sessionId.ToString(),
                 base64Image,
@@ -311,7 +349,7 @@ public class AiService : IAiService
                 patientLabel,
                 dateLabel,
                 (double?)pixelSpacingMm,
-                outputs?.ToList() ?? new List<string>()
+                overlayOutputs
             );
 
             var request = new HttpRequestMessage(HttpMethod.Post, "/ai/generate-overlays")
@@ -321,15 +359,25 @@ public class AiService : IAiService
             request.Headers.Add("x-service-key", _serviceKey);
 
             var response = await _http.SendAsync(request, ct);
-            if (!response.IsSuccessStatusCode) return Result<AiOverlayResponse>.Failure($"Overlay Error: {response.StatusCode}", (int)response.StatusCode);
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorBody = await response.Content.ReadAsStringAsync(ct);
+                var suffix = string.IsNullOrWhiteSpace(errorBody) ? string.Empty : $" - {errorBody}";
+                return Result<AiOverlayResponse>.Failure(
+                    $"Overlay Error: {(int)response.StatusCode} {response.StatusCode}{suffix}",
+                    (int)response.StatusCode);
+            }
 
             var json = await response.Content.ReadAsStringAsync(ct);
             var data = JsonSerializer.Deserialize<AiOverlayResponsePayload>(json, _jsonOptions);
 
+            if (data is null)
+                return Result<AiOverlayResponse>.Failure("Overlay Error: Invalid AI overlay response payload.", 500);
+
             return Result<AiOverlayResponse>.Success(new AiOverlayResponse(
-                data?.SessionId ?? sessionId.ToString(),
-                data?.Images.Select(i => new AiOverlayImageItem(i.Key, i.Label, i.ImageBase64, i.Width, i.Height)).ToList() ?? new(),
-                data?.RenderMs ?? 0
+                data.SessionId ?? sessionId.ToString(),
+                data.Images.Select(i => new AiOverlayImageItem(i.Key, i.Label, i.ImageBase64, i.Width, i.Height)).ToList(),
+                data.RenderMs
             ));
         }
         catch (Exception ex) { return Result<AiOverlayResponse>.Failure($"Overlay error: {ex.Message}", 500); }
@@ -351,7 +399,7 @@ public class AiService : IAiService
 
     // ── Helper records & models ───────────────────────────────────────────────
 
-    private record LandmarkPointRequest(double x, double y);
+    private record LandmarkPointRequest(double x, double y, string? provenance = null);
 
     private record TreatmentSuggestionRequest(
         string session_id,
@@ -383,7 +431,7 @@ public class AiService : IAiService
     }
 
     private record LandmarkDetectionRequest(string session_id, string image_base64, double pixel_spacing_mm);
-    private record MeasurementCalculationRequest(string session_id, Dictionary<string, LandmarkPointRequest> landmarks, double pixel_spacing_mm);
+    private record MeasurementCalculationRequest(string session_id, Dictionary<string, LandmarkPointRequest> landmarks, double pixel_spacing_mm, bool is_cbct_derived);
     private record DiagnosisClassificationRequest(string session_id, Dictionary<string, double> measurements);
 
     private class LandmarkDetectionResponse
@@ -392,13 +440,25 @@ public class AiService : IAiService
         public Dictionary<string, LandmarkResponsePoint> Landmarks { get; set; } = new();
     }
 
-    private class LandmarkResponsePoint { public double X { get; set; } public double Y { get; set; } public double Confidence { get; set; } }
+    private class LandmarkResponsePoint
+    {
+        public double X { get; set; }
+        public double Y { get; set; }
+        public double Confidence { get; set; }
+        public string? Provenance { get; set; }
+        [JsonPropertyName("derived_from")] public List<string>? DerivedFrom { get; set; }
+        [JsonPropertyName("expected_error_mm")] public double? ExpectedErrorMm { get; set; }
+    }
 
     private class MeasurementResponse { [JsonPropertyName("measurements")] public List<MeasurementDto> Measurements { get; set; } = new(); }
 
     private class DiagnosisResponseModel
     {
         [JsonPropertyName("skeletal_class")] public string SkeletalClass { get; set; } = "";
+        [JsonPropertyName("skeletal_type")] public string SkeletalType { get; set; } = "";
+        [JsonPropertyName("corrected_anb")] public double CorrectedAnb { get; set; }
+        [JsonPropertyName("apdi_classification")] public string? ApdiClassification { get; set; }
+        [JsonPropertyName("odi_classification")] public string? OdiClassification { get; set; }
         [JsonPropertyName("vertical_pattern")] public string VerticalPattern { get; set; } = "";
         [JsonPropertyName("maxillary_position")] public string MaxillaryPosition { get; set; } = "";
         [JsonPropertyName("mandibular_position")] public string MandibularPosition { get; set; } = "";
@@ -412,6 +472,7 @@ public class AiService : IAiService
         [JsonPropertyName("confidence_score")] public double ConfidenceScore { get; set; }
         [JsonPropertyName("summary")] public string Summary { get; set; } = "";
         [JsonPropertyName("warnings")] public List<string> Warnings { get; set; } = new();
+        [JsonPropertyName("clinical_notes")] public List<string> ClinicalNotes { get; set; } = new();
         [JsonPropertyName("skeletal_differential")] public Dictionary<string, double>? SkeletalDifferential { get; set; }
     }
 

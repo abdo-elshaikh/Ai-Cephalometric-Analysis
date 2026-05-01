@@ -19,9 +19,22 @@ async def calculate_measurements(request: MeasurementRequest) -> MeasurementResp
     logger.info(f"Measurement computation requested for session {request.session_id}")
 
     lm_coords = {code: (pt.x, pt.y) for code, pt in request.landmarks.items()}
+    landmark_provenance = {
+        code: (pt.provenance or "unknown")
+        for code, pt in request.landmarks.items()
+    }
 
     try:
-        raw = compute_all_measurements(lm_coords, request.pixel_spacing_mm)
+        raw = compute_all_measurements(
+            lm_coords,
+            request.pixel_spacing_mm,
+            age=request.patient_age,
+            sex=request.patient_sex,
+            population=request.population,
+            dentition_stage=request.dentition_stage,
+            landmark_provenance=landmark_provenance,
+            is_cbct_derived=request.is_cbct_derived,
+        )
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Measurement computation failed: {e}")
 

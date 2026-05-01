@@ -21,12 +21,17 @@ public record SessionDto(
 public record SessionLandmarkDto(
     Guid Id, string LandmarkCode, string LandmarkName,
     decimal XPx, decimal YPx, decimal? ConfidenceScore,
-    bool IsAiDetected, bool IsManuallyAdjusted, string? AdjustmentReason);
+    bool IsAiDetected, bool IsManuallyAdjusted, string? AdjustmentReason,
+    string? Provenance = null, decimal? ExpectedErrorMm = null, IEnumerable<string>? DerivedFrom = null);
 
 public record SessionMeasurementDto(
     Guid Id, string Code, string Name, string? Category, string MeasurementType,
     decimal Value, string Unit, decimal NormalMin, decimal NormalMax,
-    string Status, decimal? Deviation);
+    string Status, decimal? Deviation,
+    string? QualityStatus = null,
+    IEnumerable<string>? ReviewReasons = null,
+    IEnumerable<string>? LandmarkRefs = null,
+    Dictionary<string, string>? LandmarkProvenance = null);
 
 public record SessionDiagnosisDto(
     Guid Id, string SkeletalClass, string VerticalPattern,
@@ -37,13 +42,19 @@ public record SessionDiagnosisDto(
     decimal? OverbitesMm, string? OverbiteClassification,
     decimal? ConfidenceScore, string? SummaryText,
     IEnumerable<string> Warnings,
+    IEnumerable<string> ClinicalNotes,
+    string? SkeletalType = null,
+    decimal? CorrectedAnb = null,
+    string? ApdiClassification = null,
+    string? OdiClassification = null,
     Dictionary<string, double>? SkeletalDifferential = null);
 
 public record SessionTreatmentDto(
-    Guid Id, int PlanIndex, string TreatmentType, string TreatmentName,
+    Guid Id, Guid SessionId, int PlanIndex, string TreatmentType, string TreatmentName,
     string Description, string? Rationale, string? Risks,
     short? EstimatedDurationMonths, decimal? ConfidenceScore,
     string Source, bool IsPrimary, string? EvidenceReference,
+    string? EvidenceLevel = null, string? RetentionRecommendation = null,
     Dictionary<string, double>? PredictedOutcomes = null);
 
 public record ExplainDecisionRequest(
@@ -66,6 +77,176 @@ public record FullPipelineDto(
     IEnumerable<SessionMeasurementDto> Measurements,
     SessionDiagnosisDto? Diagnosis,
     IEnumerable<SessionTreatmentDto> Treatments);
+
+internal static class LandmarkProvenance
+{
+    private const string Prefix = "AI provenance:";
+
+    public static string Normalize(string? provenance)
+    {
+        var value = provenance?.Trim().ToLowerInvariant();
+        return value is "detected" or "derived" or "fallback" or "manual"
+            ? value
+            : "detected";
+    }
+
+    public static bool IsDirectAiDetected(string? provenance) => Normalize(provenance) == "detected";
+
+    public static decimal ExpectedErrorMm(double confidence, string? provenance, double? provided)
+    {
+        if (provided.HasValue && provided.Value > 0)
+            return (decimal)provided.Value;
+
+        return Normalize(provenance) switch
+        {
+            "fallback" => 5.0m,
+            "derived" => 3.0m,
+            "manual" => 1.0m,
+            _ => Math.Clamp((decimal)((1.0 - confidence) * 4.0), 0.5m, 4.0m)
+        };
+    }
+
+    public static string? BuildAdjustmentReason(string? provenance, IEnumerable<string>? derivedFrom)
+    {
+        var normalized = Normalize(provenance);
+        if (normalized == "detected")
+            return null;
+
+        var sourceText = derivedFrom is not null && derivedFrom.Any()
+            ? $"; derived_from: {string.Join(", ", derivedFrom)}"
+            : "";
+
+        return $"{Prefix} {normalized}{sourceText}";
+    }
+
+    public static IEnumerable<string> DerivedFrom(Landmark landmark)
+    {
+        const string SourceMarker = "derived_from:";
+        var reason = landmark.AdjustmentReason;
+        if (string.IsNullOrWhiteSpace(reason))
+            return [];
+
+        var markerIndex = reason.IndexOf(SourceMarker, StringComparison.OrdinalIgnoreCase);
+        if (markerIndex < 0)
+            return [];
+
+        return reason[(markerIndex + SourceMarker.Length)..]
+            .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .ToList();
+    }
+
+    public static string FromStored(Landmark landmark)
+    {
+        if (landmark.IsManuallyAdjusted)
+            return "manual";
+
+        if (landmark.AdjustmentReason?.StartsWith(Prefix, StringComparison.OrdinalIgnoreCase) == true)
+        {
+            var raw = landmark.AdjustmentReason[Prefix.Length..].Split(';')[0].Trim();
+            return Normalize(raw);
+        }
+
+        return landmark.IsAiDetected ? "detected" : "fallback";
+    }
+}
+
+internal static class MeasurementQuality
+{
+    public static List<string> ReadLandmarkRefs(JsonDocument? refs)
+    {
+        if (refs is null || refs.RootElement.ValueKind != JsonValueKind.Array)
+            return [];
+
+        return refs.RootElement
+            .EnumerateArray()
+            .Where(x => x.ValueKind == JsonValueKind.String)
+            .Select(x => x.GetString())
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => x!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    public static (string Status, List<string> Reasons, Dictionary<string, string> Provenance) Build(
+        IEnumerable<string>? landmarkRefs,
+        IReadOnlyDictionary<string, Landmark> landmarks,
+        string? aiStatus = null,
+        IEnumerable<string>? aiReasons = null,
+        Dictionary<string, string>? aiProvenance = null)
+    {
+        var refs = landmarkRefs?
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList() ?? [];
+
+        var provenance = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var reasons = aiReasons?.Where(x => !string.IsNullOrWhiteSpace(x)).ToList() ?? [];
+        var hasFallback = false;
+        var hasDerived = false;
+        var missingRefs = new List<string>();
+        var highUncertaintyRefs = new List<string>();
+
+        foreach (var reference in refs)
+        {
+            if (aiProvenance?.TryGetValue(reference, out var providedProvenance) == true)
+            {
+                var normalizedProvided = LandmarkProvenance.Normalize(providedProvenance);
+                provenance[reference] = normalizedProvided;
+                if (normalizedProvided == "fallback")
+                    hasFallback = true;
+                if (normalizedProvided == "derived")
+                    hasDerived = true;
+
+                if (landmarks.TryGetValue(reference, out var providedLandmark) &&
+                    providedLandmark.ExpectedErrorMm > 4.0m)
+                    highUncertaintyRefs.Add(reference);
+
+                continue;
+            }
+
+            if (!landmarks.TryGetValue(reference, out var landmark))
+            {
+                provenance[reference] = "missing";
+                missingRefs.Add(reference);
+                continue;
+            }
+
+            var storedProvenance = LandmarkProvenance.FromStored(landmark);
+            provenance[reference] = storedProvenance;
+
+            if (storedProvenance == "fallback")
+                hasFallback = true;
+            if (storedProvenance == "derived")
+                hasDerived = true;
+            if (landmark.ExpectedErrorMm > 4.0m)
+                highUncertaintyRefs.Add(reference);
+        }
+
+        if (refs.Count == 0)
+            reasons.Add("No landmark references were returned for this measurement.");
+        if (missingRefs.Count > 0)
+            reasons.Add($"Missing source landmark(s): {string.Join(", ", missingRefs)}.");
+        if (hasFallback)
+            reasons.Add("At least one source landmark was produced by a fallback estimate.");
+        if (hasDerived)
+            reasons.Add("At least one source landmark is AI-derived from another anatomical point.");
+        if (highUncertaintyRefs.Count > 0)
+            reasons.Add($"High expected landmark error at: {string.Join(", ", highUncertaintyRefs)}.");
+
+        var computedStatus =
+            refs.Count == 0 || missingRefs.Count > 0 || hasFallback || highUncertaintyRefs.Count > 0
+                ? "manual_review_required"
+                : hasDerived
+                    ? "provisional"
+                    : "clinically_usable";
+
+        return (
+            string.IsNullOrWhiteSpace(aiStatus) ? computedStatus : aiStatus,
+            reasons.Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
+            provenance);
+    }
+}
 
 public record AnalysisHistoryItemDto(
     Guid Id,
@@ -148,11 +329,22 @@ public class DetectLandmarksHandler : IRequestHandler<DetectLandmarksCommand, Re
 
     public async Task<Result<IEnumerable<LandmarkDto>>> Handle(DetectLandmarksCommand cmd, CancellationToken ct)
     {
-        var image = await _db.XRayImages
-            .Include(i => i.Study).ThenInclude(s => s.Patient)
-            .FirstOrDefaultAsync(i => i.Id == cmd.ImageId, ct);
+        XRayImage? image = null;
+        for (var attempt = 1; attempt <= 4; attempt++)
+        {
+            image = await _db.XRayImages
+                .Include(i => i.Study).ThenInclude(s => s.Patient)
+                .FirstOrDefaultAsync(i => i.Id == cmd.ImageId, ct);
 
-        if (image is null) return Result<IEnumerable<LandmarkDto>>.NotFound("Image not found.");
+            if (image is not null)
+                break;
+
+            if (attempt < 4)
+                await Task.Delay(TimeSpan.FromMilliseconds(250 * attempt), ct);
+        }
+
+        if (image is null)
+            return Result<IEnumerable<LandmarkDto>>.NotFound("Image not found. The upload may still be committing; please retry shortly.");
         if (image.Study.Patient.DoctorId.ToString() != cmd.DoctorId)
             return Result<IEnumerable<LandmarkDto>>.Unauthorized("Not authorized.");
 
@@ -184,7 +376,9 @@ public class DetectLandmarksHandler : IRequestHandler<DetectLandmarksCommand, Re
                 XPx = (decimal)l.Point.X,
                 YPx = (decimal)l.Point.Y,
                 ConfidenceScore = (decimal)l.Confidence,
-                IsAiDetected = true
+                ExpectedErrorMm = LandmarkProvenance.ExpectedErrorMm(l.Confidence, l.Provenance, l.ExpectedErrorMm),
+                IsAiDetected = LandmarkProvenance.IsDirectAiDetected(l.Provenance),
+                AdjustmentReason = LandmarkProvenance.BuildAdjustmentReason(l.Provenance, l.DerivedFrom)
             }).ToList()
         };
         _db.AnalysisSessions.Add(session);
@@ -252,7 +446,8 @@ public class GetSessionLandmarksHandler : IRequestHandler<GetSessionLandmarksQue
         var dtos = session.Landmarks.Select(l => new SessionLandmarkDto(
             l.Id, l.LandmarkCode, l.LandmarkName,
             l.XPx, l.YPx, l.ConfidenceScore,
-            l.IsAiDetected, l.IsManuallyAdjusted, l.AdjustmentReason));
+            l.IsAiDetected, l.IsManuallyAdjusted, l.AdjustmentReason,
+            LandmarkProvenance.FromStored(l), l.ExpectedErrorMm, LandmarkProvenance.DerivedFrom(l)));
 
         return Result<IEnumerable<SessionLandmarkDto>>.Success(dtos);
     }
@@ -294,7 +489,8 @@ public class AdjustLandmarkHandler : IRequestHandler<AdjustLandmarkCommand, Resu
         return Result<SessionLandmarkDto>.Success(new SessionLandmarkDto(
             landmark.Id, landmark.LandmarkCode, landmark.LandmarkName,
             landmark.XPx, landmark.YPx, landmark.ConfidenceScore,
-            landmark.IsAiDetected, landmark.IsManuallyAdjusted, landmark.AdjustmentReason));
+            landmark.IsAiDetected, landmark.IsManuallyAdjusted, landmark.AdjustmentReason,
+            LandmarkProvenance.FromStored(landmark), landmark.ExpectedErrorMm, LandmarkProvenance.DerivedFrom(landmark)));
     }
 }
 
@@ -302,7 +498,7 @@ public class AdjustLandmarkHandler : IRequestHandler<AdjustLandmarkCommand, Resu
 // Calculate Measurements
 // ═══════════════════════════════════════════════════════════════════════════════
 
-public record CalculateMeasurementsCommand(Guid SessionId, string DoctorId) : IRequest<Result<IEnumerable<SessionMeasurementDto>>>;
+public record CalculateMeasurementsCommand(Guid SessionId, string DoctorId, bool IsCbctDerived = false) : IRequest<Result<IEnumerable<SessionMeasurementDto>>>;
 
 public class CalculateMeasurementsHandler : IRequestHandler<CalculateMeasurementsCommand, Result<IEnumerable<SessionMeasurementDto>>>
 {
@@ -327,10 +523,22 @@ public class CalculateMeasurementsHandler : IRequestHandler<CalculateMeasurement
         var landmarkDict = session.Landmarks.ToDictionary(
             l => l.LandmarkCode,
             l => new Point2D((double)l.XPx, (double)l.YPx));
+        var landmarkLookup = session.Landmarks
+            .GroupBy(l => l.LandmarkCode, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+        var landmarkProvenance = session.Landmarks.ToDictionary(
+            l => l.LandmarkCode,
+            LandmarkProvenance.FromStored);
 
         var pixelSpacing = session.XRayImage.PixelSpacingMm ?? 1.0m;
 
-        var aiResult = await _aiService.CalculateMeasurementsAsync(cmd.SessionId, landmarkDict, pixelSpacing, ct);
+        var aiResult = await _aiService.CalculateMeasurementsAsync(
+            cmd.SessionId,
+            landmarkDict,
+            pixelSpacing,
+            ct,
+            landmarkProvenance,
+            cmd.IsCbctDerived);
         if (!aiResult.IsSuccess)
             return Result<IEnumerable<SessionMeasurementDto>>.Failure(aiResult.Error ?? "Measurement error", aiResult.StatusCode);
 
@@ -339,7 +547,12 @@ public class CalculateMeasurementsHandler : IRequestHandler<CalculateMeasurement
         foreach (var e in existing) _db.Measurements.Remove(e);
 
         // Save new measurements
-        var entities = aiResult.Data!.Select(m => new Measurement
+        var aiMeasurements = aiResult.Data!.ToList();
+        var aiMeasurementLookup = aiMeasurements
+            .GroupBy(m => m.Code, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
+        var entities = aiMeasurements.Select(m => new Measurement
         {
             SessionId = cmd.SessionId,
             Category = Enum.TryParse<AnalysisType>(m.Category, true, out var cat) ? cat : null,
@@ -358,10 +571,23 @@ public class CalculateMeasurementsHandler : IRequestHandler<CalculateMeasurement
         _db.Measurements.AddRange(entities);
         await _db.SaveChangesAsync(ct);
 
-        var dtos = entities.Select(m => new SessionMeasurementDto(
-            m.Id, m.MeasurementCode, m.MeasurementName, m.Category?.ToString(), m.MeasurementType.ToString(),
-            m.Value, m.Unit.ToString(), m.NormalMin, m.NormalMax,
-            m.Status.ToString(), m.Deviation));
+        var dtos = entities.Select(m =>
+        {
+            var refs = MeasurementQuality.ReadLandmarkRefs(m.LandmarkRefs);
+            aiMeasurementLookup.TryGetValue(m.MeasurementCode, out var aiMeasurement);
+            var quality = MeasurementQuality.Build(
+                refs,
+                landmarkLookup,
+                aiMeasurement?.QualityStatus,
+                aiMeasurement?.ReviewReasons,
+                aiMeasurement?.LandmarkProvenance);
+
+            return new SessionMeasurementDto(
+                m.Id, m.MeasurementCode, m.MeasurementName, m.Category?.ToString(), m.MeasurementType.ToString(),
+                m.Value, m.Unit.ToString(), m.NormalMin, m.NormalMax,
+                m.Status.ToString(), m.Deviation,
+                quality.Status, quality.Reasons, refs, quality.Provenance);
+        });
 
         return Result<IEnumerable<SessionMeasurementDto>>.Success(dtos);
     }
@@ -383,6 +609,7 @@ public class GetMeasurementsHandler : IRequestHandler<GetMeasurementsQuery, Resu
         var session = await _db.AnalysisSessions
             .Include(x => x.XRayImage).ThenInclude(x => x.Study).ThenInclude(x => x.Patient)
             .Include(x => x.Measurements)
+            .Include(x => x.Landmarks)
             .AsNoTracking()
             .FirstOrDefaultAsync(x => x.Id == q.SessionId, ct);
 
@@ -390,10 +617,21 @@ public class GetMeasurementsHandler : IRequestHandler<GetMeasurementsQuery, Resu
         if (session.XRayImage.Study.Patient.DoctorId.ToString() != q.DoctorId)
             return Result<IEnumerable<SessionMeasurementDto>>.Unauthorized();
 
-        var dtos = session.Measurements.Select(m => new SessionMeasurementDto(
-            m.Id, m.MeasurementCode, m.MeasurementName, m.Category?.ToString(), m.MeasurementType.ToString(),
-            m.Value, m.Unit.ToString(), m.NormalMin, m.NormalMax,
-            m.Status.ToString(), m.Deviation));
+        var landmarkLookup = session.Landmarks
+            .GroupBy(l => l.LandmarkCode, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
+        var dtos = session.Measurements.Select(m =>
+        {
+            var refs = MeasurementQuality.ReadLandmarkRefs(m.LandmarkRefs);
+            var quality = MeasurementQuality.Build(refs, landmarkLookup);
+
+            return new SessionMeasurementDto(
+                m.Id, m.MeasurementCode, m.MeasurementName, m.Category?.ToString(), m.MeasurementType.ToString(),
+                m.Value, m.Unit.ToString(), m.NormalMin, m.NormalMax,
+                m.Status.ToString(), m.Deviation,
+                quality.Status, quality.Reasons, refs, quality.Provenance);
+        });
 
         return Result<IEnumerable<SessionMeasurementDto>>.Success(dtos);
     }
@@ -460,7 +698,12 @@ public class ClassifyDiagnosisHandler : IRequestHandler<ClassifyDiagnosisCommand
             OdiNote = d.OdiNote,
             GrowthTendency = d.GrowthTendency,
             SummaryText = d.Summary,
-            Warnings = d.Warnings ?? []
+            Warnings = d.Warnings ?? [],
+            SkeletalType = d.SkeletalType,
+            CorrectedAnb = (decimal)d.CorrectedAnb,
+            ApdiClassification = d.ApdiClassification,
+            OdiClassification = d.OdiClassification,
+            ClinicalNotes = d.ClinicalNotes ?? []
         };
         _db.Diagnoses.Add(diagnosis);
 
@@ -480,7 +723,13 @@ public class ClassifyDiagnosisHandler : IRequestHandler<ClassifyDiagnosisCommand
         d.OverjetMm, d.OverjetClassification?.ToString(), 
         d.OverbitesMm, d.OverbiteClassification?.ToString(),
         d.ConfidenceScore, d.SummaryText,
-        d.Warnings ?? []);
+        d.Warnings ?? [],
+        d.ClinicalNotes ?? [],
+        d.SkeletalType,
+        d.CorrectedAnb,
+        d.ApdiClassification,
+        d.OdiClassification,
+        d.SkeletalDifferential);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -593,20 +842,23 @@ public class SuggestTreatmentHandler : IRequestHandler<SuggestTreatmentCommand, 
             ConfidenceScore = (decimal)t.ConfidenceScore,
             Source = Enum.TryParse<TreatmentSource>(t.Source, true, out var ts) ? ts : TreatmentSource.Hybrid,
             IsPrimary = t.IsPrimary,
-            EvidenceReference = t.EvidenceReference
+            EvidenceReference = t.EvidenceReference,
+            EvidenceLevel = t.EvidenceLevel,
+            RetentionRecommendation = t.RetentionRecommendation
         }).ToList();
 
         _db.TreatmentPlans.AddRange(plans);
         await _db.SaveChangesAsync(ct);
 
-        var dtos = plans.Select(MapTreatment);
+        var dtos = plans.Select(t => MapTreatment(t, cmd.SessionId));
         return Result<IEnumerable<SessionTreatmentDto>>.Success(dtos);
     }
 
-    internal static SessionTreatmentDto MapTreatment(TreatmentPlan t) => new(
-        t.Id, t.PlanIndex, t.TreatmentType.ToString(), t.TreatmentName,
+    internal static SessionTreatmentDto MapTreatment(TreatmentPlan t, Guid sessionId = default) => new(
+        t.Id, sessionId, t.PlanIndex, t.TreatmentType.ToString(), t.TreatmentName,
         t.Description, t.Rationale, t.Risks, (short?)t.EstimatedDurationMonths,
-        t.ConfidenceScore, t.Source.ToString(), t.IsPrimary, t.EvidenceReference);
+        t.ConfidenceScore, t.Source.ToString(), t.IsPrimary, t.EvidenceReference,
+        t.EvidenceLevel, t.RetentionRecommendation);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -636,7 +888,7 @@ public class GetTreatmentHandler : IRequestHandler<GetTreatmentQuery, Result<IEn
 
         var dtos = session.Diagnosis.TreatmentPlans
             .OrderBy(t => t.PlanIndex)
-            .Select(SuggestTreatmentHandler.MapTreatment);
+            .Select(t => SuggestTreatmentHandler.MapTreatment(t, q.SessionId));
 
         return Result<IEnumerable<SessionTreatmentDto>>.Success(dtos);
     }
@@ -646,7 +898,7 @@ public class GetTreatmentHandler : IRequestHandler<GetTreatmentQuery, Result<IEn
 // Full Pipeline (Detect → Measure → Diagnose → Treat)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-public record RunFullPipelineCommand(Guid ImageId, string DoctorId, AnalysisType AnalysisType = AnalysisType.Steiner) : IRequest<Result<FullPipelineDto>>;
+public record RunFullPipelineCommand(Guid ImageId, string DoctorId, AnalysisType AnalysisType = AnalysisType.Steiner, bool IsCbctDerived = false) : IRequest<Result<FullPipelineDto>>;
 
 public class RunFullPipelineHandler : IRequestHandler<RunFullPipelineCommand, Result<FullPipelineDto>>
 {
@@ -669,7 +921,7 @@ public class RunFullPipelineHandler : IRequestHandler<RunFullPipelineCommand, Re
         var sessionId = sessionQuery.Data!.Id;
 
         // Step 2: Calculate measurements
-        var measResult = await _mediator.Send(new CalculateMeasurementsCommand(sessionId, cmd.DoctorId), ct);
+        var measResult = await _mediator.Send(new CalculateMeasurementsCommand(sessionId, cmd.DoctorId, cmd.IsCbctDerived), ct);
 
         // Step 3: Classify diagnosis
         Result<SessionDiagnosisDto>? diagResult = null;
@@ -685,7 +937,13 @@ public class RunFullPipelineHandler : IRequestHandler<RunFullPipelineCommand, Re
             Session: sessionQuery.Data!,
             Landmarks: detectResult.Data!.Select(l => new SessionLandmarkDto(
                 Guid.Empty, l.Name, l.Name, (decimal)l.Point.X, (decimal)l.Point.Y,
-                (decimal)l.Confidence, true, false, null)),
+                (decimal)l.Confidence,
+                LandmarkProvenance.IsDirectAiDetected(l.Provenance),
+                false,
+                LandmarkProvenance.BuildAdjustmentReason(l.Provenance, l.DerivedFrom),
+                LandmarkProvenance.Normalize(l.Provenance),
+                LandmarkProvenance.ExpectedErrorMm(l.Confidence, l.Provenance, l.ExpectedErrorMm),
+                l.DerivedFrom)),
             Measurements: measResult.IsSuccess ? measResult.Data! : [],
             Diagnosis: diagResult?.IsSuccess == true ? diagResult.Data : null,
             Treatments: treatResult?.IsSuccess == true ? treatResult.Data! : []);
@@ -698,7 +956,7 @@ public class RunFullPipelineHandler : IRequestHandler<RunFullPipelineCommand, Re
 // Finalize Analysis (Save Landmarks -> Measure -> Diagnose -> Treat -> Snapshot)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-public record FinalizeAnalysisCommand(Guid SessionId, string DoctorId, List<LandmarkUpdateDto> Landmarks) : IRequest<Result<FullPipelineDto>>;
+public record FinalizeAnalysisCommand(Guid SessionId, string DoctorId, List<LandmarkUpdateDto> Landmarks, bool IsCbctDerived = false) : IRequest<Result<FullPipelineDto>>;
 
 public class FinalizeAnalysisHandler : IRequestHandler<FinalizeAnalysisCommand, Result<FullPipelineDto>>
 {
@@ -750,7 +1008,7 @@ public class FinalizeAnalysisHandler : IRequestHandler<FinalizeAnalysisCommand, 
         }
 
         // 2. Sequential calculation pipeline
-        var measRes = await _mediator.Send(new CalculateMeasurementsCommand(cmd.SessionId, cmd.DoctorId), ct);
+        var measRes = await _mediator.Send(new CalculateMeasurementsCommand(cmd.SessionId, cmd.DoctorId, cmd.IsCbctDerived), ct);
         if (!measRes.IsSuccess) return Result<FullPipelineDto>.Failure(measRes.Error ?? "Measurement step failed.");
 
         var diagRes = await _mediator.Send(new ClassifyDiagnosisCommand(cmd.SessionId, cmd.DoctorId), ct);
@@ -818,7 +1076,8 @@ public class FinalizeAnalysisHandler : IRequestHandler<FinalizeAnalysisCommand, 
 
         var landmarksDto = session.Landmarks.Select(l => new SessionLandmarkDto(
             l.Id, l.LandmarkCode, l.LandmarkName, l.XPx, l.YPx, l.ConfidenceScore,
-            l.IsAiDetected, l.IsManuallyAdjusted, l.AdjustmentReason));
+            l.IsAiDetected, l.IsManuallyAdjusted, l.AdjustmentReason,
+            LandmarkProvenance.FromStored(l), l.ExpectedErrorMm, LandmarkProvenance.DerivedFrom(l)));
 
         return Result<FullPipelineDto>.Success(new FullPipelineDto(
             sessionDto,
@@ -1042,7 +1301,22 @@ public class GetOverlayImagesHandler : IRequestHandler<GetOverlayImagesQuery, Re
             return Result<IEnumerable<OverlayImageEntry>>.Unauthorized();
 
         if (string.IsNullOrEmpty(session.OverlayImagesJson))
+        {
+            // Fallback: expose the finalized markup snapshot as an overlay-like entry.
+            if (!string.IsNullOrWhiteSpace(session.ResultImageUrl))
+            {
+                var fallback = new OverlayImageEntry(
+                    Key: "markup_snapshot",
+                    Label: "Markup Snapshot",
+                    StorageUrl: session.ResultImageUrl,
+                    Width: session.XRayImage.WidthPx ?? 0,
+                    Height: session.XRayImage.HeightPx ?? 0);
+
+                return Result<IEnumerable<OverlayImageEntry>>.Success([fallback]);
+            }
+
             return Result<IEnumerable<OverlayImageEntry>>.Success(Enumerable.Empty<OverlayImageEntry>());
+        }
 
         var entries = System.Text.Json.JsonSerializer.Deserialize<List<OverlayImageEntry>>(
             session.OverlayImagesJson, _jsonOpts) ?? [];

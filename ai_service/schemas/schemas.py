@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 
 
@@ -8,6 +8,9 @@ class LandmarkPoint(BaseModel):
     x: float
     y: float
     confidence: Optional[float] = 1.0
+    provenance: Optional[str] = "detected"  # detected | derived | fallback | manual
+    derived_from: Optional[list[str]] = None
+    expected_error_mm: Optional[float] = None
 
 
 class LandmarkDetectionRequest(BaseModel):
@@ -29,11 +32,17 @@ class MeasurementRequest(BaseModel):
     session_id: str
     landmarks: dict[str, LandmarkPoint]
     pixel_spacing_mm: Optional[float] = None
+    patient_age: Optional[float] = None
+    patient_sex: Optional[str] = None
+    population: Optional[str] = None
+    dentition_stage: Optional[str] = None
+    is_cbct_derived: Optional[bool] = False
 
 
 class MeasurementItem(BaseModel):
     code: str
     name: str
+    category: Optional[str] = None
     measurement_type: str      # Angle | Distance | Ratio
     value: float
     unit: str                  # Degrees | Millimeters
@@ -42,6 +51,9 @@ class MeasurementItem(BaseModel):
     status: str                # Normal | Increased | Decreased
     deviation: Optional[float] = None
     landmark_refs: list[str]
+    quality_status: Optional[str] = "clinically_usable"
+    review_reasons: list[str] = Field(default_factory=list)
+    landmark_provenance: Optional[dict[str, str]] = None
 
 
 class MeasurementResponse(BaseModel):
@@ -77,8 +89,8 @@ class DiagnosisResponse(BaseModel):
     overbite_classification: Optional[str] = None
     confidence_score: float
     summary: str
-    warnings: list[str] = []
-    clinical_notes: list[str] = []
+    warnings: list[str] = Field(default_factory=list)
+    clinical_notes: list[str] = Field(default_factory=list)
 
 
 # ── Treatment schemas ───────────────────────────────────────────────────────
@@ -101,9 +113,11 @@ class TreatmentItem(BaseModel):
     risks: Optional[str] = None
     estimated_duration_months: Optional[int] = None
     confidence_score: float
-    source: str                  # RuleBased | ML | LLM | Hybrid
+    source: str                              # RuleBased | ML | LLM | Hybrid
     is_primary: bool
     predicted_outcomes: Optional[dict[str, float]] = None
+    evidence_level: Optional[str] = None    # RCT | Cohort | Expert
+    retention_recommendation: Optional[str] = None
 
 
 class XAIDecisionStep(BaseModel):

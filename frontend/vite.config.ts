@@ -1,45 +1,43 @@
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-import path from 'path'
+import tailwindcss from "@tailwindcss/vite";
+import react from "@vitejs/plugin-react";
+import path from "node:path";
+import { defineConfig, loadEnv } from "vite";
 
-// https://vite.dev/config/
-export default defineConfig({
-  plugins: [react()],
-  resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './src'),
-    },
-  },
-  server: {
-    port: 3000,
-    proxy: {
-      '/api': {
-        target: 'http://localhost:5180',
-        changeOrigin: true,
-      },
-      '/uploads': {
-        target: 'http://localhost:5180',
-        changeOrigin: true,
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, __dirname, "");
+  const backendTarget = env.VITE_BACKEND_API_BASE_URL ?? process.env.VITE_BACKEND_API_BASE_URL ?? "http://localhost:5180";
+
+  return {
+    root: path.resolve(__dirname, "client"),
+    envDir: __dirname,
+    plugins: [react(), tailwindcss()],
+    resolve: {
+      alias: {
+        "@": path.resolve(__dirname, "client/src"),
+        "@shared": path.resolve(__dirname, "shared"),
       },
     },
-  },
-  build: {
-    outDir: 'dist',
-    sourcemap: false,
-    rollupOptions: {
-      output: {
-        manualChunks: (id) => {
-          if (id.includes('node_modules')) {
-            if (id.includes('react') || id.includes('react-dom') || id.includes('react-router-dom') || id.includes('@tanstack/react-query')) {
-              return 'vendor';
-            }
-            if (id.includes('lucide-react') || id.includes('sonner')) {
-              return 'ui';
-            }
-            return 'vendor-other';
-          }
+    server: {
+      port: 3000,
+      proxy: {
+        "/api": {
+          target: backendTarget,
+          changeOrigin: true,
+        },
+        "/uploads": {
+          target: backendTarget,
+          changeOrigin: true,
+        },
+        "/health": {
+          target: backendTarget,
+          changeOrigin: true,
         },
       },
     },
-  },
-})
+    build: {
+      outDir: path.resolve(__dirname, "dist"),
+      emptyOutDir: true,
+      sourcemap: false,
+    },
+  };
+});

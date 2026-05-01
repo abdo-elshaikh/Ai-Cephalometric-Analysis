@@ -80,9 +80,9 @@ public class AnalysisController : ControllerBase
 
     /// <summary>Run measurement calculations for a session's landmarks</summary>
     [HttpPost("sessions/{sessionId:guid}/measurements")]
-    public async Task<IActionResult> CalculateMeasurements(Guid sessionId, CancellationToken ct)
+    public async Task<IActionResult> CalculateMeasurements(Guid sessionId, [FromQuery] bool isCbctDerived = false, CancellationToken ct = default)
     {
-        var result = await _mediator.Send(new CalculateMeasurementsCommand(sessionId, CurrentUserId), ct);
+        var result = await _mediator.Send(new CalculateMeasurementsCommand(sessionId, CurrentUserId, isCbctDerived), ct);
         return result.IsSuccess 
             ? Ok(result.Data)
             : StatusCode(result.StatusCode, new { error = result.Error });
@@ -140,9 +140,9 @@ public class AnalysisController : ControllerBase
 
     /// <summary>Run the full pipeline: landmarks → measurements → diagnosis → treatment</summary>
     [HttpPost("full-pipeline/{imageId:guid}")]
-    public async Task<IActionResult> RunFullPipeline(Guid imageId, [FromQuery] AnalysisType type = AnalysisType.Steiner, CancellationToken ct = default)
+    public async Task<IActionResult> RunFullPipeline(Guid imageId, [FromQuery] AnalysisType type = AnalysisType.Steiner, [FromQuery] bool isCbctDerived = false, CancellationToken ct = default)
     {
-        var result = await _mediator.Send(new RunFullPipelineCommand(imageId, CurrentUserId, type), ct);
+        var result = await _mediator.Send(new RunFullPipelineCommand(imageId, CurrentUserId, type, isCbctDerived), ct);
         return result.IsSuccess 
             ? Ok(result.Data)
             : StatusCode(result.StatusCode, new { error = result.Error });
@@ -177,9 +177,9 @@ public class AnalysisController : ControllerBase
 
     /// <summary>Finalize session: Save landmarks and generate all clinical drafts</summary>
     [HttpPost("sessions/{sessionId:guid}/finalize")]
-    public async Task<IActionResult> FinalizeSession(Guid sessionId, [FromBody] List<LandmarkUpdateDto> landmarks, CancellationToken ct)
+    public async Task<IActionResult> FinalizeSession(Guid sessionId, [FromBody] List<LandmarkUpdateDto> landmarks, [FromQuery] bool isCbctDerived = false, CancellationToken ct = default)
     {
-        var result = await _mediator.Send(new FinalizeAnalysisCommand(sessionId, CurrentUserId, landmarks), ct);
+        var result = await _mediator.Send(new FinalizeAnalysisCommand(sessionId, CurrentUserId, landmarks, isCbctDerived), ct);
         return result.IsSuccess 
             ? Ok(result.Data)
             : StatusCode(result.StatusCode, new { error = result.Error });

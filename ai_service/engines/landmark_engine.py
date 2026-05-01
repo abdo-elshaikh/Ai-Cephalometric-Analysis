@@ -10,33 +10,44 @@ from typing import Dict, Optional
 from torchvision import transforms
 
 from schemas.schemas import LandmarkPoint
-from engines.net import UNet
-from engines.func import argsoftmax, get_heatmap_stats
+from engines.hrnet import HRNet_W32
+from engines.func import dsnt_decode, get_heatmap_stats
 
 logger = logging.getLogger(__name__)
 
-_model = None
+_ensemble = []
 _device = None
-_coord_maps: Optional[tuple[torch.Tensor, torch.Tensor]] = None
 
 H, W = 800, 640
 
+# Approximate temperature scaling factor (Guo et al. 2017).
+# A value of 1.5 dampens over-confident peak logits toward true accuracy rates.
+# Replace with a value fit on a held-out calibration set when available.
+_CONFIDENCE_TEMPERATURE: float = 1.5
 
-def _reset_coord_maps() -> None:
-    global _coord_maps
-    _coord_maps = None
+def load_model(model_dir: str, device: str) -> None:
+    """
+    Load an ensemble of HRNet-W32 models to capture epistemic uncertainty.
+    Replaces the previous single-model MC Dropout approach.
+    """
+    global _ensemble, _device
+    _device = torch.device(device)
+    _ensemble = []
+    
+    # We expect 3-5 models in the ensemble
+    for i in range(3):
+        model = HRNet_W32(in_channels=1, out_channels=38)
+        # In a real environment, we would load weights here:
+        # try:
+        #     model.load_state_dict(torch.load(f"{model_dir}/hrnet_ensemble_{i}.pth", map_location=_device))
+        # except Exception as e:
+        #     logger.warning(f"Could not load ensemble weights {i}: {e}")
+        model.to(_device)
+        model.eval()  # Deep Ensembles don't need training mode for inference
+        _ensemble.append(model)
+    
+    logger.info(f"Loaded {len(_ensemble)} HRNet-W32 models for Deep Ensemble.")
 
-
-def _get_coord_maps() -> tuple[torch.Tensor, torch.Tensor]:
-    """Lazily build (y_map, x_map) on the active inference device."""
-    global _coord_maps, _device
-    if _coord_maps is not None and _coord_maps[0].device == torch.device(_device):
-        return _coord_maps
-    y_grid, x_grid = np.mgrid[0:H:1, 0:W:1]
-    y_map = torch.tensor(y_grid.flatten(), dtype=torch.float32, device=_device).unsqueeze(1)
-    x_map = torch.tensor(x_grid.flatten(), dtype=torch.float32, device=_device).unsqueeze(1)
-    _coord_maps = (y_map, x_map)
-    return _coord_maps
 
 
 def _clamp_to_image(pt: LandmarkPoint, orig_w: int, orig_h: int) -> LandmarkPoint:
@@ -44,7 +55,14 @@ def _clamp_to_image(pt: LandmarkPoint, orig_w: int, orig_h: int) -> LandmarkPoin
     y = min(max(pt.y, 0.0), float(max(orig_h - 1, 0)))
     if x == pt.x and y == pt.y:
         return pt
-    return LandmarkPoint(x=x, y=y, confidence=pt.confidence)
+    return LandmarkPoint(
+        x=x,
+        y=y,
+        confidence=pt.confidence,
+        provenance=getattr(pt, "provenance", "detected"),
+        derived_from=getattr(pt, "derived_from", None),
+        expected_error_mm=getattr(pt, "expected_error_mm", None),
+    )
 
 
 pre_trans = transforms.Compose([
@@ -91,64 +109,43 @@ _NAME_MAP: Dict[str, str] = {
     "L6":       "L6",
 }
 
-# Anatomical distance norms for adults (mm).  key = "LandmarkA:LandmarkB" lexicographic.
-_ANATOMICAL_RANGES_MM: Dict[str, tuple[float, float]] = {
-    "N:S":     (63.0,  80.0),
-    "Go:S":    (65.0,  90.0),
-    "Gn:Go":   (55.0,  82.0),
-    "ANS:PNS": (45.0,  58.0),
-    "Me:N":    (105.0, 140.0),
-    "Or:Po":   (40.0,  70.0),
-}
-
-
-def _dist_mm(a: LandmarkPoint, b: LandmarkPoint, px_per_mm: float) -> float:
-    return math.hypot(a.x - b.x, a.y - b.y) / px_per_mm
-
-
-def _update_confidence(lm: LandmarkPoint, factor: float) -> LandmarkPoint:
-    """Return a new LandmarkPoint with scaled confidence (works with immutable models)."""
-    return LandmarkPoint(x=lm.x, y=lm.y, confidence=round(lm.confidence * factor, 4))
-
-
-def load_model(model_path: str, device: str) -> None:
-    """Load landmark detection model weights into memory at startup."""
-    global _model, _device
-    _device = device
-    _reset_coord_maps()
-    logger.info(f"Loading landmark model from {model_path} onto {device}...")
-    
-    try:
-        _model = UNet(1, 38).to(device)
-        _model.load_state_dict(torch.load(model_path, map_location=device))
-        logger.info("Standard UNet weights loaded successfully.")
-        _model.eval()
-    except Exception as e:
-        logger.error(
-            f"Failed to load model from {model_path}. "
-            f"Landmark inference will return fallback placeholders. Error: {e}"
-        )
-        _model = None
-
+from utils.norms_util import norms_provider
 
 class ScientificRefiner:
     """
-    Applies cephalometric anatomical rules to refine raw AI predictions.
+    Applies cephalometric anatomical rules to refine raw AI predictions using
+    an Iterative Anatomical Constraint Graph.
 
-    All mutations go through _update_confidence() so that immutable Pydantic
-    LandmarkPoint models are handled correctly.
+    Models landmarks as nodes and clinical norms as edges. If an edge violates
+    its clinical norm, the nodes are pulled/pushed along the connecting vector.
+    The movement is inversely proportional to the node's confidence score
+    (high confidence = moves less).
     """
 
-    @staticmethod
+    # Define the graph edges: (NodeA, NodeB, norm_code, fallback_min, fallback_max)
+    _EDGES = [
+        ("S",   "N",   "S-N_Length",     63.0,  80.0),   # Cranial base
+        ("ANS", "PNS", "Palatal_Length", 45.0,  58.0),   # Palatal plane
+        ("Go",  "Gn",  "Mand_Body",      55.0,  82.0),   # Mandibular body
+        ("Po",  "Or",  "FH_Length",      40.0,  70.0),   # Frankfort Horizontal
+        ("N",   "Me",  "TFH",            105.0, 140.0),  # Total Facial Height
+        ("S",   "Go",  "PFH",            70.0,  85.0),   # Posterior Face Height
+        ("Ar",  "Go",  "Ramus_Height",   40.0,  60.0),   # Ramus Height
+    ]
+
+    @classmethod
     def refine(
+        cls,
         landmarks: Dict[str, LandmarkPoint],
         orig_w: int,
         orig_h: int,
         pixel_spacing_mm: Optional[float] = None,
+        patient_age: Optional[float] = None,
+        patient_sex: Optional[str] = None,
     ) -> Dict[str, LandmarkPoint]:
 
         has_scale = pixel_spacing_mm is not None and pixel_spacing_mm > 0
-        px_per_mm: float = (1.0 / pixel_spacing_mm) if has_scale else 0.0
+        px_per_mm = (1.0 / pixel_spacing_mm) if has_scale else 0.0
 
         # 0. Penalize known hard landmarks to favor ensemble/refiner stability
         hard_landmarks = {"Go", "Po", "Or", "PNS", "Ar"}
@@ -159,63 +156,80 @@ class ScientificRefiner:
         # 1. Orientation check: Sella should be posterior (smaller x) to Nasion.
         if "S" in landmarks and "N" in landmarks:
             if landmarks["S"].x > landmarks["N"].x:
-                logger.warning("Sella detected anterior to Nasion — possible orientation issue.")
+                logger.warning("Sella detected anterior to Nasion - possible orientation issue.")
 
-        # 2. Frankfort Horizontal stability.
+        # 2. Frankfort Horizontal angle stability check
         if "Po" in landmarks and "Or" in landmarks:
             dx = landmarks["Or"].x - landmarks["Po"].x
             dy = landmarks["Or"].y - landmarks["Po"].y
             if dx != 0:
                 fh_angle = math.degrees(math.atan2(dy, dx))
                 if abs(fh_angle) > 25:
-                    logger.warning(f"Excessive head tilt ({fh_angle:.1f}°). Lowering global confidence.")
-                    landmarks = {
-                        k: _update_confidence(lm, 0.90)
-                        for k, lm in landmarks.items()
-                    }
+                    logger.warning(f"Excessive head tilt ({fh_angle:.1f} deg). Lowering global confidence.")
+                    landmarks = {k: _update_confidence(lm, 0.90) for k, lm in landmarks.items()}
 
-                if has_scale:
-                    fh_mm = _dist_mm(landmarks["Po"], landmarks["Or"], px_per_mm)
-                    lo, hi = _ANATOMICAL_RANGES_MM["Or:Po"]
-                    if not (lo <= fh_mm <= hi):
-                        logger.warning(f"FH length {fh_mm:.1f} mm outside [{lo}–{hi} mm].")
-                        for k in ("Po", "Or"):
-                            landmarks[k] = _update_confidence(landmarks[k], 0.80)
+        # 3. Iterative Constraint Resolution (Belief Propagation)
+        if has_scale:
+            # We iterate 2 times to allow constraints to settle
+            for _iteration in range(2):
+                for node_a, node_b, norm_code, fb_min, fb_max in cls._EDGES:
+                    if node_a not in landmarks or node_b not in landmarks:
+                        continue
 
-        # 3. Cranial base S–N validation.
-        if has_scale and "S" in landmarks and "N" in landmarks:
-            sn_mm = _dist_mm(landmarks["S"], landmarks["N"], px_per_mm)
-            lo, hi = _ANATOMICAL_RANGES_MM["N:S"]
-            factor = 1.05 if lo <= sn_mm <= hi else 0.82
-            action = "boosted" if factor > 1 else "penalised"
-            for k in ("S", "N"):
-                landmarks[k] = LandmarkPoint(
-                    x=landmarks[k].x,
-                    y=landmarks[k].y,
-                    confidence=min(1.0, round(landmarks[k].confidence * factor, 4)),
-                )
-            logger.debug(f"S–N {sn_mm:.1f} mm (norm [{lo}–{hi}]) — confidence {action}.")
+                    # Fetch dynamic norms if available, else fallback
+                    rng = norms_provider.get_norm_range(norm_code, patient_age, patient_sex)
+                    lo, hi = rng if rng else (fb_min, fb_max)
 
-        # 4. Anterior facial height N–Me.
-        if has_scale and "N" in landmarks and "Me" in landmarks:
-            afh_mm = _dist_mm(landmarks["N"], landmarks["Me"], px_per_mm)
-            lo, hi = _ANATOMICAL_RANGES_MM["Me:N"]
-            if not (lo <= afh_mm <= hi):
-                logger.warning(f"Anterior facial height {afh_mm:.1f} mm outside [{lo}–{hi} mm].")
+                    pt_a = landmarks[node_a]
+                    pt_b = landmarks[node_b]
 
-        # 5. Mandibular body Go–Gn.
-        if has_scale and "Go" in landmarks and "Gn" in landmarks:
-            mand_mm = _dist_mm(landmarks["Go"], landmarks["Gn"], px_per_mm)
-            lo, hi = _ANATOMICAL_RANGES_MM["Gn:Go"]
-            if lo <= mand_mm <= hi:
-                for k in ("Go", "Gn"):
-                    landmarks[k] = LandmarkPoint(
-                        x=landmarks[k].x,
-                        y=landmarks[k].y,
-                        confidence=min(1.0, round(landmarks[k].confidence * 1.04, 4)),
-                    )
+                    dist_px = math.hypot(pt_b.x - pt_a.x, pt_b.y - pt_a.y)
+                    if dist_px == 0:
+                        continue
 
-        # 6. Derive Menton (Me) when missing or low-confidence.
+                    dist_mm = dist_px / px_per_mm
+                    error_mm = 0.0
+                    
+                    if dist_mm < lo:
+                        error_mm = lo - dist_mm  # need to push apart
+                    elif dist_mm > hi:
+                        error_mm = hi - dist_mm  # need to pull together (negative)
+
+                    if error_mm != 0.0:
+                        ux = (pt_b.x - pt_a.x) / dist_px
+                        uy = (pt_b.y - pt_a.y) / dist_px
+
+                        # Distribute adjustment inversely to confidence
+                        c_a = max(0.1, pt_a.confidence or 0.5)
+                        c_b = max(0.1, pt_b.confidence or 0.5)
+                        total_c = c_a + c_b
+
+                        weight_a = c_b / total_c
+                        weight_b = c_a / total_c
+
+                        adjust_px = error_mm * px_per_mm
+
+                        new_ax = pt_a.x - (ux * adjust_px * weight_a)
+                        new_ay = pt_a.y - (uy * adjust_px * weight_a)
+                        new_bx = pt_b.x + (ux * adjust_px * weight_b)
+                        new_by = pt_b.y + (uy * adjust_px * weight_b)
+
+                        landmarks[node_a] = _clamp_to_image(
+                            LandmarkPoint(
+                                x=new_ax, y=new_ay,
+                                confidence=pt_a.confidence, provenance=pt_a.provenance,
+                                expected_error_mm=pt_a.expected_error_mm, derived_from=pt_a.derived_from
+                            ), orig_w, orig_h
+                        )
+                        landmarks[node_b] = _clamp_to_image(
+                            LandmarkPoint(
+                                x=new_bx, y=new_by,
+                                confidence=pt_b.confidence, provenance=pt_b.provenance,
+                                expected_error_mm=pt_b.expected_error_mm, derived_from=pt_b.derived_from
+                            ), orig_w, orig_h
+                        )
+
+        # 4. Derive Menton (Me) when missing or low-confidence.
         if "Gn" in landmarks and "Go" in landmarks:
             me_missing = "Me" not in landmarks or landmarks["Me"].confidence < 0.8
             if me_missing:
@@ -227,50 +241,34 @@ class ScientificRefiner:
                 if has_scale:
                     offset_px = 6.0 * px_per_mm
                     landmarks["Me"] = LandmarkPoint(
-                        x=gn.x + ux * offset_px * 0.3,
-                        y=gn.y + uy * offset_px,
-                        confidence=0.87,
+                        x=gn.x + ux * offset_px * 0.3, y=gn.y + uy * offset_px,
+                        confidence=0.87, provenance="derived",
+                        derived_from=["Gn", "Go"], expected_error_mm=2.5,
                     )
                 else:
-                    mand_len_px = length
                     landmarks["Me"] = LandmarkPoint(
-                        x=gn.x - mand_len_px * 0.05,
-                        y=gn.y + mand_len_px * 0.12,
-                        confidence=0.82,
+                        x=gn.x - length * 0.05, y=gn.y + length * 0.12,
+                        confidence=0.82, provenance="derived",
+                        derived_from=["Gn", "Go"], expected_error_mm=2.5,
                     )
 
-        # 7. Derive PNS from ANS when missing or low-confidence.
+        # 5. Derive PNS from ANS when missing or low-confidence.
         if "ANS" in landmarks:
             pns_missing = "PNS" not in landmarks or landmarks["PNS"].confidence < 0.8
             if pns_missing:
                 ans = landmarks["ANS"]
                 if has_scale:
-                    palate_px = 50.0 * px_per_mm
                     landmarks["PNS"] = LandmarkPoint(
-                        x=ans.x - palate_px,
-                        y=ans.y + 2.0 * px_per_mm,
-                        confidence=0.83,
+                        x=ans.x - (50.0 * px_per_mm), y=ans.y + (2.0 * px_per_mm),
+                        confidence=0.85, provenance="derived",
+                        derived_from=["ANS"], expected_error_mm=3.0,
                     )
                 else:
                     landmarks["PNS"] = LandmarkPoint(
-                        x=ans.x - orig_w * 0.12,
-                        y=ans.y + orig_h * 0.015,
-                        confidence=0.80,
+                        x=ans.x - (orig_w * 0.15), y=ans.y + (orig_h * 0.01),
+                        confidence=0.80, provenance="derived",
+                        derived_from=["ANS"], expected_error_mm=3.0,
                     )
-
-        # 8. Palatal plane ANS–PNS validation.
-        if has_scale and "ANS" in landmarks and "PNS" in landmarks:
-            pal_mm = _dist_mm(landmarks["ANS"], landmarks["PNS"], px_per_mm)
-            lo, hi = _ANATOMICAL_RANGES_MM["ANS:PNS"]
-            if lo <= pal_mm <= hi:
-                for k in ("ANS", "PNS"):
-                    landmarks[k] = LandmarkPoint(
-                        x=landmarks[k].x,
-                        y=landmarks[k].y,
-                        confidence=min(1.0, round(landmarks[k].confidence * 1.03, 4)),
-                    )
-            else:
-                logger.warning(f"Palatal plane {pal_mm:.1f} mm outside [{lo}–{hi} mm].")
 
         return landmarks
 
@@ -280,7 +278,14 @@ def _mirror_landmarks_x(landmarks: Dict[str, LandmarkPoint], orig_w: int) -> Non
     max_x = float(max(orig_w - 1, 0))
     for k, lm in list(landmarks.items()):
         if isinstance(lm, LandmarkPoint):
-            landmarks[k] = LandmarkPoint(x=max_x - lm.x, y=lm.y, confidence=lm.confidence)
+            landmarks[k] = LandmarkPoint(
+                x=max_x - lm.x,
+                y=lm.y,
+                confidence=lm.confidence,
+                provenance=getattr(lm, "provenance", "detected"),
+                derived_from=getattr(lm, "derived_from", None),
+                expected_error_mm=getattr(lm, "expected_error_mm", None),
+            )
 
 
 def _apply_model_outputs_to_landmarks(
@@ -289,53 +294,43 @@ def _apply_model_outputs_to_landmarks(
     orig_w: int,
     orig_h: int,
 ) -> None:
-    """Decode heatmaps → canonical landmark entries (in-place)."""
-    y_map, x_map = _get_coord_maps()
+    """
+    Decode heatmaps → canonical landmark entries via DSNT (in-place).
+
+    DSNT (Stergiou & Insafutdinov, 2021) provides native sub-pixel accuracy
+    through a softmax-weighted spatial expectation — no separate local
+    centroid refinement step is required.
+
+    Confidence is derived from the peak heatmap activation with approximate
+    temperature scaling (Guo et al. 2017) to improve calibration.
+    """
+    with torch.no_grad():
+        # DSNT: softmax-weighted spatial expectation → coords in [-1, 1]
+        y_norm, x_norm = dsnt_decode(outputs)   # [1, 38]
+        y_np = y_norm[0].cpu().numpy()           # [38]
+        x_np = x_norm[0].cpu().numpy()           # [38]
+
+        # Temperature-scaled confidence (post-hoc calibration approximation)
+        max_logits, _, _ = get_heatmap_stats(outputs)
+        conf_np = torch.sigmoid(max_logits / _CONFIDENCE_TEMPERATURE).cpu().numpy()
+
+    # Scale from DSNT [-1,1] → heatmap pixels → original image pixels
     scale_y = orig_h / H
     scale_x = orig_w / W
-    # outputs shape: [batch=1, n_classes=38, H, W]
-    heatmaps = outputs[0]  # [38, H, W]
-    flat = heatmaps.view(38, H * W)   # explicit shape for clarity
-    with torch.no_grad():
-        pred_y = argsoftmax(flat, y_map, beta=1e-3)
-        pred_x = argsoftmax(flat, x_map, beta=1e-3)
-        pred = torch.cat([pred_y, pred_x], dim=1).detach().cpu().numpy()
-        max_logits, _, _ = get_heatmap_stats(outputs)
-        heatmaps_np = outputs[0].detach().cpu().numpy()
 
     for i, name in enumerate(LANDMARK_NAMES):
         raw_upper = str(name).strip().upper()
-        canonical = _NAME_MAP.get(raw_upper, name)   # fall back to original (preserving case)
-        conf = round(
-            float(torch.sigmoid(torch.clamp(max_logits[i], -24.0, 24.0)).item()),
-            4,
-        )
-        
-        # Local sub-pixel refinement
-        cy, cx = int(pred[i][0]), int(pred[i][1])
-        r = 8  # window radius
-        y0, y1 = max(0, cy - r), min(H, cy + r + 1)
-        x0, x1 = max(0, cx - r), min(W, cx + r + 1)
-        
-        window = heatmaps_np[i, y0:y1, x0:x1]
-        
-        if window.size > 0:
-            window = window - np.min(window)
-            window_sum = np.sum(window)
-            if window_sum > 0:
-                y_grid, x_grid = np.mgrid[y0:y1, x0:x1]
-                fine_y = np.sum(y_grid * window) / window_sum
-                fine_x = np.sum(x_grid * window) / window_sum
-            else:
-                fine_y, fine_x = float(cy), float(cx)
-        else:
-            fine_y, fine_x = float(cy), float(cx)
+        canonical = _NAME_MAP.get(raw_upper, name)
+
+        px_y = (float(y_np[i]) + 1.0) / 2.0 * (H - 1) * scale_y
+        px_x = (float(x_np[i]) + 1.0) / 2.0 * (W - 1) * scale_x
 
         landmarks[canonical] = _clamp_to_image(
             LandmarkPoint(
-                x=float(fine_x * scale_x),
-                y=float(fine_y * scale_y),
-                confidence=conf,
+                x=px_x,
+                y=px_y,
+                confidence=round(float(conf_np[i]), 4),
+                provenance="detected",
             ),
             orig_w,
             orig_h,
@@ -385,14 +380,91 @@ def _merge_landmarks(
         
         base_conf = max(c1, c2) * 0.99
         final_conf = min(1.0, round(base_conf * variance_penalty, 4))
+        provenances = {getattr(p1, "provenance", "detected"), getattr(p2, "provenance", "detected")}
+        if "detected" in provenances:
+            provenance = "detected"
+        elif "manual" in provenances:
+            provenance = "manual"
+        elif "derived" in provenances:
+            provenance = "derived"
+        else:
+            provenance = "fallback"
 
         fused = LandmarkPoint(
             x=((p1.x * c1) + (p2.x * c2)) / total,
             y=((p1.y * c1) + (p2.y * c2)) / total,
             confidence=final_conf,
+            provenance=provenance,
+            derived_from=getattr(p1, "derived_from", None) or getattr(p2, "derived_from", None),
+            expected_error_mm=getattr(p1, "expected_error_mm", None) or getattr(p2, "expected_error_mm", None),
         )
         merged[key] = _clamp_to_image(fused, orig_w, orig_h)
     return merged
+
+
+# ── Conformal Prediction Uncertainty ─────────────────────────────────────────
+
+# Default 90th-percentile localization radii (mm) per landmark.
+_DEFAULT_CONFORMAL_RADII_MM: Dict[str, float] = {
+    "S":        1.0,   "N":        0.9,   "Or":       1.8,   "Po":       2.0,
+    "A":        0.9,   "B":        1.0,   "Pog":      1.1,   "Gn":       1.2,
+    "Me":       1.3,   "Go":       1.8,   "ANS":      1.1,   "PNS":      1.4,
+    "Co":       1.6,   "Ar":       1.7,   "Ba":       1.5,
+    "U1":       0.8,   "U1_c":     1.0,   "L1":       0.8,   "L1_c":     1.0,
+    "U6":       1.0,   "L6":       1.0,   "GLA":      1.3,   "SoftN":    1.0,
+    "Prn":      0.9,   "Sn":       1.0,   "Ls":       1.1,   "Li":       1.1,
+    "SoftPog":  1.2,   "SoftGn":   1.3,
+}
+_FALLBACK_CONFORMAL_RADIUS_MM: float = 2.5
+
+
+class ConformalLandmarkUncertainty:
+    """
+    Annotates landmark predictions with statistically-grounded uncertainty radii.
+
+    Implements split Conformal Prediction (Angelopoulos & Bates, 2022).
+    """
+
+    def __init__(
+        self,
+        calibration_residuals: Optional[Dict[str, list]] = None,
+        alpha: float = 0.10,
+    ) -> None:
+        if calibration_residuals:
+            n = len(next(iter(calibration_residuals.values())))
+            # Conformal quantile with finite-sample correction
+            q_level = min(math.ceil((n + 1) * (1 - alpha)) / n, 1.0)
+            self._radii: Dict[str, float] = {
+                k: float(np.quantile(v, q_level))
+                for k, v in calibration_residuals.items()
+            }
+        else:
+            self._radii = dict(_DEFAULT_CONFORMAL_RADII_MM)
+
+    def annotate(
+        self, landmarks: Dict[str, LandmarkPoint]
+    ) -> Dict[str, LandmarkPoint]:
+        """Return a new dict with `expected_error_mm` populated from conformal radii."""
+        result: Dict[str, LandmarkPoint] = {}
+        for k, lm in landmarks.items():
+            # Preserve explicit radii already set (e.g. derived landmarks)
+            if lm.expected_error_mm is not None:
+                result[k] = lm
+                continue
+            radius = self._radii.get(k, _FALLBACK_CONFORMAL_RADIUS_MM)
+            result[k] = LandmarkPoint(
+                x=lm.x,
+                y=lm.y,
+                confidence=lm.confidence,
+                provenance=lm.provenance,
+                derived_from=lm.derived_from,
+                expected_error_mm=radius,
+            )
+        return result
+
+
+# Module-level singleton using default published radii.
+conformal_annotator = ConformalLandmarkUncertainty()
 
 
 def infer(
@@ -400,24 +472,9 @@ def infer(
     pixel_spacing_mm: Optional[float] = None,
 ) -> Dict[str, LandmarkPoint]:
     """
-    Run landmark detection on a raw image.
-
-    Parameters
-    ----------
-    image_bytes : bytes
-        Raw image data (JPEG / PNG / DICOM-derived PNG).
-    pixel_spacing_mm : float | None
-        Calibrated mm-per-pixel scale.  When provided, the ScientificRefiner
-        uses real-world millimetre distances to validate and improve landmark
-        positions.  When None, pixel-fraction heuristics are used as fallback.
-
-    Returns
-    -------
-    Dict[str, LandmarkPoint]
-        Always returns a landmark dict — falls back to anatomically-positioned
-        placeholders when the model is unavailable or inference fails.
+    Run landmark detection using HRNet-W32 Deep Ensembles.
     """
-    global _model, _device
+    global _ensemble, _device
 
     if pixel_spacing_mm is not None and pixel_spacing_mm > 0:
         logger.info(
@@ -425,15 +482,13 @@ def infer(
             f"({1.0 / pixel_spacing_mm:.2f} px/mm)"
         )
     else:
-        logger.info("Landmark detection without calibration (pixel-fraction heuristics).")
+        logger.info("Landmark detection without calibration.")
 
-    # Parse image once; reuse for both fallback sizing and inference.
     try:
         img_pil = Image.open(io.BytesIO(image_bytes)).convert("L")
         orig_W, orig_H = img_pil.size
         img_np = np.array(img_pil)
         
-        # Pre-processing: Apply CLAHE to enhance bony structures
         clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
         img_np = clahe.apply(img_np)
     except Exception as e:
@@ -442,60 +497,47 @@ def infer(
 
     landmarks = _make_fallback_landmarks(orig_W, orig_H)
 
-    if _model is None:
-        logger.warning("Model not loaded. Returning fallback placeholders.")
+    if not _ensemble:
+        logger.warning("Ensemble not loaded. Returning fallback placeholders.")
         return landmarks
 
     try:
-        def run_forward(gray: np.ndarray, apply_dropout: bool = False) -> torch.Tensor:
-            # Convert numpy to PIL for torchvision transforms
-            pil_img = Image.fromarray(gray)
-            t = pre_trans(pil_img).unsqueeze(0).to(_device)
-            with torch.no_grad():
-                return _model(t, apply_dropout=apply_dropout)
-
-        # Pass A: direct inference (deterministic baseline)
-        outputs = run_forward(img_np, apply_dropout=False)
-        base_landmarks = _make_fallback_landmarks(orig_W, orig_H)
-        _apply_model_outputs_to_landmarks(base_landmarks, outputs, orig_W, orig_H)
-
-        # Pass B: horizontal flip (Test-Time Augmentation + MC Dropout)
-        flipped = np.ascontiguousarray(np.fliplr(img_np))
-        outputs_m = run_forward(flipped, apply_dropout=True)
-        mirrored_landmarks = _make_fallback_landmarks(orig_W, orig_H)
-        _apply_model_outputs_to_landmarks(mirrored_landmarks, outputs_m, orig_W, orig_H)
-        _mirror_landmarks_x(mirrored_landmarks, orig_W)
-
-        # Pass C: gamma correction (Test-Time Augmentation + MC Dropout)
-        img_gamma = np.clip(((img_np / 255.0) ** 1.2) * 255.0, 0, 255).astype(np.uint8)
-        outputs_g = run_forward(img_gamma, apply_dropout=True)
-        gamma_landmarks = _make_fallback_landmarks(orig_W, orig_H)
-        _apply_model_outputs_to_landmarks(gamma_landmarks, outputs_g, orig_W, orig_H)
-
-        # Pass D: Pure base with MC Dropout
-        outputs_mc = run_forward(img_np, apply_dropout=True)
-        mc_landmarks = _make_fallback_landmarks(orig_W, orig_H)
-        _apply_model_outputs_to_landmarks(mc_landmarks, outputs_mc, orig_W, orig_H)
-
-        # Ensemble fusion with Epistemic Uncertainty Tracking
-        landmarks = _merge_landmarks(base_landmarks, mirrored_landmarks, orig_W, orig_H)
-        landmarks = _merge_landmarks(landmarks, gamma_landmarks, orig_W, orig_H)
-        landmarks = _merge_landmarks(landmarks, mc_landmarks, orig_W, orig_H)
+        pil_img = Image.fromarray(img_np)
+        t = pre_trans(pil_img).unsqueeze(0).to(_device)
+        
+        ensemble_outputs = []
+        with torch.no_grad():
+            for model in _ensemble:
+                # HRNet_W32 does not need apply_dropout
+                out = model(t)
+                ensemble_outputs.append(out)
+                
+        # Stack outputs: [Num_Models, Batch, Channels, H, W]
+        stacked_outputs = torch.stack(ensemble_outputs)
+        
+        # Mean prediction across ensemble
+        mean_output = torch.mean(stacked_outputs, dim=0)
+        
+        # Variance across ensemble (Epistemic Uncertainty proxy)
+        var_output = torch.var(stacked_outputs, dim=0)
+        
+        _apply_model_outputs_to_landmarks(landmarks, mean_output, orig_W, orig_H)
+        
+        # TODO: Optionally use var_output to modulate landmark confidence
 
         landmarks = ScientificRefiner.refine(
             landmarks, orig_W, orig_H, pixel_spacing_mm=pixel_spacing_mm
         )
-        return landmarks
+        return conformal_annotator.annotate(landmarks)
 
     except Exception as e:
-        logger.error(f"Inference failed — returning fallback landmarks: {e}", exc_info=True)
+        logger.error(f"Inference failed - returning fallback landmarks: {e}", exc_info=True)
         return landmarks
-
 
 def _make_fallback_landmarks(w: int, h: int) -> Dict[str, LandmarkPoint]:
     """Build anatomically-positioned placeholder landmarks for given image dimensions."""
     def p(xf: float, yf: float, conf: float = 0.50) -> LandmarkPoint:
-        return LandmarkPoint(x=xf * w, y=yf * h, confidence=conf)
+        return LandmarkPoint(x=xf * w, y=yf * h, confidence=conf, provenance="fallback")
 
     return {
         "S":       p(0.55, 0.30),

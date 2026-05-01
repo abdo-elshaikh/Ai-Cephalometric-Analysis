@@ -17,6 +17,8 @@ public class TreatmentPlan
     public TreatmentSource Source { get; set; } = TreatmentSource.Hybrid;
     public bool IsPrimary { get; set; } = false;
     public string? EvidenceReference { get; set; } // Clinical citation
+    public string? EvidenceLevel { get; set; }
+    public string? RetentionRecommendation { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     // Navigation

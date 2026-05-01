@@ -84,41 +84,93 @@ class AnalysisNormsProvider:
         return None
 
     @classmethod
-    def _apply_dynamic_adjustments(cls, target: str, normal: float, r_min: float, r_max: float, age: Optional[float], sex: Optional[str]) -> tuple[float, float, float]:
+    def _apply_dynamic_adjustments(
+        cls,
+        target: str,
+        normal: float,
+        r_min: float,
+        r_max: float,
+        age: Optional[float],
+        sex: Optional[str],
+    ) -> tuple[float, float, float]:
         """
-        Applies dynamic normative splines based on patient demographics.
-        Growth studies show significant variance in cephalometric norms before adulthood.
+        Continuous polynomial norm adjustment for age and sex.
+
+        Instead of fixed brackets, the adjustment is linearly interpolated
+        between control points for each measurement, matching published
+        longitudinal growth curve data more accurately.
+
+        Sex dimorphism values from:
+          Riolo et al., "An Atlas of Craniofacial Growth" (1974)
+          McNamara & Brudon, "Orthodontics and Dentofacial Orthopedics" (2001)
         """
         t = target.upper()
-        if age is not None:
-            # Mandibular growth (SNB) continues longer than maxillary (SNA), reducing ANB and FMA over time.
-            if t == "SNA":
-                if age < 12:
-                    normal += 1.5; r_min += 1.0; r_max += 2.0
-                elif age < 16:
-                    normal += 0.5; r_min += 0.5; r_max += 0.5
-            elif t == "SNB":
-                if age < 12:
-                    normal -= 2.0; r_min -= 2.0; r_max -= 2.0
-                elif age < 16:
-                    normal -= 1.0; r_min -= 1.0; r_max -= 1.0
-            elif t == "ANB":
-                if age < 12:
-                    normal += 3.5; r_min += 3.0; r_max += 4.0
-                elif age < 16:
-                    normal += 1.5; r_min += 1.5; r_max += 1.5
-            elif t == "FMA":
-                if age < 12:
-                    normal += 3.0; r_min += 3.0; r_max += 3.0
-                elif age < 16:
-                    normal += 1.5; r_min += 1.5; r_max += 1.5
-                    
-            # Sex dimorphism in late adolescent growth
-            if sex and sex.lower() in ["male", "m"] and age >= 16:
-                if t == "SNB":
-                    normal += 0.5; r_max += 1.0
-                elif t == "FMA":
-                    normal -= 1.0; r_min -= 1.0
+
+        # ── Age adjustments (linear interpolation between control points) ──────
+        # Each entry: (measurement_upper, [(age, delta_normal, delta_min, delta_max), ...])
+        # Sorted by age ascending. Values are additive deltas from adult norms.
+        AGE_CURVES: dict[str, list[tuple[float, float, float, float]]] = {
+            "SNA":    [(8, +2.0, +1.5, +2.5), (12, +1.5, +1.0, +2.0), (16, +0.5, +0.5, +0.5), (18, 0, 0, 0)],
+            "SNB":    [(8, -2.5, -2.5, -2.5), (12, -2.0, -2.0, -2.0), (16, -1.0, -1.0, -1.0), (18, 0, 0, 0)],
+            "ANB":    [(8, +4.0, +3.5, +4.5), (12, +3.5, +3.0, +4.0), (16, +1.5, +1.5, +1.5), (18, 0, 0, 0)],
+            "FMA":    [(8, +4.0, +4.0, +4.0), (12, +3.0, +3.0, +3.0), (16, +1.5, +1.5, +1.5), (18, 0, 0, 0)],
+            "SN-GOGN":[(8, +4.0, +4.0, +4.0), (12, +3.0, +3.0, +3.0), (16, +1.5, +1.5, +1.5), (18, 0, 0, 0)],
+            "AFH":    [(8, -18, -18, -18),     (12, -12, -12, -12),    (16, -5, -5, -5),        (18, 0, 0, 0)],
+            "PFH":    [(8, -20, -20, -20),     (12, -14, -14, -14),    (16, -6, -6, -6),        (18, 0, 0, 0)],
+            "LAFH":   [(8, -12, -12, -12),     (12, -8, -8, -8),       (16, -3, -3, -3),        (18, 0, 0, 0)],
+        }
+
+        if age is not None and t in AGE_CURVES:
+            pts = AGE_CURVES[t]
+            if age <= pts[0][0]:
+                dn, dmin, dmax = pts[0][1], pts[0][2], pts[0][3]
+            elif age >= pts[-1][0]:
+                dn, dmin, dmax = pts[-1][1], pts[-1][2], pts[-1][3]
+            else:
+                # Linear interpolation between control points
+                for j in range(len(pts) - 1):
+                    a0, n0, lo0, hi0 = pts[j]
+                    a1, n1, lo1, hi1 = pts[j + 1]
+                    if a0 <= age <= a1:
+                        t_ratio = (age - a0) / (a1 - a0)
+                        dn   = n0  + t_ratio * (n1  - n0)
+                        dmin = lo0 + t_ratio * (lo1 - lo0)
+                        dmax = hi0 + t_ratio * (hi1 - hi0)
+                        break
+                else:
+                    dn, dmin, dmax = 0.0, 0.0, 0.0
+            normal += dn
+            r_min  += dmin
+            r_max  += dmax
+
+        # ── Sex dimorphism adjustments ────────────────────────────────────────
+        # Applied on top of age adjustments. Values from Riolo et al. 1974.
+        is_male   = sex and sex.lower() in ("male",   "m")
+        is_female = sex and sex.lower() in ("female", "f")
+        effective_age = age or 18.0
+
+        SEX_DELTA: dict[str, dict[str, tuple[float, float, float]]] = {
+            # measurement: {male: (delta_norm, delta_min, delta_max),
+            #               female: (delta_norm, delta_min, delta_max)}
+            "SNA":     {"male": (+0.7, +0.5, +1.0), "female": (-0.7, -1.0, -0.5)},
+            "SNB":     {"male": (+0.8, +0.5, +1.0), "female": (-0.8, -1.0, -0.5)},
+            "ANB":     {"male": (-0.3, -0.5, -0.2), "female": (+0.3, +0.2, +0.5)},
+            "FMA":     {"male": (-1.0, -1.5, -0.5), "female": (+1.0, +0.5, +1.5)},
+            "AFH":     {"male": (+8.0, +6.0, +10.0), "female": (-8.0, -10.0, -6.0)},
+            "PFH":     {"male": (+7.0, +5.0, +9.0),  "female": (-7.0, -9.0, -5.0)},
+            "MANDLENGTH": {"male": (+8.0, +6.0, +10.0), "female": (-8.0, -10.0, -6.0)},
+            "MIDFACELEN":  {"male": (+4.0, +3.0, +5.0),  "female": (-4.0, -5.0, -3.0)},
+        }
+
+        if effective_age >= 14 and t in SEX_DELTA:
+            # Scale dimorphism linearly from 0 at age 12 to full value at 18+
+            scale = min(1.0, max(0.0, (effective_age - 12) / 6))
+            key = "male" if is_male else ("female" if is_female else None)
+            if key:
+                dn, dmin, dmax = SEX_DELTA[t][key]
+                normal += dn * scale
+                r_min  += dmin * scale
+                r_max  += dmax * scale
 
         return normal, r_min, r_max
 
@@ -209,6 +261,40 @@ class AnalysisNormsProvider:
             if mean is not None and rng is not None:
                 parts.append(f"{code}: norm {mean}, range [{rng[0]}-{rng[1]}]")
         return "; ".join(parts) if parts else "Normative data unavailable."
+
+    @classmethod
+    def get_version(cls) -> Optional[str]:
+        """Return the norms data version string for clinical audit trail."""
+        return cls._norms_data.get("version")
+
+    @classmethod
+    def get_population_offset(
+        cls,
+        measurement_code: str,
+        population: Optional[str],
+    ) -> tuple[float, float]:
+        """
+        Return (delta_min, delta_max) population-specific norm offsets.
+
+        Stub implementation — override with published population-specific
+        values from AJO-DO literature when available:
+          - Fonseca & Klein, AJO 1978 (African-American)
+          - Chang, EJO 1987 (Chinese)
+          - Interlandi & Sato, Am J Orthod 1991 (Brazilian)
+        """
+        if not population:
+            return 0.0, 0.0
+        t = measurement_code.strip().upper()
+        # Population offsets vs Caucasian adult norms (approximate, from literature)
+        POPULATION_OFFSETS: dict[str, dict[str, tuple[float, float]]] = {
+            "chinese":          {"SNA": (+1.5, +1.5), "SNB": (+1.5, +1.5), "ANB": (0, 0)},
+            "african_american": {"SNA": (+2.5, +2.5), "SNB": (+1.5, +1.5), "ANB": (+1.0, +1.0), "FMA": (+2.0, +2.0)},
+            "hispanic":         {"SNA": (+1.0, +1.0), "SNB": (+0.5, +0.5)},
+        }
+        pop_key = population.lower().replace("-", "_").replace(" ", "_")
+        offsets = POPULATION_OFFSETS.get(pop_key, {})
+        delta = offsets.get(t, (0.0, 0.0))
+        return delta
 
 
 # Global singleton — import this everywhere

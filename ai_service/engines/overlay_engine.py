@@ -1358,7 +1358,7 @@ def render_tracing_only(req: OverlayRequest,
     _draw_anatomical_outlines(draw, lms, sx, sy, req=req, color=C_BLACK)
     _draw_reference_planes(draw, lms, sx, sy)
     _draw_soft_tissue(draw, lms, sx, sy, alpha=255, color=(*SOFT_TISSUE_TRACE, 255))
-    _draw_landmark_dots(overlay, lms, sx, sy)
+    _draw_landmark_dots(img, lms, sx, sy)
     _draw_landmark_labels(draw, lms, sx, sy, font_size=18, dark_bg=False)
 
     # Measurement labels

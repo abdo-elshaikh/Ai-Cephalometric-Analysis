@@ -117,6 +117,51 @@ def compute_deviation(value: float, normal_min: float, normal_max: float) -> flo
     return round(value - midpoint, 4)
 
 
+def _quality_for_refs(
+    refs: list[str],
+    landmark_provenance: Optional[dict[str, str]] = None,
+) -> tuple[str, list[str], dict[str, str] | None]:
+    """
+    Classify whether a measurement is clinically usable from landmark provenance.
+    The value is still returned, but derived/fallback inputs are made explicit.
+    """
+    if not landmark_provenance:
+        return "clinically_usable", [], None
+
+    used = {ref: landmark_provenance.get(ref, "unknown") for ref in refs}
+    fallback_refs = [ref for ref, src in used.items() if src == "fallback"]
+    derived_refs = [ref for ref, src in used.items() if src == "derived"]
+    unknown_refs = [ref for ref, src in used.items() if src == "unknown"]
+
+    reasons: list[str] = []
+    if fallback_refs:
+        reasons.append(f"Fallback landmark(s): {', '.join(fallback_refs)}")
+    if derived_refs:
+        reasons.append(f"Derived landmark(s): {', '.join(derived_refs)}")
+    if unknown_refs:
+        reasons.append(f"Unknown landmark provenance: {', '.join(unknown_refs)}")
+
+    if fallback_refs:
+        return "manual_review_required", reasons, used
+    if derived_refs or unknown_refs:
+        return "provisional", reasons, used
+    return "clinically_usable", [], used
+
+
+def _lookup_norm_range(
+    item: dict,
+    age: Optional[float] = None,
+    sex: Optional[str] = None,
+) -> Optional[tuple[float, float]]:
+    candidates = [item["code"], item["name"]]
+    candidates.extend(item.get("norm_keys", []))
+    for candidate in candidates:
+        dynamic_range = norms_provider.get_norm_range(candidate, age, sex)
+        if dynamic_range:
+            return dynamic_range
+    return None
+
+
 # ── Measurement calculation factories ────────────────────────────────────────
 
 CalcFunc = Callable[[dict[str, tuple[float, float]], Optional[float]], Optional[float]]
@@ -316,10 +361,10 @@ MEASUREMENT_DEFS: list[dict] = [
 
     # ── Dental ───────────────────────────────────────────────────────────────
     # UI-NA: directed N→A line; positive = UI anterior to NA line.
-    {"category": "Dental",  "code": "UI-NA_MM",  "name": "UI to NA Distance",                 "type": "Distance", "unit": "Millimeters", "min": 3,   "max": 5,   "refs": ["U1", "N", "A"],                      "calc": _dist_to_line_signed("U1", "N", "A"),          "requires_calibration": True},
-    {"category": "Dental",  "code": "UI-NA_DEG", "name": "UI to NA Angle",                    "type": "Angle",    "unit": "Degrees",     "min": 20,  "max": 24,  "refs": ["U1", "U1_c", "N", "A"],              "calc": _line_angle("U1", "U1_c", "N", "A")},
-    {"category": "Dental",  "code": "LI-NB_MM",  "name": "LI to NB Distance",                 "type": "Distance", "unit": "Millimeters", "min": 3,   "max": 5,   "refs": ["L1", "N", "B"],                      "calc": _dist_to_line_signed("L1", "N", "B"),          "requires_calibration": True},
-    {"category": "Dental",  "code": "LI-NB_DEG", "name": "LI to NB Angle",                    "type": "Angle",    "unit": "Degrees",     "min": 23,  "max": 27,  "refs": ["L1", "L1_c", "N", "B"],              "calc": _line_angle("L1", "L1_c", "N", "B")},
+    {"category": "Dental",  "code": "UI-NA_MM",  "name": "UI to NA Distance",                 "type": "Distance", "unit": "Millimeters", "min": 3,   "max": 5,   "refs": ["U1", "N", "A"],                      "calc": _dist_to_line_signed("U1", "N", "A"),          "requires_calibration": True, "norm_keys": ["UI to NA (mm)"]},
+    {"category": "Dental",  "code": "UI-NA_DEG", "name": "UI to NA Angle",                    "type": "Angle",    "unit": "Degrees",     "min": 20,  "max": 24,  "refs": ["U1", "U1_c", "N", "A"],              "calc": _line_angle("U1", "U1_c", "N", "A"),           "norm_keys": ["UI to NA (deg)"]},
+    {"category": "Dental",  "code": "LI-NB_MM",  "name": "LI to NB Distance",                 "type": "Distance", "unit": "Millimeters", "min": 3,   "max": 5,   "refs": ["L1", "N", "B"],                      "calc": _dist_to_line_signed("L1", "N", "B"),          "requires_calibration": True, "norm_keys": ["LI to NB (mm)"]},
+    {"category": "Dental",  "code": "LI-NB_DEG", "name": "LI to NB Angle",                    "type": "Angle",    "unit": "Degrees",     "min": 23,  "max": 27,  "refs": ["L1", "L1_c", "N", "B"],              "calc": _line_angle("L1", "L1_c", "N", "B"),           "norm_keys": ["LI to NB (deg)"]},
     {"category": "Skeletal","code": "SN-MP",      "name": "SN to Mandibular Plane (Go-Me)",    "type": "Angle",    "unit": "Degrees",     "min": 26,  "max": 38,  "refs": ["S", "N", "Go", "Me"],                "calc": _line_angle("S", "N", "Go", "Me")},
     {"category": "Dental",  "code": "OVERJET",    "name": "Overjet",                           "type": "Distance", "unit": "Millimeters", "min": 1,   "max": 3,   "refs": ["U1", "L1"],                          "calc": _overjet(),                                    "requires_calibration": True},
     {"category": "Dental",  "code": "OVERBITE",   "name": "Overbite",                          "type": "Distance", "unit": "Millimeters", "min": 1,   "max": 3,   "refs": ["U1", "L1"],                          "calc": _overbite(),                                   "requires_calibration": True},
@@ -332,18 +377,36 @@ MEASUREMENT_DEFS: list[dict] = [
     {"category": "Advanced","code": "PP-MP",      "name": "Palatal Plane to Mandibular Plane", "type": "Angle",    "unit": "Degrees",     "min": 24,  "max": 28,  "refs": ["ANS", "PNS", "Go", "Me"],            "calc": _line_angle("ANS", "PNS", "Go", "Me")},
     {"category": "Advanced","code": "H-Angle",    "name": "Holdaway H-Angle",                  "type": "Angle",    "unit": "Degrees",     "min": 7,   "max": 13,  "refs": ["N", "B", "SoftPog", "Ls"],          "calc": _line_angle("N", "B", "SoftPog", "Ls")},
 
-    # ── Airway Analysis ───────────────────────────────────────────────────────
-    {"category": "Advanced","code": "UPPER_AIRWAY","name": "Upper Pharyngeal Airway",         "type": "Distance", "unit": "Millimeters", "min": 8,   "max": 18,  "refs": ["PNS", "36"],                         "calc": _dist_pts("PNS", "36"),       "requires_calibration": True},
-    
-    # ── Refined Skeletal ──────────────────────────────────────────────────────
     {"category": "McNamara","code": "A-NPerp",    "name": "Point A to N-Perpendicular",        "type": "Distance", "unit": "Millimeters", "min": -2,  "max": 2,   "refs": ["A", "N", "Po", "Or"],                "calc": _n_perp_dist("A"),            "requires_calibration": True},
     {"category": "McNamara","code": "Pog-NPerp",  "name": "Pog to N-Perpendicular",            "type": "Distance", "unit": "Millimeters", "min": -4,  "max": 0,   "refs": ["Pog", "N", "Po", "Or"],              "calc": _n_perp_dist("Pog"),          "requires_calibration": True},
+
+    # ── Harvold Vertical Proportions ──────────────────────────────────────────
+    # Reference: Harvold, Am J Orthod 1974. Norms: UFH ~45-55 mm, LFH ~60-70 mm,
+    # LFH/TFH ratio ~55% (increased → hyperdivergent; decreased → hypodivergent).
+    {"category": "Harvold", "code": "UFH",         "name": "Upper Facial Height (N-ANS)",       "type": "Distance", "unit": "Millimeters", "min": 45,  "max": 55,  "refs": ["N", "ANS"],                          "calc": _dist_pts("N", "ANS"),        "requires_calibration": True},
+    {"category": "Harvold", "code": "LFH",         "name": "Lower Facial Height (ANS-Me)",      "type": "Distance", "unit": "Millimeters", "min": 60,  "max": 70,  "refs": ["ANS", "Me"],                         "calc": _dist_pts("ANS", "Me"),       "requires_calibration": True},
+    {"category": "Harvold", "code": "TFH",         "name": "Total Facial Height (N-Me)",        "type": "Distance", "unit": "Millimeters", "min": 105, "max": 125, "refs": ["N", "Me"],                           "calc": _dist_pts("N", "Me"),         "requires_calibration": True},
+    {"category": "Harvold", "code": "LFH-TFH",     "name": "LFH/TFH Ratio (Harvold Index)",    "type": "Ratio",    "unit": "Percent",     "min": 53,  "max": 58,  "refs": ["N", "ANS", "Me"],                    "calc": _ratio("ANS", "Me", "N", "Me")},
+
+    # ── Bolton Analysis (Tooth Size Discrepancy) ──────────────────────────────
+    # Placeholders for future tooth-width landmarks (U3R-U3L, L3R-L3L, etc.)
+    {"category": "Bolton",  "code": "BoltonAnt",   "name": "Bolton Anterior Ratio",             "type": "Ratio",    "unit": "Percent",     "min": 75.5,"max": 78.9, "refs": ["U3R", "U3L", "L3R", "L3L"],          "calc": lambda lms, ps: None},
+    {"category": "Bolton",  "code": "BoltonTotal", "name": "Bolton Total Ratio",                "type": "Ratio",    "unit": "Percent",     "min": 89.4,"max": 93.2, "refs": ["U6R", "U6L", "L6R", "L6L"],          "calc": lambda lms, ps: None},
+
+    # ── Airway Analysis ───────────────────────────────────────────────────────
+    {"category": "Advanced","code": "UPPER_AIRWAY","name": "Upper Pharyngeal Airway",         "type": "Distance", "unit": "Millimeters", "min": 8,   "max": 18,  "refs": ["PNS", "36"],                         "calc": _dist_pts("PNS", "36"),       "requires_calibration": True},
 ]
 
 
 def compute_all_measurements(
     landmarks: Dict[str, tuple[float, float]],
     pixel_spacing: Optional[float] = None,
+    age: Optional[float] = None,
+    sex: Optional[str] = None,
+    population: Optional[str] = None,
+    dentition_stage: Optional[str] = None,
+    landmark_provenance: Optional[dict[str, str]] = None,
+    is_cbct_derived: Optional[bool] = False,
 ) -> List[Dict[str, Any]]:
     """
     Compute all applicable cephalometric measurements for the given landmark set.
@@ -367,14 +430,22 @@ def compute_all_measurements(
             nmin = item["min"]
             nmax = item["max"]
 
-            dynamic_range = norms_provider.get_norm_range(item["code"])
-            if not dynamic_range:
-                dynamic_range = norms_provider.get_norm_range(item["name"])
+            dynamic_range = _lookup_norm_range(item, age, sex)
             if dynamic_range:
                 nmin, nmax = dynamic_range
+                
+            # Apply CBCT 2D equivalent upscaling (de Oliveira et al., 2020)
+            if is_cbct_derived and item.get("type") == "Distance":
+                cbct_scale = 1.08
+                nmin = round(nmin * cbct_scale, 2)
+                nmax = round(nmax * cbct_scale, 2)
 
             status = classify_status(value, nmin, nmax)
             dev = compute_deviation(value, nmin, nmax)
+            quality_status, review_reasons, used_provenance = _quality_for_refs(
+                item["refs"],
+                landmark_provenance,
+            )
 
             results.append({
                 "code":             item["code"],
@@ -388,6 +459,9 @@ def compute_all_measurements(
                 "status":           status,
                 "deviation":        dev,
                 "landmark_refs":    item["refs"],
+                "quality_status":   quality_status,
+                "review_reasons":   review_reasons,
+                "landmark_provenance": used_provenance,
             })
         except Exception as e:
             logger.warning(

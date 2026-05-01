@@ -1,4 +1,5 @@
 using CephAnalysis.Application.Features.Images.DTOs;
+using CephAnalysis.Application.Features.Analysis.Commands;
 using CephAnalysis.Application.Interfaces;
 using CephAnalysis.Domain.Entities;
 using CephAnalysis.Domain.Enums;
@@ -62,8 +63,14 @@ public class GenerateReportHandler : IRequestHandler<GenerateReportCommand, Resu
         // Data Integrity: Auto-calculate if measurements or diagnosis are missing
         if (!session.Measurements.Any() && session.Landmarks.Any())
         {
-            var landmarkDict = session.Landmarks.ToDictionary(l => l.LandmarkCode, l => new Point2D((double)l.XMm, (double)l.YMm));
-            var measResult = await _ai.CalculateMeasurementsAsync(session.Id, landmarkDict, session.XRayImage.PixelSpacingMm ?? 1.0m, ct);
+            var landmarkDict = session.Landmarks.ToDictionary(l => l.LandmarkCode, l => new Point2D((double)l.XPx, (double)l.YPx));
+            var landmarkProvenance = session.Landmarks.ToDictionary(l => l.LandmarkCode, LandmarkProvenance.FromStored);
+            var measResult = await _ai.CalculateMeasurementsAsync(
+                session.Id,
+                landmarkDict,
+                session.XRayImage.PixelSpacingMm ?? 1.0m,
+                ct,
+                landmarkProvenance);
             if (measResult.IsSuccess)
             {
                 session.Measurements = measResult.Data!.Select(m => new Measurement

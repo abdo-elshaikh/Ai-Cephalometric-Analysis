@@ -1,4 +1,6 @@
 {
+  "version": "1.0.0",
+  "released": "2026-05-01",
   "description": "Cephalometric analysis norms for various analysis types. Values are typical adult norms (Caucasian) unless noted. Ranges are approximate (mean ± 1 SD). Use with clinical judgment.",
   "analyses": {
     "Steiner": {
@@ -112,6 +114,30 @@
             6
           ]
         }
+      ]
+    },
+    "ClassificationParams": {
+      "description": "Gaussian parameters for skeletal classification probabilities.",
+      "measurements": [
+        { "code": "ANB_ClassI",   "name": "Class I (ANB)",   "normal": 2.0,  "range": [-1.0, 5.0] },
+        { "code": "ANB_ClassII",  "name": "Class II (ANB)",  "normal": 6.5,  "range": [4.0, 10.0] },
+        { "code": "ANB_ClassIII", "name": "Class III (ANB)", "normal": -3.0, "range": [-8.0, 0.0] }
+      ]
+    },
+    "TreatmentEvidence": {
+      "description": "Evidence-based medicine levels and rationales.",
+      "levels": {
+        "RCT": "Level 1: Randomized Controlled Trial. High scientific certainty.",
+        "Cohort": "Level 2: Prospective/Retrospective Cohort Study. Moderate certainty.",
+        "CaseSeries": "Level 3: Case Series / Expert Opinion. Clinical consensus.",
+        "Expert": "Level 4: Expert consultant consensus."
+      }
+    },
+    "BoltonAnalysis": {
+      "description": "Tooth size discrepancy norms (Bolton, 1962).",
+      "measurements": [
+        { "code": "BoltonAnterior", "name": "Anterior Ratio (3-3)", "normal": 77.2, "range": [75.5, 78.9] },
+        { "code": "BoltonTotal",    "name": "Total Ratio (6-6)",    "normal": 91.3, "range": [89.4, 93.2] }
       ]
     },
     "McNamara": {
@@ -1090,8 +1116,8 @@
           "normal": 1.25,
           "unit": "ratio",
           "range": [
-            1.20,
-            1.30
+            1.2,
+            1.3
           ]
         },
         {

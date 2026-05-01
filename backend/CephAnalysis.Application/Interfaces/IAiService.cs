@@ -1,13 +1,20 @@
 using CephAnalysis.Application.Features.Images.DTOs;
 using CephAnalysis.Domain.Entities;
 using CephAnalysis.Shared.Common;
+using System.Text.Json.Serialization;
 
 namespace CephAnalysis.Application.Interfaces;
 
 public interface IAiService
 {
     Task<Result<IEnumerable<LandmarkDto>>> DetectLandmarksAsync(Guid imageId, Stream imageStream, decimal pixelSpacingMm, CancellationToken ct);
-    Task<Result<IEnumerable<MeasurementDto>>> CalculateMeasurementsAsync(Guid sessionId, Dictionary<string, Point2D> landmarks, decimal pixelSpacingMm, CancellationToken ct);
+    Task<Result<IEnumerable<MeasurementDto>>> CalculateMeasurementsAsync(
+        Guid sessionId,
+        Dictionary<string, Point2D> landmarks,
+        decimal pixelSpacingMm,
+        CancellationToken ct,
+        Dictionary<string, string>? landmarkProvenance = null,
+        bool isCbctDerived = false);
     Task<Result<DiagnosisDto>> ClassifyDiagnosisAsync(Guid sessionId, Dictionary<string, double> measurements, CancellationToken ct);
     Task<Result<IEnumerable<TreatmentDto>>> SuggestTreatmentAsync(Guid sessionId, string skeletalClass, string verticalPattern, Dictionary<string, double> measurements, double patientAge, CancellationToken ct, string? imageBase64 = null);
 
@@ -43,7 +50,10 @@ public interface IAiService
 public record LandmarkDto(
     string Name,
     Point2D Point,
-    double Confidence
+    double Confidence,
+    string? Provenance = null,
+    List<string>? DerivedFrom = null,
+    double? ExpectedErrorMm = null
 );
 
 public record MeasurementDto(
@@ -57,12 +67,19 @@ public record MeasurementDto(
     double NormalMax,
     string Status,
     double? Deviation,
-    List<string> LandmarkRefs
+    List<string> LandmarkRefs,
+    [property: JsonPropertyName("quality_status")] string? QualityStatus = null,
+    [property: JsonPropertyName("review_reasons")] List<string>? ReviewReasons = null,
+    [property: JsonPropertyName("landmark_provenance")] Dictionary<string, string>? LandmarkProvenance = null
 );
 
 public record DiagnosisDto(
     string SkeletalClass,
     string VerticalPattern,
+    string SkeletalType,
+    double CorrectedAnb,
+    string? ApdiClassification,
+    string? OdiClassification,
     string MaxillaryPosition,
     string MandibularPosition,
     string UpperIncisorInclination,
@@ -75,6 +92,7 @@ public record DiagnosisDto(
     double ConfidenceScore,
     string Summary,
     List<string> Warnings,
+    List<string> ClinicalNotes,
     double? AnbUsed = null,
     bool? AnbRotationCorrected = null,
     string? OdiNote = null,
@@ -94,6 +112,8 @@ public record TreatmentDto(
     string Source,
     bool IsPrimary,
     string? EvidenceReference = null,
+    string? EvidenceLevel = null,
+    string? RetentionRecommendation = null,
     Dictionary<string, double>? PredictedOutcomes = null
 );
 

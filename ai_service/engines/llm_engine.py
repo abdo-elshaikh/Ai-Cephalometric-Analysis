@@ -3,13 +3,14 @@ LLM Engine — Multi-provider AI text generation for clinical diagnosis summarie
 treatment rationales, and generative treatment plans.
 
 Provider chain (for all functions):
-  1. OpenAI  (primary  — async, fast)
+  1. OpenAI  (primary  — async, fast, with tenacity retry for transient errors)
   2. Gemini  (fallback — sync wrapped in asyncio executor)
 
 Design principles:
   - Gemini client is initialised once as a lazy singleton.
   - Prompts include measurement deviations from JSON norms for evidence-based AI.
-  - All JSON extraction is fault-tolerant (handles markdown fences, bare arrays).
+  - All JSON extraction uses raw_decode for correct nested-object parsing.
+  - Tenacity exponential-backoff retry prevents premature Gemini fallback on 429s.
   - Exceptions are always logged with context; callers receive None on failure.
 """
 
@@ -18,8 +19,12 @@ import logging
 import json
 import re
 from typing import Any, Optional
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, RateLimitError, APIConnectionError, APITimeoutError
 from google import genai
+from tenacity import (
+    retry, stop_after_attempt, wait_exponential,
+    retry_if_exception_type, before_sleep_log,
+)
 from config.settings import settings
 from utils.norms_util import norms_provider
 
@@ -85,21 +90,30 @@ def _extract_json(raw: str) -> Any:
     """
     Robustly extract a JSON value from an LLM response that may contain
     markdown fences, preamble text, or bare arrays.
+
+    Uses json.JSONDecoder.raw_decode() for correct handling of nested
+    objects and arrays (greedy regex fails on deeply-nested structures).
     """
     # Strip markdown code fences
     cleaned = re.sub(r"```(?:json)?\s*", "", raw).replace("```", "").strip()
-    # Direct parse
+
+    # Attempt direct parse first (fastest path)
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError:
         pass
-    # Locate the first JSON object or array in the string
-    match = re.search(r"(\{.*\}|\[.*\])", cleaned, re.DOTALL)
-    if match:
-        try:
-            return json.loads(match.group(1))
-        except json.JSONDecodeError:
-            pass
+
+    # Find the first '{' or '[' and use raw_decode for correct balanced parsing
+    decoder = json.JSONDecoder()
+    for start_char in ('{', '['):
+        idx = cleaned.find(start_char)
+        if idx != -1:
+            try:
+                obj, _ = decoder.raw_decode(cleaned, idx)
+                return obj
+            except json.JSONDecodeError:
+                continue
+
     raise ValueError(f"Could not extract JSON from LLM response: {raw[:200]}")
 
 
@@ -173,9 +187,16 @@ async def generate_treatment_rationale(
         f"Write the 2-sentence clinical rationale:"
     )
 
-    # ── Provider 1: OpenAI ────────────────────────────────────────────────────
+    # ── Provider 1: OpenAI (with tenacity retry for transient errors) ─────────
     if openai_client:
-        try:
+        @retry(
+            retry=retry_if_exception_type((RateLimitError, APIConnectionError, APITimeoutError)),
+            wait=wait_exponential(multiplier=1, min=1, max=8),
+            stop=stop_after_attempt(3),
+            before_sleep=before_sleep_log(logger, logging.WARNING),
+            reraise=False,
+        )
+        async def _openai_rationale() -> str:
             resp = await openai_client.chat.completions.create(
                 model=settings.openai_model,
                 messages=[
@@ -186,7 +207,10 @@ async def generate_treatment_rationale(
                 max_tokens=180,
                 timeout=10,
             )
-            text = resp.choices[0].message.content.strip()
+            return resp.choices[0].message.content.strip()
+
+        try:
+            text = await _openai_rationale()
             logger.debug(f"OpenAI rationale OK for '{treatment_name}'")
             return text
         except Exception as e:
@@ -532,5 +556,87 @@ async def generate_xai_explanation(
         return data
     except Exception as e:
         logger.error(f"Gemini XAI explanation failed: {e}")
+
+    return None
+
+
+# ── Unified Diagnostic Package ────────────────────────────────────────────────
+
+_DIAGNOSTIC_PACKAGE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "clinical_summary": {"type": "string", "description": "100-150 word diagnostic summary."},
+        "rationales": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "treatment_name": {"type": "string"},
+                    "rationale": {"type": "string", "description": "2-sentence mechanical rationale."}
+                }
+            }
+        }
+    },
+    "required": ["clinical_summary", "rationales"]
+}
+
+async def generate_diagnostic_package(
+    skeletal_class: str,
+    vertical_pattern: str,
+    measurements: dict[str, float],
+    treatments: list[dict],
+    soft_tissue_profile: str = "Unknown",
+) -> dict | None:
+    """
+    Generate the complete diagnostic documentation (summary + all rationales) 
+    in a single parallelised LLM call. This reduces total system latency by 
+    avoiding multiple serial round-trips.
+    """
+    if not _llm_available():
+        return None
+
+    system_prompt = (
+        "You are a senior consultant orthodontist writing a comprehensive case review. "
+        "Based on the measurements provided, generate a 100-150 word diagnostic summary "
+        "AND a specific 2-sentence rationale for EACH proposed treatment plan. "
+        "Return the result as a structured JSON object."
+    )
+
+    deviation_table = _build_deviation_table(measurements)
+    treatment_list = ", ".join([t["treatment_name"] for t in treatments])
+
+    user_prompt = (
+        f"PATIENT DATA:\n"
+        f"  Class: {skeletal_class}, Vertical: {vertical_pattern}, Soft Tissue: {soft_tissue_profile}\n\n"
+        f"MEASUREMENTS:\n{deviation_table}\n\n"
+        f"PROPOSED TREATMENTS: {treatment_list}\n\n"
+        f"Output JSON matching schema: {_DIAGNOSTIC_PACKAGE_SCHEMA}"
+    )
+
+    # ── Provider 1: OpenAI ─────────
+    if openai_client:
+        try:
+            resp = await openai_client.chat.completions.create(
+                model=settings.openai_model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user",   "content": user_prompt},
+                ],
+                response_format={"type": "json_object"},
+                temperature=0.3,
+                max_tokens=1000,
+                timeout=20,
+            )
+            raw = resp.choices[0].message.content.strip()
+            return _extract_json(raw)
+        except Exception as e:
+            logger.warning(f"OpenAI diagnostic package failed: {e}")
+
+    # ── Provider 2: Gemini ─────────
+    try:
+        raw = await _gemini_generate(f"{system_prompt}\n\n{user_prompt}", timeout=25)
+        return _extract_json(raw)
+    except Exception as e:
+        logger.error(f"Gemini diagnostic package failed: {e}")
 
     return None

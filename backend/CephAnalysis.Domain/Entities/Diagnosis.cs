@@ -26,6 +26,11 @@ public class Diagnosis
     public bool AnbRotationCorrected { get; set; }
     public string? OdiNote { get; set; }
     public string? GrowthTendency { get; set; }
+    public string? SkeletalType { get; set; }
+    public decimal? CorrectedAnb { get; set; }
+    public string? ApdiClassification { get; set; }
+    public string? OdiClassification { get; set; }
+    public IEnumerable<string> ClinicalNotes { get; set; } = [];
     public BoltonResult? BoltonResult { get; set; }
     public string? SummaryText { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

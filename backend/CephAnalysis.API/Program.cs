@@ -172,6 +172,15 @@ app.UseAuthorization();
 app.UseMiddleware<AuditLoggingMiddleware>();
 app.MapControllers();
 
+// ── Health probe (lightweight, no auth required) ──────────────────────────────
+app.MapGet("/health", () => Results.Ok(new
+{
+    status  = "healthy",
+    service = "CephAnalysis API",
+    version = "1.0.0",
+    utc     = DateTime.UtcNow,
+})).AllowAnonymous();
+
 app.Run();
 
 // ── expose for integration tests ──────────────────────────────────────────────

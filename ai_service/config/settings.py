@@ -1,6 +1,7 @@
 from pydantic import Field, AliasChoices
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pathlib import Path
+from typing import List
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -11,6 +12,13 @@ class Settings(BaseSettings):
 
     # Service auth
     service_key: str = Field("dev-service-key", validation_alias=AliasChoices("AI_SERVICE_KEY", "SERVICE_KEY"))
+
+    # CORS — set AI_ALLOWED_ORIGINS=http://localhost:3000,https://app.example.com in .env
+    # Wildcard "*" is retained as default only for local development.
+    allowed_origins: List[str] = Field(
+        default=["*"],
+        validation_alias=AliasChoices("AI_ALLOWED_ORIGINS"),
+    )
 
     # AI model
     model_path: str = Field("models/model.pth", validation_alias=AliasChoices("AI_MODEL_PATH", "MODEL_PATH"))
@@ -46,10 +54,12 @@ class Settings(BaseSettings):
     overbite_max: float = 3.0
 
     # OpenAI (for LLM treatment justification)
+    # Use validation_alias to support both AI-specific and generic env variable names for flexibility
     openai_api_key: str = Field("", validation_alias=AliasChoices("AI_OPENAI_API_KEY", "OPENAI_API_KEY"))
     openai_model: str = "gpt-4o-mini"
 
     # Google Gemini (Fallback provider)
+    # Use validation_alias to support both AI-specific and generic env variable names for flexibility
     gemini_api_key: str = Field("", validation_alias=AliasChoices("AI_GEMINI_API_KEY", "GEMINI_API_KEY"))
     gemini_model: str = "gemini-flash-latest" # Use verified available model alias
 
