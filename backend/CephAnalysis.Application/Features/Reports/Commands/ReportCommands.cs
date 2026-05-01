@@ -63,8 +63,12 @@ public class GenerateReportHandler : IRequestHandler<GenerateReportCommand, Resu
         // Data Integrity: Auto-calculate if measurements or diagnosis are missing
         if (!session.Measurements.Any() && session.Landmarks.Any())
         {
-            var landmarkDict = session.Landmarks.ToDictionary(l => l.LandmarkCode, l => new Point2D((double)l.XPx, (double)l.YPx));
-            var landmarkProvenance = session.Landmarks.ToDictionary(l => l.LandmarkCode, LandmarkProvenance.FromStored);
+            var landmarkDict = session.Landmarks
+                .GroupBy(l => l.LandmarkCode)
+                .ToDictionary(g => g.Key, g => new Point2D((double)g.First().XPx, (double)g.First().YPx));
+            var landmarkProvenance = session.Landmarks
+                .GroupBy(l => l.LandmarkCode)
+                .ToDictionary(g => g.Key, g => LandmarkProvenance.FromStored(g.First()));
             var measResult = await _ai.CalculateMeasurementsAsync(
                 session.Id,
                 landmarkDict,
@@ -90,7 +94,12 @@ public class GenerateReportHandler : IRequestHandler<GenerateReportCommand, Resu
 
         if (session.Diagnosis == null && session.Measurements.Any())
         {
-            var diagResult = await _ai.ClassifyDiagnosisAsync(session.Id, session.Measurements.ToDictionary(m => m.MeasurementCode, m => (double)m.Value), ct);
+            var diagResult = await _ai.ClassifyDiagnosisAsync(
+                session.Id, 
+                session.Measurements
+                    .GroupBy(m => m.MeasurementCode)
+                    .ToDictionary(g => g.Key, g => (double)g.First().Value), 
+                ct);
             if (diagResult.IsSuccess)
             {
                 var d = diagResult.Data!;

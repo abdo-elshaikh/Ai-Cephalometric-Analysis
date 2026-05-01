@@ -654,7 +654,7 @@ MEASUREMENT_DEFS: list[dict] = [
     # ══════════════════════════════════════════════════════════════════════════
     # RICKETTS SKELETAL / STRUCTURAL
     # ══════════════════════════════════════════════════════════════════════════
-    {"category": "Ricketts","code": "Convexity",  "name": "Facial Convexity — A to N-Pog (mm)",
+    {"category": "Ricketts","code": "Ricketts-Convexity",  "name": "Facial Convexity — A to N-Pog (mm)",
      "type": "Distance", "unit": "Millimeters", "min": 0,   "max": 4,
      "refs": ["A", "N", "Pog"],                 "calc": _a_to_n_pog_mm(),
      "requires_calibration": True},

@@ -520,15 +520,15 @@ public class CalculateMeasurementsHandler : IRequestHandler<CalculateMeasurement
         if (!session.Landmarks.Any())
             return Result<IEnumerable<SessionMeasurementDto>>.Failure("No landmarks detected. Run detection first.");
 
-        var landmarkDict = session.Landmarks.ToDictionary(
-            l => l.LandmarkCode,
-            l => new Point2D((double)l.XPx, (double)l.YPx));
+        var landmarkDict = session.Landmarks
+            .GroupBy(l => l.LandmarkCode)
+            .ToDictionary(g => g.Key, g => new Point2D((double)g.First().XPx, (double)g.First().YPx));
         var landmarkLookup = session.Landmarks
             .GroupBy(l => l.LandmarkCode, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
-        var landmarkProvenance = session.Landmarks.ToDictionary(
-            l => l.LandmarkCode,
-            LandmarkProvenance.FromStored);
+        var landmarkProvenance = session.Landmarks
+            .GroupBy(l => l.LandmarkCode)
+            .ToDictionary(g => g.Key, g => LandmarkProvenance.FromStored(g.First()));
 
         var pixelSpacing = session.XRayImage.PixelSpacingMm ?? 1.0m;
 
@@ -666,7 +666,9 @@ public class ClassifyDiagnosisHandler : IRequestHandler<ClassifyDiagnosisCommand
 
         var diagResult = await _aiService.ClassifyDiagnosisAsync(
             cmd.SessionId,
-            session.Measurements.ToDictionary(m => m.MeasurementCode, m => (double)m.Value),
+            session.Measurements
+                .GroupBy(m => m.MeasurementCode)
+                .ToDictionary(g => g.Key, g => (double)g.First().Value),
             ct);
         if (!diagResult.IsSuccess)
             return Result<SessionDiagnosisDto>.Failure(diagResult.Error ?? "Diagnosis error", diagResult.StatusCode);
@@ -814,7 +816,9 @@ public class SuggestTreatmentHandler : IRequestHandler<SuggestTreatmentCommand, 
             cmd.SessionId,
             session.Diagnosis.SkeletalClass.ToString(),
             session.Diagnosis.VerticalPattern.ToString(),
-            session.Measurements.ToDictionary(m => m.MeasurementCode, m => (double)m.Value),
+            session.Measurements
+                .GroupBy(m => m.MeasurementCode)
+                .ToDictionary(g => g.Key, g => (double)g.First().Value),
             patientAge,
             ct,
             base64Image);
