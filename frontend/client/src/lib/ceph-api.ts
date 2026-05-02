@@ -422,6 +422,22 @@ export const cephApi = {
     return result;
   },
 
+  async loginWithGoogle(googleUser: { uid: string; email: string | null; displayName: string | null; photoURL: string | null }): Promise<ApiResult<{ user: BackendAuthUser }>> {
+    const user: BackendAuthUser = {
+      id: googleUser.uid,
+      userId: googleUser.uid,
+      email: googleUser.email ?? "",
+      fullName: googleUser.displayName ?? undefined,
+      name: googleUser.displayName ?? undefined,
+      profileImageUrl: googleUser.photoURL ?? undefined,
+      role: "Clinician",
+      specialty: null,
+    };
+    localStorage.setItem("cephai_user", JSON.stringify(user));
+    localStorage.setItem("cephai_google_auth", "1");
+    return { ok: true, data: { user } };
+  },
+
   async me() {
     const result = await apiRequest<BackendAuthUser>("/auth/me");
     if (result.ok) {
