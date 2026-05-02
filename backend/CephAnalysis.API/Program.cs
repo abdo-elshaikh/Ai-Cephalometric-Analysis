@@ -3,10 +3,13 @@ using CephAnalysis.Application.Features.Auth.Commands;
 using CephAnalysis.Infrastructure;
 using CephAnalysis.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Serilog;
+using System.Diagnostics;
+using System.IO.Compression;
 using System.Text;
 using System.Threading.RateLimiting;
 using FluentValidation;
@@ -20,15 +23,50 @@ QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
 Log.Logger = new LoggerConfiguration()
     .ReadFrom.Configuration(builder.Configuration)
     .Enrich.FromLogContext()
-    .WriteTo.Console()
-    .WriteTo.File("logs/ceph-.log", rollingInterval: RollingInterval.Day)
+    .Enrich.WithProperty("Service", "CephAnalysis.API")
+    .WriteTo.Console(outputTemplate:
+        "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj} {Properties:j}{NewLine}{Exception}")
+    .WriteTo.File("logs/ceph-.log", rollingInterval: RollingInterval.Day,
+        retainedFileCountLimit: 14)
     .CreateLogger();
 builder.Host.UseSerilog();
+
+// ─── Response Compression (Brotli + Gzip) ────────────────────────────────────
+// Reduces JSON payload size by 60-80 % on API responses — highest-impact perf win.
+builder.Services.AddResponseCompression(opts =>
+{
+    opts.EnableForHttps = true;
+    opts.Providers.Add<BrotliCompressionProvider>();
+    opts.Providers.Add<GzipCompressionProvider>();
+    opts.MimeTypes = ResponseCompressionDefaults.MimeTypes.Concat([
+        "application/json",
+        "application/problem+json",
+        "application/json+problem",
+    ]);
+});
+builder.Services.Configure<BrotliCompressionProviderOptions>(opts =>
+    opts.Level = CompressionLevel.Fastest);          // ~80 % of max savings, ~3× faster
+builder.Services.Configure<GzipCompressionProviderOptions>(opts =>
+    opts.Level = CompressionLevel.Optimal);          // Fallback for clients w/o Brotli
+
+// ─── Output Caching ──────────────────────────────────────────────────────────
+// Dashboard stats are read-heavy and safe to serve stale for 30 s per user.
+builder.Services.AddOutputCache(opts =>
+{
+    opts.AddPolicy("stats-30s", p => p
+        .Expire(TimeSpan.FromSeconds(30))
+        .SetVaryByRouteValue("userId")
+        .Tag("dashboard-stats"));
+
+    opts.AddPolicy("norms-10m", p => p
+        .Expire(TimeSpan.FromMinutes(10))
+        .Tag("ai-norms"));
+});
 
 // ─── Infrastructure (DB, Redis, Storage, Token) ──────────────────────────────
 builder.Services.AddInfrastructure(builder.Configuration);
 
-// ─── MediatR (scans Application assembly) ───────────────────────────────────
+// ─── MediatR ─────────────────────────────────────────────────────────────────
 builder.Services.AddMediatR(cfg =>
     cfg.RegisterServicesFromAssembly(typeof(RegisterCommand).Assembly));
 
@@ -36,10 +74,10 @@ builder.Services.AddMediatR(cfg =>
 builder.Services.AddValidatorsFromAssembly(typeof(RegisterCommand).Assembly);
 
 // ─── JWT Authentication ───────────────────────────────────────────────────────
-var jwtKey     = builder.Configuration["Jwt:SecretKey"]
+var jwtKey      = builder.Configuration["Jwt:SecretKey"]
     ?? throw new InvalidOperationException("Jwt:SecretKey is required");
-var jwtIssuer  = builder.Configuration["Jwt:Issuer"] ?? "CephAnalysis";
-var jwtAudience= builder.Configuration["Jwt:Audience"] ?? "CephAnalysis.Client";
+var jwtIssuer   = builder.Configuration["Jwt:Issuer"]   ?? "CephAnalysis";
+var jwtAudience = builder.Configuration["Jwt:Audience"] ?? "CephAnalysis.Client";
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(opt =>
@@ -55,6 +93,14 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateLifetime        = true,
             ClockSkew               = TimeSpan.FromSeconds(30),
         };
+        opt.Events = new JwtBearerEvents
+        {
+            OnAuthenticationFailed = ctx =>
+            {
+                Log.Warning("JWT auth failed: {Message}", ctx.Exception.Message);
+                return Task.CompletedTask;
+            },
+        };
     });
 
 builder.Services.AddAuthorization(opt =>
@@ -64,11 +110,20 @@ builder.Services.AddAuthorization(opt =>
     opt.AddPolicy("Viewer",     p => p.RequireRole("Admin", "Doctor", "Viewer"));
 });
 
-// ─── Rate Limiting ───────────────────────────────────────────────────────────
-var rateLimit = int.Parse(builder.Configuration["RateLimiting:RequestsPerMinute"] ?? "100");
+// ─── Rate Limiting ────────────────────────────────────────────────────────────
+var rateLimit = int.Parse(builder.Configuration["RateLimiting:RequestsPerMinute"] ?? "120");
 builder.Services.AddRateLimiter(opt =>
 {
     opt.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    opt.OnRejected = async (ctx, _) =>
+    {
+        ctx.HttpContext.Response.Headers["Retry-After"] = "60";
+        await ctx.HttpContext.Response.WriteAsJsonAsync(new
+        {
+            error   = "Rate limit exceeded. Please wait before retrying.",
+            retryIn = "60s",
+        });
+    };
     opt.AddPolicy("PerUser", context =>
     {
         var userId = context.User?.FindFirst("sub")?.Value
@@ -76,27 +131,49 @@ builder.Services.AddRateLimiter(opt =>
                      ?? "anonymous";
         return RateLimitPartition.GetFixedWindowLimiter(userId, _ => new FixedWindowRateLimiterOptions
         {
-            PermitLimit = rateLimit,
-            Window = TimeSpan.FromMinutes(1),
+            PermitLimit          = rateLimit,
+            Window               = TimeSpan.FromMinutes(1),
             QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
-            QueueLimit = 5
+            QueueLimit           = 8,
+        });
+    });
+    // Looser limiter for read-only endpoints
+    opt.AddPolicy("ReadOnly", context =>
+    {
+        var userId = context.User?.FindFirst("sub")?.Value
+                     ?? context.Connection.RemoteIpAddress?.ToString()
+                     ?? "anonymous";
+        return RateLimitPartition.GetFixedWindowLimiter($"ro:{userId}", _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit          = rateLimit * 3,
+            Window               = TimeSpan.FromMinutes(1),
+            QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+            QueueLimit           = 20,
         });
     });
 });
 
-// ─── CORS ────────────────────────────────────────────────────────────────────
+// ─── CORS ─────────────────────────────────────────────────────────────────────
+var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+    ?? ["http://localhost:5173", "http://localhost:5000", "http://localhost:3000"];
+
 builder.Services.AddCors(opt => opt.AddDefaultPolicy(policy =>
-    policy.WithOrigins("http://localhost:5173", "http://localhost:5000", "http://localhost:3000")
+    policy.WithOrigins(allowedOrigins)
           .AllowAnyHeader()
           .AllowAnyMethod()
-          .AllowCredentials()));
+          .AllowCredentials()
+          .WithExposedHeaders("X-Request-ID", "X-RateLimit-Remaining")));
 
-// ─── Swagger ─────────────────────────────────────────────────────────────────
+// ─── Swagger ──────────────────────────────────────────────────────────────────
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
-    c.SwaggerDoc("v1", new() { Title = "CephAnalysis API", Version = "v1",
-        Description = "AI-Based Cephalometric Analysis & Treatment Planning System" });
+    c.SwaggerDoc("v1", new()
+    {
+        Title       = "CephAnalysis API",
+        Version     = "v2",
+        Description = "AI-Based Cephalometric Analysis & Treatment Planning System — CephAI v2.2",
+    });
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
         Name        = "Authorization",
@@ -104,7 +181,7 @@ builder.Services.AddSwaggerGen(c =>
         Scheme      = "bearer",
         BearerFormat= "JWT",
         In          = ParameterLocation.Header,
-        Description = "Enter JWT token"
+        Description = "Enter: Bearer {token}",
     });
     c.AddSecurityRequirement(new OpenApiSecurityRequirement
     {
@@ -118,11 +195,16 @@ builder.Services.AddSwaggerGen(c =>
     });
 });
 
-builder.Services.AddControllers();
+builder.Services.AddControllers(opts =>
+{
+    // Return 406 for unsupported Accept headers instead of falling back silently
+    opts.RespectBrowserAcceptHeader = true;
+    opts.ReturnHttpNotAcceptable    = true;
+});
 
 var app = builder.Build();
 
-// ─── Dev: Auto-migrate ────────────────────────────────────────────────────────
+// ─── Dev: Auto-migrate & Seed ─────────────────────────────────────────────────
 if (app.Environment.IsDevelopment())
 {
     try
@@ -131,40 +213,56 @@ if (app.Environment.IsDevelopment())
         var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
         db.Database.Migrate();
         Log.Information("Database migration applied successfully");
-
-        // Seed initial data
         await DataSeeder.SeedAsync(db);
         Log.Information("Database seeding completed");
     }
     catch (Exception ex)
     {
-        Log.Warning("Database migration/seed skipped (DB may not be running): {Message}", ex.Message);
+        Log.Warning("Database migration/seed skipped: {Message}", ex.Message);
     }
 }
 
-// ─── Middleware pipeline ──────────────────────────────────────────────────────
+// ─── Middleware pipeline (order matters) ──────────────────────────────────────
+app.UseResponseCompression();                             // Must be first — wraps response stream
 app.UseMiddleware<GlobalExceptionMiddleware>();
 app.UseSwagger();
 app.UseSwaggerUI(c =>
 {
-    c.SwaggerEndpoint("/swagger/v1/swagger.json", "CephAnalysis API v1");
+    c.SwaggerEndpoint("/swagger/v1/swagger.json", "CephAnalysis API v2");
     c.RoutePrefix = "swagger";
+    c.DisplayRequestDuration();
+    c.EnableDeepLinking();
 });
 
-app.UseSerilogRequestLogging();
-app.UseMiddleware<SecurityHeadersMiddleware>(); // HIPAA: security headers on all responses
+app.UseSerilogRequestLogging(opts =>
+{
+    opts.EnrichDiagnosticContext = (diag, ctx) =>
+    {
+        diag.Set("RequestHost",   ctx.Request.Host.Value);
+        diag.Set("RequestScheme", ctx.Request.Scheme);
+        if (ctx.Items.TryGetValue("RequestId", out var rid))
+            diag.Set("RequestId", rid);
+    };
+});
+
+app.UseMiddleware<SecurityHeadersMiddleware>();
 app.UseCors();
 
-// Serve uploaded files (local dev storage)
+// Static file serving for uploads (dev only)
 var uploadsRoot = Path.Combine(app.Environment.ContentRootPath, "uploads");
 Directory.CreateDirectory(uploadsRoot);
-Log.Information("Serving static files from resolved path: {UploadsRoot}", uploadsRoot);
 app.UseStaticFiles(new StaticFileOptions
 {
-    FileProvider = new PhysicalFileProvider(uploadsRoot),
-    RequestPath = "/uploads"
+    FileProvider  = new PhysicalFileProvider(uploadsRoot),
+    RequestPath   = "/uploads",
+    OnPrepareResponse = ctx =>
+    {
+        // Cache uploaded images for 1 hour (immutable binary data)
+        ctx.Context.Response.Headers["Cache-Control"] = "public, max-age=3600, immutable";
+    },
 });
 
+app.UseOutputCache();
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseMiddleware<CurrentUserMiddleware>();
@@ -172,16 +270,21 @@ app.UseAuthorization();
 app.UseMiddleware<AuditLoggingMiddleware>();
 app.MapControllers();
 
-// ── Health probe (lightweight, no auth required) ──────────────────────────────
-app.MapGet("/health", () => Results.Ok(new
+// ── Health probe ──────────────────────────────────────────────────────────────
+var startupTime = Stopwatch.GetTimestamp();
+app.MapGet("/health", () =>
 {
-    status  = "healthy",
-    service = "CephAnalysis API",
-    version = "1.0.0",
-    utc     = DateTime.UtcNow,
-})).AllowAnonymous();
+    var uptime = Stopwatch.GetElapsedTime(startupTime);
+    return Results.Ok(new
+    {
+        status  = "healthy",
+        service = "CephAnalysis API",
+        version = "2.2.0",
+        uptime  = $"{uptime.TotalMinutes:F1}m",
+        utc     = DateTime.UtcNow,
+    });
+}).AllowAnonymous().CacheOutput("norms-10m");
 
 app.Run();
 
-// ── expose for integration tests ──────────────────────────────────────────────
 public partial class Program { }

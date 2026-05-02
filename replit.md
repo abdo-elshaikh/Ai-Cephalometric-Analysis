@@ -164,13 +164,27 @@ See `.env.example`:
 - `STORAGE_PROVIDER` — `Local`, `S3`, or `Azure`
 - `VITE_BACKEND_API_BASE_URL` — Backend URL (default: http://localhost:5180)
 
-## Frontend Design System — ClinicalComponents.tsx
+## Frontend Design System — v3 (Linear/Vercel Aesthetic)
 
-The core design-system module (`src/components/_core/ClinicalComponents.tsx`) exports:
+Design tokens (index.css):
+- **Font**: Inter (system-ui fallback)  
+- **Primary accent**: Violet/indigo `oklch(0.55 0.22 275)` — shifted from prior cyan/teal
+- **Border radius**: 8px (`--radius: 0.5rem`) — sharp enterprise geometry
+- **Dark mode bg**: `oklch(0.10 0.014 265)` — Linear-style near-black
+- **Light mode bg**: `oklch(0.975 0.004 260)` — Vercel-style cool white
+- **Sidebar**: Always dark (both light/dark modes) — like Linear/Vercel
+
+AppShell (`AppShell.tsx`):
+- Sidebar: 240px wide, dark always, sectioned navigation with group labels
+- Navigation items: simple icon + label + active chevron, no double-border icon boxes
+- Topbar: 60px, shows live/offline connection badge + CephAI label
+- Mobile: slide-in drawer with backdrop, hamburger toggle
+
+### ClinicalComponents.tsx exports:
 
 | Component | Purpose |
 |-----------|---------|
-| `Card` | Glassmorphism card with optional glow |
+| `Card` | Clean card with subtle border, optional glow (violet/emerald/amber/rose) |
 | `Pill` | Status badge (success/warning/danger/info/accent/neutral) |
 | `KpiCard` | Metric tile with icon and delta |
 | `PageHeader` | Eyebrow + title + description + actions |
@@ -214,6 +228,29 @@ Five tabs:
 | **Treatment** | Expandable treatment option cards with evidence level, retention recommendation, duration, complexity |
 | **Growth** | CVM staging guide (Baccetti 2002 CS1–CS6) + Proffit/Petrovic growth prediction timeline |
 | **Reports** | PDF/Word export buttons + generated report list with preview/download |
+
+## Backend Performance Improvements (v2.2)
+
+### Response Compression (`Program.cs`)
+- Brotli (fastest level) + Gzip (optimal level) middleware added
+- Applied to `application/json` and `application/problem+json` MIME types
+- HTTPS compression enabled — reduces JSON payloads 60-80%
+
+### Output Caching (`Program.cs`)
+- `stats-30s` policy: dashboard stats cached 30 s per user → reduces DB round-trips
+- `norms-10m` policy: AI norms endpoint cached 10 min → stable reference data
+- `DashboardController.GetStats` decorated with `[OutputCache(PolicyName = "stats-30s")]`
+
+### Security Headers (`SecurityHeadersMiddleware.cs`)
+- `X-Request-ID` (16-char hex UUID) on every response for distributed tracing
+- `Cache-Control: no-store, no-cache` on all `/api/*` routes (HIPAA PHI protection)
+- `Pragma: no-cache` added as HTTP/1.0 compat fallback
+- Removed `X-AspNet-Version` server disclosure header
+
+### Rate Limiter (`Program.cs`)
+- `PerUser` policy: default limit + `Retry-After: 60` header + JSON error body
+- `ReadOnly` policy: 3× limit for GET-heavy endpoints
+- `QueueLimit` raised 5 → 8 to absorb burst traffic
 
 ## Key Frontend Dependencies
 

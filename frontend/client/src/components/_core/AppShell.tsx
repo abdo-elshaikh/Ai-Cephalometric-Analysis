@@ -1,11 +1,11 @@
 import React, { useState, type ReactNode } from "react";
-import { 
-  Stethoscope, 
-  Menu, 
-  ChevronRight, 
-  LogOut, 
-  LockKeyhole, 
-  Bell, 
+import {
+  Stethoscope,
+  Menu,
+  X,
+  LogOut,
+  LockKeyhole,
+  Bell,
   Activity,
   Users,
   FolderKanban,
@@ -14,47 +14,55 @@ import {
   BarChart3,
   History,
   FileText,
-  Gauge
+  Gauge,
+  ChevronRight,
+  Wifi,
+  WifiOff,
+  RefreshCw,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
-import { 
-  IconBtn, 
-  SecondaryBtn, 
-  Pill, 
-  ThemeToggle, 
-  Divider 
-} from "./ClinicalComponents";
-import { useTheme } from "@/contexts/ThemeContext";
-import { 
-  displayUserName, 
-  type ApiMode 
-} from "@/lib/mappers";
-import { 
-  type BackendAuthUser, 
-  type ServiceHealth 
-} from "@/lib/ceph-api";
+import { ThemeToggle } from "./ClinicalComponents";
+import { displayUserName, type ApiMode } from "@/lib/mappers";
+import { type BackendAuthUser, type ServiceHealth } from "@/lib/ceph-api";
 import { cn } from "@/lib/utils";
 
-const NAV_ITEMS = [
-  { label: "Dashboard", href: "/", icon: Gauge },
-  { label: "Patients", href: "/patients", icon: Users },
-  { label: "Cases", href: "/cases", icon: FolderKanban },
-  { label: "Analysis", href: "/analysis", icon: Microscope },
-  { label: "Calibrate", href: "/calibrate", icon: ScanLine },
-  { label: "Viewer", href: "/viewer", icon: Activity },
-  { label: "Results", href: "/results", icon: BarChart3 },
-  { label: "History", href: "/history", icon: History },
-  { label: "Reports", href: "/reports", icon: FileText },
-  { label: "Account", href: "/auth", icon: LockKeyhole },
-];
+// ─── Navigation structure ─────────────────────────────────────────────────────
 
 const NAV_SECTIONS = [
-  { label: "Overview", items: NAV_ITEMS.slice(0, 1) },
-  { label: "Records", items: NAV_ITEMS.slice(1, 3) },
-  { label: "Workflow", items: NAV_ITEMS.slice(3, 7) },
-  { label: "Outputs", items: NAV_ITEMS.slice(7, 9) },
-  { label: "System", items: NAV_ITEMS.slice(9) },
+  {
+    label: "Overview",
+    items: [{ label: "Dashboard", href: "/", icon: Gauge }],
+  },
+  {
+    label: "Records",
+    items: [
+      { label: "Patients", href: "/patients", icon: Users },
+      { label: "Cases",    href: "/cases",    icon: FolderKanban },
+    ],
+  },
+  {
+    label: "Workflow",
+    items: [
+      { label: "Analysis",  href: "/analysis",  icon: Microscope },
+      { label: "Calibrate", href: "/calibrate", icon: ScanLine },
+      { label: "Viewer",    href: "/viewer",    icon: Activity },
+      { label: "Results",   href: "/results",   icon: BarChart3 },
+    ],
+  },
+  {
+    label: "Outputs",
+    items: [
+      { label: "History", href: "/history", icon: History },
+      { label: "Reports", href: "/reports", icon: FileText },
+    ],
+  },
+  {
+    label: "Account",
+    items: [{ label: "Account", href: "/auth", icon: LockKeyhole }],
+  },
 ];
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface ShellProps {
   children: ReactNode;
@@ -65,6 +73,47 @@ interface ShellProps {
   onLogout: () => void | Promise<void>;
   onRefreshHealth: () => void | Promise<void>;
 }
+
+// ─── Sidebar nav item ─────────────────────────────────────────────────────────
+
+function NavItem({
+  href,
+  icon: Icon,
+  label,
+  active,
+  onClick,
+}: {
+  href: string;
+  icon: React.ElementType;
+  label: string;
+  active: boolean;
+  onClick?: () => void;
+}) {
+  return (
+    <Link
+      href={href}
+      onClick={onClick}
+      aria-current={active ? "page" : undefined}
+      className={cn(
+        "group flex items-center gap-2.5 rounded-md px-3 py-2 text-[13px] font-medium transition-all duration-100",
+        active
+          ? "bg-sidebar-accent text-sidebar-foreground"
+          : "text-sidebar-foreground/50 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground"
+      )}
+    >
+      <Icon
+        className={cn(
+          "h-4 w-4 shrink-0 transition-colors",
+          active ? "text-sidebar-primary" : "text-sidebar-foreground/40 group-hover:text-sidebar-foreground/70"
+        )}
+      />
+      <span className="flex-1 truncate">{label}</span>
+      {active && <ChevronRight className="h-3 w-3 text-sidebar-primary/60 shrink-0" />}
+    </Link>
+  );
+}
+
+// ─── Shell ────────────────────────────────────────────────────────────────────
 
 export default function Shell({
   children,
@@ -78,194 +127,217 @@ export default function Shell({
   const [location] = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  const connTone = apiMode === "live" ? "success" : apiMode === "checking" ? "accent" : "warning";
-  const connLabel = apiMode === "live" ? "Live" : apiMode === "checking" ? "Sync" : "Offline";
+  const isLive    = apiMode === "live";
+  const isChecking = apiMode === "checking";
 
   const initials = authUser
-    ? displayUserName(authUser).split(" ").filter(Boolean).slice(0, 2).map(p => p[0]?.toUpperCase()).join("")
-    : "GU";
+    ? displayUserName(authUser)
+        .split(" ")
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((p) => p[0]?.toUpperCase())
+        .join("")
+    : "G";
+
+  const userName = authUser ? displayUserName(authUser) : "Guest";
+  const userRole = authUser?.role ?? (authUser ? "Doctor" : "Not signed in");
+
+  // ── Sidebar contents (shared between mobile drawer and desktop) ────────────
+  const SidebarContent = () => (
+    <>
+      {/* Logo */}
+      <div className="flex h-[60px] items-center gap-3 border-b border-sidebar-border px-4">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sidebar-primary/15">
+          <Stethoscope className="h-4 w-4 text-sidebar-primary" />
+        </div>
+        <div className="min-w-0">
+          <p className="text-[13px] font-bold leading-tight text-sidebar-foreground">CephAI</p>
+          <p className="text-[10px] font-medium text-sidebar-foreground/40 tracking-widest uppercase">Ortho Intelligence</p>
+        </div>
+      </div>
+
+      {/* Nav */}
+      <nav className="flex-1 overflow-y-auto py-4 px-2 space-y-5 [scrollbar-width:thin]">
+        {NAV_SECTIONS.map((section) => (
+          <div key={section.label}>
+            <p className="mb-1 px-3 text-[10px] font-semibold uppercase tracking-[0.18em] text-sidebar-foreground/30">
+              {section.label}
+            </p>
+            <div className="space-y-px">
+              {section.items.map((item) => {
+                const active =
+                  item.href === "/"
+                    ? location === "/"
+                    : location.startsWith(item.href);
+                return (
+                  <NavItem
+                    key={item.href}
+                    href={item.href}
+                    icon={item.icon}
+                    label={item.label}
+                    active={active}
+                    onClick={() => setMobileOpen(false)}
+                  />
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </nav>
+
+      {/* User footer */}
+      <div className="border-t border-sidebar-border p-3 space-y-2">
+        {/* User identity row */}
+        <div className="flex items-center gap-2.5 rounded-md px-2 py-2">
+          <div
+            className={cn(
+              "flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-bold",
+              authUser
+                ? "bg-sidebar-primary/20 text-sidebar-primary"
+                : "bg-sidebar-accent text-sidebar-foreground/50"
+            )}
+          >
+            {initials}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[12px] font-semibold text-sidebar-foreground leading-tight">{userName}</p>
+            <p className="truncate text-[10px] text-sidebar-foreground/40 leading-tight">{userRole}</p>
+          </div>
+          <button
+            type="button"
+            onClick={authUser ? onLogout : onAuth}
+            aria-label={authUser ? "Sign out" : "Sign in"}
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-sidebar-foreground/40 hover:text-sidebar-foreground/70 transition-colors"
+          >
+            {authUser ? <LogOut className="h-3.5 w-3.5" /> : <LockKeyhole className="h-3.5 w-3.5" />}
+          </button>
+        </div>
+
+        {/* Status row */}
+        <div className="flex items-center justify-between px-2">
+          <span className="text-[10px] font-medium text-sidebar-foreground/30 tracking-wide uppercase">v2.2</span>
+          <button
+            type="button"
+            onClick={onRefreshHealth}
+            className="flex items-center gap-1.5 text-[10px] font-medium transition-colors hover:text-sidebar-foreground/60"
+          >
+            {isLive ? (
+              <><Wifi className="h-3 w-3 text-green-400" /><span className="text-green-400">Online</span></>
+            ) : isChecking ? (
+              <><RefreshCw className="h-3 w-3 animate-spin text-sidebar-foreground/40" /><span className="text-sidebar-foreground/40">Syncing</span></>
+            ) : (
+              <><WifiOff className="h-3 w-3 text-amber-400" /><span className="text-amber-400">Offline</span></>
+            )}
+          </button>
+        </div>
+      </div>
+    </>
+  );
 
   return (
-    <div className="min-h-screen bg-background text-foreground transition-colors duration-300">
-      {/* Background accents */}
-      <div
-        aria-hidden
-        className="pointer-events-none fixed inset-0 overflow-hidden opacity-30 dark:opacity-100"
-      >
-        <div className="absolute -left-[10%] -top-[10%] h-[40%] w-[40%] rounded-full bg-primary/10 blur-[120px]" />
-        <div className="absolute -right-[5%] top-[10%] h-[30%] w-[30%] rounded-full bg-success/5 blur-[100px]" />
-      </div>
-      {/* Subtle grid overlay */}
-      <div
-        aria-hidden
-        className="pointer-events-none fixed inset-0 opacity-[0.035]"
-        style={{
-          backgroundImage: "linear-gradient(rgba(148,163,184,0.6) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,0.6) 1px, transparent 1px)",
-          backgroundSize: "40px 40px",
-        }}
-      />
-
-      {/* Header for mobile and desktop */}
-      <header className="sticky top-0 z-40 w-full border-b border-border/40 bg-background/60 backdrop-blur-xl lg:hidden">
-        <div className="flex h-16 items-center justify-between px-4">
-          <div className="flex items-center gap-3">
-             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                <Stethoscope className="h-5 w-5" />
-             </div>
-             <span className="font-bold tracking-tight">CephAI</span>
+    <div className="min-h-screen bg-background text-foreground">
+      {/* ── Mobile header ─────────────────────────────────────────────────── */}
+      <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-border bg-background/95 px-4 backdrop-blur-sm lg:hidden">
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10">
+            <Stethoscope className="h-4 w-4 text-primary" />
           </div>
-          <IconBtn icon={Menu} label="Menu" onClick={() => setMobileOpen(true)} variant="outline" size="sm" />
+          <span className="text-[14px] font-bold tracking-tight">CephAI</span>
         </div>
+        <button
+          type="button"
+          aria-label={mobileOpen ? "Close menu" : "Open menu"}
+          onClick={() => setMobileOpen((o) => !o)}
+          className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+        >
+          {mobileOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+        </button>
       </header>
 
-      {/* Mobile overlay */}
+      {/* ── Mobile backdrop ───────────────────────────────────────────────── */}
       {mobileOpen && (
         <button
           type="button"
           aria-label="Close navigation"
           onClick={() => setMobileOpen(false)}
-          className="fixed inset-0 z-40 bg-background/70 backdrop-blur-sm lg:hidden"
+          className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm lg:hidden"
         />
       )}
 
-      {/* Sidebar */}
+      {/* ── Sidebar ───────────────────────────────────────────────────────── */}
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 flex w-[280px] flex-col border-r border-border/40 bg-card/95 backdrop-blur-2xl transition-transform duration-300 lg:translate-x-0",
+          "fixed inset-y-0 left-0 z-50 flex w-[240px] flex-col bg-sidebar transition-transform duration-200 lg:translate-x-0",
           mobileOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
-        {/* Logo */}
-        <div className="relative overflow-hidden border-b border-border/40 p-6">
-          <div className="pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full bg-primary/10 blur-2xl" />
-          <div className="relative flex items-center justify-between gap-3">
-            <Link href="/" onClick={() => setMobileOpen(false)} className="flex items-center gap-3 group">
-              <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-primary/20 bg-primary/10 transition-transform group-hover:scale-105">
-                <Stethoscope className="h-5 w-5 text-primary" />
-                <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-card bg-success animate-pulse" />
-              </div>
-              <div>
-                <p className="text-[15px] font-bold leading-tight tracking-tight text-foreground">CephAI</p>
-                <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-muted-foreground">Ortho Intelligence</p>
-              </div>
-            </Link>
-          </div>
-        </div>
-
-        {/* Navigation */}
-        <nav className="flex-1 overflow-y-auto p-3 [scrollbar-width:thin]">
-          <div className="space-y-5">
-            {NAV_SECTIONS.map(section => (
-              <div key={section.label}>
-                <p className="mb-2 px-3 text-[10px] font-bold uppercase tracking-[0.24em] text-muted-foreground/60">{section.label}</p>
-                <div className="space-y-0.5">
-                  {section.items.map(item => {
-                    const Icon = item.icon;
-                    const active = item.href === "/" ? location === "/" : location.startsWith(item.href);
-                    return (
-                      <Link
-                        key={item.href}
-                        href={item.href}
-                        onClick={() => setMobileOpen(false)}
-                        aria-current={active ? "page" : undefined}
-                        className={cn(
-                          "group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-all duration-150",
-                          active
-                            ? "bg-primary/10 text-primary"
-                            : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-                        )}
-                      >
-                        {active && <span className="absolute inset-y-1.5 left-0 w-0.5 rounded-r-full bg-primary" />}
-                        <span
-                          className={cn(
-                            "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition-all duration-150",
-                            active ? "border-primary/25 bg-primary/15 text-primary" : "border-border/40 bg-muted/20 text-muted-foreground group-hover:text-foreground"
-                          )}
-                        >
-                          <Icon className="h-3.5 w-3.5" />
-                        </span>
-                        <span className="flex-1 font-medium">{item.label}</span>
-                        {active && <ChevronRight className="h-3.5 w-3.5 text-primary/60" />}
-                      </Link>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
-        </nav>
-
-        {/* User footer */}
-        <div className="border-t border-border/40 p-3 space-y-2">
-          <div className="flex items-center gap-3 rounded-xl border border-border/40 bg-muted/20 p-3">
-            <div className={cn(
-              "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-sm font-bold",
-              authUser ? "bg-primary/20 text-primary" : "bg-muted/40 text-muted-foreground"
-            )}>
-              {initials}
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold text-foreground">{authUser ? displayUserName(authUser) : "Guest"}</p>
-              <p className="truncate text-xs text-muted-foreground">{authUser ? `${authUser.role ?? "Doctor"}` : "Sign in for access"}</p>
-            </div>
-            <IconBtn
-              icon={authUser ? LogOut : LockKeyhole}
-              label={authUser ? "Sign out" : "Sign in"}
-              onClick={authUser ? onLogout : onAuth}
-              variant="outline"
-              size="sm"
-            />
-          </div>
-
-          <div className="flex items-center justify-between px-2 text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground/60">
-            <span>Platform v2.4</span>
-            <span className={cn(
-              "flex items-center gap-1",
-              serviceHealth.backend.ok ? "text-success" : "text-warning"
-            )}>
-              <span className={cn("h-1.5 w-1.5 rounded-full", serviceHealth.backend.ok ? "bg-success" : "bg-warning")} />
-              {serviceHealth.backend.ok ? "Online" : "Offline"}
-            </span>
-          </div>
-        </div>
+        <SidebarContent />
       </aside>
 
-      {/* Main content */}
-      <div className="flex flex-1 flex-col lg:pl-[280px]">
-        {/* Topbar desktop */}
-        <header className="sticky top-0 z-30 hidden h-16 border-b border-border/40 bg-background/60 backdrop-blur-xl lg:block">
-          <div className="flex h-full items-center justify-between px-8">
-            <div className="flex items-center gap-4">
-               <Pill tone={connTone} size="sm" className="bg-muted/30">
-                  Network: {connLabel}
-               </Pill>
-               <Divider className="h-4 w-px bg-border/40" />
-               <p className="text-xs font-medium text-muted-foreground">
-                 Clinical AI Engine Active
-               </p>
+      {/* ── Main area ─────────────────────────────────────────────────────── */}
+      <div className="flex min-h-screen flex-col lg:pl-[240px]">
+        {/* Topbar */}
+        <header className="sticky top-0 z-30 hidden h-[60px] items-center justify-between border-b border-border bg-background/95 px-6 backdrop-blur-sm lg:flex">
+          {/* Left: connection status */}
+          <div className="flex items-center gap-3">
+            <div
+              className={cn(
+                "flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-semibold",
+                isLive
+                  ? "border-green-500/20 bg-green-500/8 text-green-600 dark:text-green-400"
+                  : isChecking
+                  ? "border-border bg-muted/50 text-muted-foreground"
+                  : "border-amber-500/20 bg-amber-500/8 text-amber-600 dark:text-amber-400"
+              )}
+            >
+              <span
+                className={cn(
+                  "h-1.5 w-1.5 rounded-full",
+                  isLive ? "bg-green-500 animate-pulse" : isChecking ? "bg-muted-foreground" : "bg-amber-500"
+                )}
+              />
+              {isLive ? "Connected" : isChecking ? "Syncing…" : "Disconnected"}
             </div>
-            <div className="flex items-center gap-3">
-               <ThemeToggle />
-               <IconBtn icon={Bell} label="Notifications" variant="outline" size="sm" />
-               <SecondaryBtn onClick={onLogout} icon={LogOut} className="h-9 px-3 text-xs">
-                 Logout
-               </SecondaryBtn>
-            </div>
+            <span className="text-[12px] text-muted-foreground">CephAI Clinical Platform</span>
+          </div>
+
+          {/* Right: actions */}
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
+            <button
+              type="button"
+              aria-label="Notifications"
+              className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+            >
+              <Bell className="h-4 w-4" />
+            </button>
+            {authUser && (
+              <button
+                type="button"
+                onClick={onLogout}
+                className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-[12px] font-medium text-muted-foreground hover:border-border/80 hover:bg-muted/50 hover:text-foreground transition-all"
+              >
+                <LogOut className="h-3.5 w-3.5" />
+                Sign out
+              </button>
+            )}
           </div>
         </header>
 
-        <main className="flex-1 p-6 lg:p-8 xl:p-10 max-w-[1600px] mx-auto w-full">
+        {/* Page content */}
+        <main className="flex-1 p-6 lg:p-8 max-w-[1440px] mx-auto w-full">
           {children}
         </main>
 
-        <footer className="border-t border-border/40 py-6 px-8 flex flex-col md:flex-row items-center justify-between gap-4">
-           <p className="text-xs text-muted-foreground font-medium">
-             © 2026 Cephalometric Intelligence. For professional use only.
-           </p>
-           <div className="flex items-center gap-4">
-             <Link href="/terms" className="text-xs text-muted-foreground hover:text-primary transition-colors">Terms</Link>
-             <Link href="/privacy" className="text-xs text-muted-foreground hover:text-primary transition-colors">Privacy</Link>
-           </div>
+        {/* Footer */}
+        <footer className="border-t border-border py-4 px-6 flex flex-col sm:flex-row items-center justify-between gap-3">
+          <p className="text-[11px] text-muted-foreground">
+            © 2026 Cephalometric Intelligence Platform. For professional clinical use only.
+          </p>
+          <div className="flex items-center gap-4">
+            <Link href="/terms"   className="text-[11px] text-muted-foreground hover:text-foreground transition-colors">Terms</Link>
+            <Link href="/privacy" className="text-[11px] text-muted-foreground hover:text-foreground transition-colors">Privacy</Link>
+          </div>
         </footer>
       </div>
     </div>
