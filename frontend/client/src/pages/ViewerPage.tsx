@@ -3,14 +3,14 @@ import React, {
 } from "react";
 import { useLocation } from "wouter";
 import {
-  Ruler, Save, Layers3, RefreshCw, Eye, BarChart3, Move,
+  Ruler, Save, Layers3, RefreshCw, BarChart3, Move,
   ChevronRight, ChevronDown, Crosshair, Lock, Unlock,
-  ZoomIn, ZoomOut, ScanLine, MousePointer2, Triangle,
+  ZoomIn, ZoomOut, MousePointer2, Triangle,
   Maximize2, Minimize2, FlipHorizontal, Sun, Contrast,
-  X, CheckCircle2, AlertTriangle, Undo2, Redo2, Download,
+  X, AlertTriangle, Undo2, Redo2, Download,
   EyeOff, Copy, RotateCcw, Zap, Sliders, Trash2, ListChecks,
-  Search, Star, ExternalLink, ImageOff, Clipboard,
-  PencilLine, ChevronLeft,
+  Search, ExternalLink, ImageOff, Clipboard,
+  PencilLine, ChevronLeft, ScanLine, CheckCircle2, Target,
 } from "lucide-react";
 import {
   Card, Pill, PrimaryBtn, SecondaryBtn, IconBtn,
@@ -51,14 +51,13 @@ const TRACING_PLANES: TracingPlane[] = [
   { key:"SoftN",   from:"N_st", to:"Pog_st",color:"#fb7185", label:"Facial",      group:"soft"                  },
 ];
 
-type ToolMode = "select" | "pan" | "ruler" | "calibrate" | "angle";
+type ToolMode = "select" | "pan" | "ruler" | "angle";
 
 const TOOLS: { mode: ToolMode; icon: React.ElementType; label: string; shortcut: string; hint: string }[] = [
-  { mode:"select",    icon:MousePointer2, label:"Select / Move",    shortcut:"S", hint:"Click to select · Drag to reposition · Arrows ±1px" },
-  { mode:"pan",       icon:Move,          label:"Pan / Navigate",   shortcut:"H", hint:"Drag to pan · Alt+drag from any mode · Middle-mouse" },
-  { mode:"ruler",     icon:Ruler,         label:"Measure Distance", shortcut:"R", hint:"Click two points to measure · Snaps to landmarks"     },
-  { mode:"calibrate", icon:ScanLine,      label:"Calibrate Scale",  shortcut:"C", hint:"Click two known reference points on the radiograph"    },
-  { mode:"angle",     icon:Triangle,      label:"Measure Angle",    shortcut:"A", hint:"Click three points: arm1 → vertex → arm2"             },
+  { mode:"select", icon:MousePointer2, label:"Select / Move",    shortcut:"S", hint:"Click to select · Drag to reposition · Arrows ±1px" },
+  { mode:"pan",    icon:Move,          label:"Pan / Navigate",   shortcut:"H", hint:"Drag to pan · Alt+drag from any mode · Middle-mouse" },
+  { mode:"ruler",  icon:Ruler,         label:"Measure Distance", shortcut:"R", hint:"Click two points to measure · Snaps to landmarks"     },
+  { mode:"angle",  icon:Triangle,      label:"Measure Angle",    shortcut:"A", hint:"Click three points: arm1 → vertex → arm2"             },
 ];
 
 const IMAGE_PRESETS = [
@@ -124,7 +123,6 @@ interface ViewerPageProps {
   landmarks: Landmark[];
   setLandmarks: (l: Landmark[]) => void;
   overlays: OverlayArtifact[];
-  onCalibrate: (pts: Point[], mm: number) => void|Promise<void>;
   onSaveAndSend: (isCbct: boolean) => void|Promise<void>;
   onRefreshOverlays: () => void|Promise<void>;
 }
@@ -133,7 +131,7 @@ interface ViewerPageProps {
 
 export default function ViewerPage({
   activeCase, landmarks, setLandmarks, overlays,
-  onCalibrate, onSaveAndSend, onRefreshOverlays,
+  onSaveAndSend, onRefreshOverlays,
 }: ViewerPageProps) {
   const [, navigate] = useLocation();
 
@@ -144,10 +142,6 @@ export default function ViewerPage({
   const [isCbct, setIsCbct]           = useState(false);
   const [isLocked, setIsLocked]       = useState(false);
   const [fullscreen, setFullscreen]   = useState(false);
-
-  // Calibration
-  const [calibPts, setCalibPts]       = useState<Point[]>(activeCase?.calibrationPoints ?? []);
-  const [distMm, setDistMm]           = useState(String(activeCase?.calibrationDistanceMm ?? 100));
 
   // Measurement tools
   const [rulerPts, setRulerPts]       = useState<Point[]>([]);
@@ -168,7 +162,7 @@ export default function ViewerPage({
   );
 
   // UI state
-  const [activeTab, setActiveTab]     = useState<"controls"|"planes"|"calibrate"|"measures">("controls");
+  const [activeTab, setActiveTab]     = useState<"controls"|"planes"|"measures">("controls");
   const [expandedGroups, setExpandedGroups] = useState<Record<string,boolean>>(
     Object.fromEntries(LANDMARK_GROUPS.map(g => [g.label, false]))
   );
@@ -212,11 +206,6 @@ export default function ViewerPage({
     toast.info("Redo");
   }, [redoStack, landmarks, setLandmarks]);
 
-  useEffect(() => {
-    setCalibPts(activeCase?.calibrationPoints ?? []);
-    setDistMm(String(activeCase?.calibrationDistanceMm ?? 100));
-  }, [activeCase?.id]);
-
   // ── Context menu close ──
   useEffect(() => {
     if (!ctxMenu) return;
@@ -249,14 +238,13 @@ export default function ViewerPage({
         case "s": case "v": setTool("select"); break;
         case "h": setTool("pan"); break;
         case "r": setTool("ruler"); break;
-        case "c": setTool("calibrate"); break;
         case "a": setTool("angle"); break;
         case "l": setAlwaysLabels(v => !v); break;
-        case "f": setFitSignal(s => s + 1); break;          // zoom-to-fit — FIXED (was incorrectly modifying filters)
-        case "x": setFlipH(v => !v); break;                  // flip horizontal
+        case "f": setFitSignal(s => s + 1); break;
+        case "x": setFlipH(v => !v); break;
+        case "c": navigate("/calibrate"); break;
         case "escape":
           setRulerPts([]); setAnglePts([]);
-          if (tool === "calibrate") setCalibPts([]);
           setSelectedCode(null); setCtxMenu(null); setOverlayModal(null);
           break;
         case "arrowleft":  moveSel(e.shiftKey?-5:-1, 0); e.preventDefault(); break;
@@ -309,22 +297,15 @@ export default function ViewerPage({
     toast.info(`${code}: adjustment flag cleared`);
   }
 
-  // ── Calibration ──
+  // ── Calibration (read-only — editing happens in CalibrationPage) ──
   const pixPerMm = useMemo(() => {
-    const pts = calibPts.length === 2 ? calibPts : (activeCase?.calibrationPoints ?? []);
-    const mm = calibPts.length === 2 ? Number(distMm) : (activeCase?.calibrationDistanceMm ?? 0);
+    const pts = activeCase?.calibrationPoints ?? [];
+    const mm  = activeCase?.calibrationDistanceMm ?? 0;
     if (pts.length === 2 && mm > 0) return dist(pts[0], pts[1]) / mm;
     return null;
-  }, [calibPts, distMm, activeCase]);
+  }, [activeCase]);
 
-  const calibrated = Boolean(activeCase?.calibrated || calibPts.length === 2);
-
-  function handleCalibrate() {
-    if (calibPts.length !== 2) return;
-    onCalibrate(calibPts, Number(distMm));
-    toast.success(`Spatial calibration saved — ${distMm} mm reference`);
-    setTool("select"); setCalibPts([]);
-  }
+  const calibrated = Boolean(activeCase?.calibrated);
 
   // ── Measurements ──
   function saveMeasurement(m: Omit<SavedMeasurement,"id"|"at"|"label">) {
@@ -477,11 +458,8 @@ export default function ViewerPage({
             layers={layers}
             planeVis={planeVis}
             filters={filters}
-            calibPts={calibPts}
-            setCalibPts={setCalibPts}
             locked={isLocked}
             pixPerMm={pixPerMm}
-            distMm={distMm}
             rulerPts={rulerPts}
             setRulerPts={setRulerPts}
             anglePts={anglePts}
@@ -749,7 +727,7 @@ export default function ViewerPage({
           {/* ── Tabbed Controls ── */}
           <Card noPadding className="overflow-hidden">
             <div className="flex border-b border-border/40 overflow-x-auto">
-              {(["controls","planes","calibrate","measures"] as const).map(tab => (
+              {(["controls","planes","measures"] as const).map(tab => (
                 <button
                   key={tab}
                   type="button"
@@ -761,14 +739,11 @@ export default function ViewerPage({
                       : "text-muted-foreground hover:text-foreground hover:bg-muted/20"
                   )}
                 >
-                  {tab === "controls" ? "Image" : tab === "planes" ? "Planes" : tab === "calibrate" ? "Calib." : "Measures"}
+                  {tab === "controls" ? "Image" : tab === "planes" ? "Planes" : "Measures"}
                   {tab === "measures" && measurements.length > 0 && (
                     <span className="ml-1 inline-flex h-3.5 w-3.5 items-center justify-center rounded-full bg-primary/20 text-primary text-[8px] font-bold">
                       {measurements.length}
                     </span>
-                  )}
-                  {tab === "calibrate" && calibrated && (
-                    <span className="ml-1 inline-flex h-1.5 w-1.5 rounded-full bg-success" />
                   )}
                 </button>
               ))}
@@ -956,92 +931,6 @@ export default function ViewerPage({
                 </div>
               )}
 
-              {/* ── Calibration ── */}
-              {activeTab === "calibrate" && (
-                <div className="space-y-4">
-                  <div className={cn(
-                    "flex items-center gap-3 p-3 rounded-xl border transition-all",
-                    calibrated ? "border-success/30 bg-success/5" : "border-warning/30 bg-warning/5"
-                  )}>
-                    {calibrated
-                      ? <CheckCircle2 className="h-5 w-5 text-success shrink-0" />
-                      : <AlertTriangle className="h-5 w-5 text-warning shrink-0" />}
-                    <div>
-                      <p className="text-xs font-bold">{calibrated ? "Image calibrated" : "Calibration required"}</p>
-                      {pixPerMm ? (
-                        <p className="text-[10px] text-muted-foreground mt-0.5 font-mono">
-                          {pixPerMm.toFixed(3)} px/mm · {(1/pixPerMm).toFixed(3)} mm/px
-                        </p>
-                      ) : (
-                        <p className="text-[10px] text-muted-foreground/60 mt-0.5">
-                          Place two reference points to calibrate
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="rounded-xl border border-border/40 bg-muted/20 p-3 space-y-1.5">
-                    <p className="font-bold text-foreground text-[10px] uppercase tracking-widest">Protocol</p>
-                    <ol className="list-decimal list-inside space-y-1 text-[10px] text-muted-foreground">
-                      <li>Activate <strong className="text-warning">Calibrate</strong> tool (<kbd className="bg-muted px-1 py-0.5 rounded">C</kbd>)</li>
-                      <li>Click two known reference points on the radiograph</li>
-                      <li>Drag reference points to reposition if needed</li>
-                      <li>Enter the true distance in mm below and save</li>
-                    </ol>
-                  </div>
-
-                  <Field label="Reference Distance (mm)">
-                    <TextInput type="number" value={distMm} onChange={setDistMm} min={1} placeholder="e.g. 100" />
-                  </Field>
-
-                  <div className="grid grid-cols-3 gap-2">
-                    {[0, 1, "dist" as const].map((k, i) => {
-                      const isRef = typeof k === "number";
-                      const active = isRef ? calibPts.length > k : calibPts.length === 2;
-                      return (
-                        <div key={i} className={cn(
-                          "flex flex-col items-center justify-center rounded-xl border p-2.5 transition-all",
-                          active ? "border-warning/40 bg-warning/8" : "border-border/40 bg-muted/10"
-                        )}>
-                          <div className={cn("h-2 w-2 rounded-full mb-1",
-                            active ? (i===2 ? "bg-success animate-pulse" : "bg-warning") : "bg-muted-foreground/30"
-                          )} />
-                          <span className="text-[9px] font-bold text-muted-foreground">
-                            {i < 2 ? `Ref ${i+1}` : (calibPts.length===2 ? `${dist(calibPts[0],calibPts[1]).toFixed(0)} px` : "Dist")}
-                          </span>
-                          {isRef && calibPts[k] && (
-                            <span className="text-[8px] text-muted-foreground/50 font-mono mt-0.5">
-                              {Math.round(calibPts[k].x)},{Math.round(calibPts[k].y)}
-                            </span>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  {calibPts.length > 0 && (
-                    <button type="button" onClick={() => setCalibPts([])}
-                      className="text-[10px] font-bold text-destructive/60 hover:text-destructive transition-colors">
-                      ✕ Clear reference points
-                    </button>
-                  )}
-
-                  <button
-                    type="button"
-                    disabled={calibPts.length !== 2 || !Number(distMm)}
-                    onClick={handleCalibrate}
-                    className={cn(
-                      "w-full h-11 rounded-xl font-bold text-sm transition-all",
-                      calibPts.length === 2 && Number(distMm)
-                        ? "bg-warning text-black shadow-lg shadow-warning/20 hover:bg-warning/90"
-                        : "bg-muted/30 text-muted-foreground cursor-not-allowed opacity-50"
-                    )}
-                  >
-                    Save Spatial Calibration
-                  </button>
-                </div>
-              )}
-
               {/* ── Measurements ── */}
               {activeTab === "measures" && (
                 <div className="space-y-3">
@@ -1172,16 +1061,52 @@ export default function ViewerPage({
         </div>
       </div>
 
-      {/* ── Proceed ── */}
-      <div className="flex items-center justify-between">
-        <div className="text-[10px] text-muted-foreground/60 font-mono">
-          {!calibrated && (
-            <span className="flex items-center gap-1 text-warning/80">
-              <AlertTriangle className="h-3 w-3" />
-              Calibration recommended before analysis
-            </span>
-          )}
+      {/* ── Calibration status banner ── */}
+      {!calibrated && (
+        <div className="flex items-center justify-between gap-4 rounded-2xl border border-warning/25 bg-warning/5 px-5 py-3.5">
+          <div className="flex items-center gap-3">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-warning/15 text-warning">
+              <Target className="h-4 w-4" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-warning/90">Image not calibrated</p>
+              <p className="text-[10px] text-muted-foreground">Measurements are in pixels — calibrate to convert to millimetres.</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => navigate("/calibrate")}
+            className="shrink-0 flex items-center gap-2 h-9 px-4 rounded-xl bg-warning/20 border border-warning/40 text-xs font-bold text-warning hover:bg-warning/30 transition-all"
+          >
+            <ScanLine className="h-3.5 w-3.5" /> Calibrate Now
+          </button>
         </div>
+      )}
+      {calibrated && pixPerMm && (
+        <div className="flex items-center justify-between gap-4 rounded-2xl border border-success/20 bg-success/5 px-5 py-3.5">
+          <div className="flex items-center gap-3">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-success/15 text-success">
+              <CheckCircle2 className="h-4 w-4" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-success/90">Calibrated</p>
+              <p className="text-[10px] text-muted-foreground font-mono">
+                {pixPerMm.toFixed(3)} px/mm · {(1/pixPerMm).toFixed(4)} mm/px · ref {activeCase?.calibrationDistanceMm} mm
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => navigate("/calibrate")}
+            className="shrink-0 flex items-center gap-2 h-9 px-4 rounded-xl border border-border/40 text-xs font-bold text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-all"
+          >
+            <ScanLine className="h-3.5 w-3.5" /> Recalibrate
+          </button>
+        </div>
+      )}
+
+      {/* ── Proceed ── */}
+      <div className="flex justify-end">
         <SecondaryBtn onClick={() => navigate("/results")} icon={BarChart3} className="h-12 px-8">
           View Analysis Results <ChevronRight className="h-4 w-4 ml-1" />
         </SecondaryBtn>
@@ -1360,10 +1285,8 @@ interface CephCanvasProps {
   layers: Record<string,boolean>;
   planeVis: Record<string,boolean>;
   filters: ImageFilters;
-  calibPts: Point[]; setCalibPts: (pts:Point[])=>void;
   locked: boolean;
   pixPerMm: number|null;
-  distMm: string;
   rulerPts: Point[];   setRulerPts: (pts:Point[])=>void;
   anglePts: Point[];   setAnglePts: (pts:Point[])=>void;
   alwaysLabels: boolean;
@@ -1382,7 +1305,7 @@ function CephCanvas({
   svgRef, imageUrl, landmarks, setLandmarks, pushUndo,
   selectedCode, hoveredCode, tool, setTool,
   onSelect, onHover, layers, planeVis, filters,
-  calibPts, setCalibPts, locked, pixPerMm, distMm,
+  locked, pixPerMm,
   rulerPts, setRulerPts, anglePts, setAnglePts,
   alwaysLabels, flipH, centerTarget, onCenterConsumed,
   onAddMeasurement, measurements, onContextMenu,
@@ -1394,7 +1317,6 @@ function CephCanvas({
   const [lastPanPt, setLastPanPt] = useState<Point|null>(null);
   const [draggingCode, setDraggingCode] = useState<string|null>(null);
   const [dragOrigin, setDragOrigin]     = useState<Point|null>(null);
-  const [draggingCalibIdx, setDraggingCalibIdx] = useState<number|null>(null);
   const [cursorPt, setCursorPt] = useState<Point|null>(null);
   const [snapCode, setSnapCode] = useState<string|null>(null);
   const [liveRuler, setLiveRuler] = useState<Point|null>(null);
@@ -1447,7 +1369,7 @@ function CephCanvas({
   }
 
   function nearestLandmark(pt: Point, threshSvg: number): Landmark|null {
-    if (!["ruler","angle","calibrate"].includes(tool)) return null;
+    if (!["ruler","angle"].includes(tool)) return null;
     let best: Landmark|null = null, bDist = threshSvg;
     for (const lm of landmarks) {
       const d = dist(pt, lm);
@@ -1483,12 +1405,6 @@ function CephCanvas({
     const snap = nearestLandmark(raw, 22/zoom);
     const pt   = snap ? {x:snap.x, y:snap.y} : raw;
 
-    if (tool === "calibrate") {
-      setCalibPts(calibPts.length >= 2 ? [pt] : [...calibPts, pt]);
-      if (calibPts.length === 1)
-        toast.info("Two reference points set. Enter distance and save calibration.");
-      return;
-    }
     if (tool === "ruler") {
       const next = rulerPts.length >= 2 ? [pt] : [...rulerPts, pt];
       setRulerPts(next);
@@ -1531,12 +1447,6 @@ function CephCanvas({
       return;
     }
 
-    if (draggingCalibIdx !== null) {
-      const updated = calibPts.map((p,i) => i===draggingCalibIdx ? raw : p);
-      setCalibPts(updated);
-      return;
-    }
-
     if (draggingCode && !locked) {
       setLandmarks(landmarks.map(l => l.code===draggingCode
         ? {...l, x:raw.x, y:raw.y, adjusted:true}
@@ -1559,7 +1469,6 @@ function CephCanvas({
       }
     }
     setDraggingCode(null); setDragOrigin(null);
-    setDraggingCalibIdx(null);
     setIsPanning(false); setLastPanPt(null);
   }
 
@@ -1618,7 +1527,6 @@ function CephCanvas({
     isPanning || tool==="pan"       ? "cursor-grab" :
     draggingCode                    ? "cursor-grabbing" :
     tool==="select"  && !locked     ? "cursor-crosshair" :
-    tool==="calibrate"              ? "cursor-cell" :
     tool==="ruler" || tool==="angle"? "cursor-crosshair" :
     "cursor-default";
 
@@ -1687,12 +1595,10 @@ function CephCanvas({
             {/* Active tool indicator */}
             <div className={cn(
               "flex items-center gap-2 px-3 py-1.5 rounded-full backdrop-blur border shadow-lg text-[9px] font-bold uppercase tracking-widest",
-              tool==="calibrate" ? "bg-warning/25 border-warning/50 text-warning"
-              : tool==="ruler"||tool==="angle" ? "bg-primary/25 border-primary/50 text-primary"
+              tool==="ruler"||tool==="angle" ? "bg-primary/25 border-primary/50 text-primary"
               : "bg-black/60 border-white/10 text-white/80"
             )}>
               <div className={cn("h-1.5 w-1.5 rounded-full shrink-0",
-                tool==="calibrate"?"bg-warning animate-pulse":
                 tool==="ruler"||tool==="angle"?"bg-primary animate-pulse":"bg-emerald-400"
               )} />
               {activeTool?.label}
@@ -1963,75 +1869,6 @@ function CephCanvas({
                 );
               })}
 
-              {/* ── Calibration ruler ── */}
-              {calibPts.length >= 1 && (
-                <g>
-                  {calibPts.map((pt, i) => (
-                    <g
-                      key={`cal-${i}`}
-                      onPointerDown={e => {
-                        e.stopPropagation();
-                        (e.currentTarget as Element).setPointerCapture(e.pointerId);
-                        setDraggingCalibIdx(i);
-                      }}
-                      className="cursor-move"
-                    >
-                      <circle cx={pt.x} cy={pt.y} r="22" fill="rgba(245,158,11,0.06)"
-                        stroke="#f59e0b" strokeWidth="0.5" strokeDasharray="3 2"/>
-                      <circle cx={pt.x} cy={pt.y} r="11" fill="rgba(245,158,11,0.2)"
-                        stroke="#f59e0b" strokeWidth="2"/>
-                      <circle cx={pt.x} cy={pt.y} r="3" fill="#f59e0b"/>
-                      {[[-13,0,13,0],[0,-13,0,13]].map(([x1,y1,x2,y2],ci) => (
-                        <line key={ci} x1={pt.x+x1} y1={pt.y+y1} x2={pt.x+x2} y2={pt.y+y2}
-                          stroke="#f59e0b" strokeWidth="1.5" strokeOpacity="0.55"/>
-                      ))}
-                      <g transform={`translate(${pt.x+22},${pt.y-20})`}>
-                        <rect x="-2" y="-9" width="40" height="13" rx="4"
-                          fill="rgba(0,0,0,0.88)" stroke="#f59e0b" strokeWidth="0.5"/>
-                        <text x="18" y="1" fill="#f59e0b" fontSize="9" fontWeight="bold"
-                          textAnchor="middle" fontFamily="system-ui">REF {i+1}</text>
-                      </g>
-                    </g>
-                  ))}
-                  {calibPts.length===2 && (()=>{
-                    const [p1,p2] = calibPts;
-                    const pd = dist(p1,p2);
-                    const midX=(p1.x+p2.x)/2, midY=(p1.y+p2.y)/2;
-                    const t1=perpTick(p1,p2,12), t2=perpTick(p2,p1,12);
-                    const numTicks = Math.max(0, Math.floor(pd/30) - 1);
-                    const angle = Math.atan2(p2.y-p1.y,p2.x-p1.x) * 180 / Math.PI;
-                    const distLabel = distMm ? `${distMm} mm` : "? mm"; // FIXED: show entered distMm
-                    return (
-                      <g>
-                        <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y}
-                          stroke="#f59e0b" strokeWidth="2" strokeDasharray="10 5" strokeOpacity="0.8"/>
-                        <line x1={t1.x1} y1={t1.y1} x2={t1.x2} y2={t1.y2}
-                          stroke="#f59e0b" strokeWidth="2.5" strokeOpacity="0.9"/>
-                        <line x1={t2.x1} y1={t2.y1} x2={t2.x2} y2={t2.y2}
-                          stroke="#f59e0b" strokeWidth="2.5" strokeOpacity="0.9"/>
-                        {Array.from({length:numTicks}).map((_,ti) => {
-                          const frac=(ti+1)/(numTicks+1);
-                          const tx=p1.x+(p2.x-p1.x)*frac, ty=p1.y+(p2.y-p1.y)*frac;
-                          const tp=perpTick({x:tx,y:ty},p2,5);
-                          return <line key={ti} x1={tp.x1} y1={tp.y1} x2={tp.x2} y2={tp.y2}
-                            stroke="#f59e0b" strokeWidth="1" strokeOpacity="0.45"/>;
-                        })}
-                        <g transform={`translate(${midX},${midY})`}>
-                          <rect x="-46" y="-28" width="92" height="50" rx="10"
-                            fill="rgba(0,0,0,0.92)" stroke="#f59e0b" strokeWidth="1.2"/>
-                          <text x="0" y="-8" fill="#f59e0b" fontSize="13" fontWeight="bold"
-                            textAnchor="middle" fontFamily="system-ui">{distLabel}</text>
-                          <text x="0" y="10" fill="rgba(245,158,11,0.55)" fontSize="8.5"
-                            textAnchor="middle" fontFamily="system-ui">
-                            {pd.toFixed(0)} px · {angle.toFixed(1)}°
-                          </text>
-                        </g>
-                      </g>
-                    );
-                  })()}
-                </g>
-              )}
-
               {/* ── Ruler tool ── */}
               {rulerPts.length>0 && (()=>{
                 const p1=rulerPts[0], p2=rulerPts[1]??liveRuler;
@@ -2191,7 +2028,7 @@ function CephCanvas({
             {landmarks.length>0 && <span><span className="text-white/50">{landmarks.length}</span> pts</span>}
             <span>Zoom <span className="text-white/50">{Math.round(zoom*100)}%</span></span>
             <span className="hidden lg:flex items-center gap-1">
-              {["S","H","R","A","C","F","X"].map(k => (
+              {["S","H","R","A","F","X","C=Calib"].map(k => (
                 <kbd key={k} className="bg-white/8 px-1 py-0.5 rounded text-[8px]">{k}</kbd>
               ))}
             </span>

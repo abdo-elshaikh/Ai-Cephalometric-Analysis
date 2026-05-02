@@ -40,7 +40,8 @@ const NAV_ITEMS = [
   { label: "Patients", href: "/patients", icon: Users },
   { label: "Cases", href: "/cases", icon: FolderKanban },
   { label: "Analysis", href: "/analysis", icon: Microscope },
-  { label: "Viewer", href: "/viewer", icon: ScanLine },
+  { label: "Calibrate", href: "/calibrate", icon: ScanLine },
+  { label: "Viewer", href: "/viewer", icon: Activity },
   { label: "Results", href: "/results", icon: BarChart3 },
   { label: "History", href: "/history", icon: History },
   { label: "Reports", href: "/reports", icon: FileText },
@@ -50,9 +51,9 @@ const NAV_ITEMS = [
 const NAV_SECTIONS = [
   { label: "Overview", items: NAV_ITEMS.slice(0, 1) },
   { label: "Records", items: NAV_ITEMS.slice(1, 3) },
-  { label: "Workflow", items: NAV_ITEMS.slice(3, 6) },
-  { label: "Outputs", items: NAV_ITEMS.slice(6, 8) },
-  { label: "System", items: NAV_ITEMS.slice(8) },
+  { label: "Workflow", items: NAV_ITEMS.slice(3, 7) },
+  { label: "Outputs", items: NAV_ITEMS.slice(7, 9) },
+  { label: "System", items: NAV_ITEMS.slice(9) },
 ];
 
 interface ShellProps {

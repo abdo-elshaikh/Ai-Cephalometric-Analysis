@@ -21,6 +21,7 @@ import PatientsPage from "@/pages/PatientsPage";
 import CasesPage from "@/pages/CasesPage";
 import AnalysisPage from "@/pages/AnalysisPage";
 import ViewerPage from "@/pages/ViewerPage";
+import CalibrationPage from "@/pages/CalibrationPage";
 import ResultsPage from "@/pages/ResultsPage";
 import HistoryPage from "@/pages/HistoryPage";
 import ReportsPage from "@/pages/ReportsPage";
@@ -186,7 +187,14 @@ function AppRoutes({
         <ProtectedRoute authUser={authUser}>
           <ViewerPage
             activeCase={activeCase} landmarks={landmarks} setLandmarks={setLandmarks}
-            overlays={overlayArtifacts} onCalibrate={calibrateActiveCase} onSaveAndSend={saveAndSend} onRefreshOverlays={refreshOverlays}
+            overlays={overlayArtifacts} onSaveAndSend={saveAndSend} onRefreshOverlays={refreshOverlays}
+          />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/calibrate">
+        <ProtectedRoute authUser={authUser}>
+          <CalibrationPage
+            activeCase={activeCase} landmarks={landmarks} onCalibrate={calibrateActiveCase}
           />
         </ProtectedRoute>
       </Route>
