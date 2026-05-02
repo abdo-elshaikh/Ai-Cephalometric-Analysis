@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useLocation } from "wouter";
 import {
-  Gauge, Users, FolderKanban, Microscope, ScanLine,
+  Gauge, Users, FolderKanban, Microscope,
   Activity, BarChart3, History, FileText, Settings,
   BookOpen, LockKeyhole, BrainCircuit, UserPlus, Plus,
   ArrowRight, Search,
@@ -22,18 +22,17 @@ import { cn } from "@/lib/utils";
 // ─── Navigation items ──────────────────────────────────────────────────────────
 
 const NAV_ITEMS = [
-  { label: "Dashboard",  href: "/",          icon: Gauge,        section: "Overview"  },
-  { label: "Patients",   href: "/patients",  icon: Users,        section: "Records"   },
-  { label: "Cases",      href: "/cases",     icon: FolderKanban, section: "Records"   },
-  { label: "Analysis",   href: "/analysis",  icon: Microscope,   section: "Workflow"  },
-  { label: "Calibrate",  href: "/calibrate", icon: ScanLine,     section: "Workflow"  },
-  { label: "Viewer",     href: "/viewer",    icon: Activity,     section: "Workflow"  },
-  { label: "Results",    href: "/results",   icon: BarChart3,    section: "Workflow"  },
-  { label: "History",    href: "/history",   icon: History,      section: "Outputs"   },
-  { label: "Reports",    href: "/reports",   icon: FileText,     section: "Outputs"   },
-  { label: "Settings",   href: "/settings",  icon: Settings,     section: "Platform"  },
-  { label: "User Guide", href: "/guide",     icon: BookOpen,     section: "Platform"  },
-  { label: "Account",    href: "/auth",      icon: LockKeyhole,  section: "Platform"  },
+  { label: "Dashboard",  href: "/",         icon: Gauge,        section: "Overview"  },
+  { label: "Patients",   href: "/patients", icon: Users,        section: "Records"   },
+  { label: "Cases",      href: "/cases",    icon: FolderKanban, section: "Records"   },
+  { label: "Analysis",   href: "/analysis", icon: Microscope,   section: "Workflow"  },
+  { label: "Viewer",     href: "/viewer",   icon: Activity,     section: "Workflow"  },
+  { label: "Results",    href: "/results",  icon: BarChart3,    section: "Workflow"  },
+  { label: "History",    href: "/history",  icon: History,      section: "Outputs"   },
+  { label: "Reports",    href: "/reports",  icon: FileText,     section: "Outputs"   },
+  { label: "Settings",   href: "/settings", icon: Settings,     section: "Platform"  },
+  { label: "User Guide", href: "/guide",    icon: BookOpen,     section: "Platform"  },
+  { label: "Account",    href: "/auth",     icon: LockKeyhole,  section: "Platform"  },
 ];
 
 // ─── Props ─────────────────────────────────────────────────────────────────────
@@ -204,7 +203,7 @@ export default function CommandPalette({
             className="gap-3 py-2.5"
           >
             <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-dashed border-border/60 bg-transparent">
-              <ScanLine className="h-3.5 w-3.5 text-muted-foreground" />
+              <Activity className="h-3.5 w-3.5 text-muted-foreground" />
             </div>
             <span className="font-medium text-sm">Open cephalometric viewer</span>
             <CommandShortcut>⌘V</CommandShortcut>

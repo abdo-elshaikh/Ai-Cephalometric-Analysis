@@ -10,7 +10,6 @@ import {
   Users,
   FolderKanban,
   Microscope,
-  ScanLine,
   BarChart3,
   History,
   FileText,
@@ -21,6 +20,7 @@ import {
   RefreshCw,
   Settings,
   BookOpen,
+  ShieldCheck,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { ThemeToggle } from "./ClinicalComponents";
@@ -45,10 +45,9 @@ const NAV_SECTIONS = [
   {
     label: "Workflow",
     items: [
-      { label: "Analysis",  href: "/analysis",  icon: Microscope },
-      { label: "Calibrate", href: "/calibrate", icon: ScanLine },
-      { label: "Viewer",    href: "/viewer",    icon: Activity },
-      { label: "Results",   href: "/results",   icon: BarChart3 },
+      { label: "Analysis", href: "/analysis", icon: Microscope },
+      { label: "Viewer",   href: "/viewer",   icon: Activity },
+      { label: "Results",  href: "/results",  icon: BarChart3 },
     ],
   },
   {
@@ -61,9 +60,8 @@ const NAV_SECTIONS = [
   {
     label: "Platform",
     items: [
-      { label: "Settings", href: "/settings", icon: Settings  },
-      { label: "Guide",    href: "/guide",    icon: BookOpen  },
-      { label: "Account",  href: "/auth",     icon: LockKeyhole },
+      { label: "Settings", href: "/settings", icon: Settings },
+      { label: "Guide",    href: "/guide",    icon: BookOpen },
     ],
   },
 ];
@@ -71,19 +69,39 @@ const NAV_SECTIONS = [
 // ─── Breadcrumb map ───────────────────────────────────────────────────────────
 
 const BREADCRUMB_MAP: Record<string, { section: string; page: string }> = {
-  "/":          { section: "Overview",  page: "Dashboard"  },
-  "/patients":  { section: "Records",   page: "Patients"   },
-  "/cases":     { section: "Records",   page: "Cases"      },
-  "/analysis":  { section: "Workflow",  page: "Analysis"   },
-  "/calibrate": { section: "Workflow",  page: "Calibrate"  },
-  "/viewer":    { section: "Workflow",  page: "Viewer"     },
-  "/results":   { section: "Workflow",  page: "Results"    },
-  "/history":   { section: "Outputs",   page: "History"    },
-  "/reports":   { section: "Outputs",   page: "Reports"    },
-  "/settings":  { section: "Platform",  page: "Settings"   },
-  "/guide":     { section: "Platform",  page: "Guide"      },
-  "/auth":      { section: "Platform",  page: "Account"    },
+  "/":          { section: "Overview",  page: "Dashboard" },
+  "/patients":  { section: "Records",   page: "Patients"  },
+  "/cases":     { section: "Records",   page: "Cases"     },
+  "/analysis":  { section: "Workflow",  page: "Analysis"  },
+  "/calibrate": { section: "Workflow",  page: "Calibrate" },
+  "/viewer":    { section: "Workflow",  page: "Viewer"    },
+  "/results":   { section: "Workflow",  page: "Results"   },
+  "/history":   { section: "Outputs",  page: "History"   },
+  "/reports":   { section: "Outputs",  page: "Reports"   },
+  "/settings":  { section: "Platform", page: "Settings"  },
+  "/guide":     { section: "Platform", page: "Guide"     },
 };
+
+// ─── Role badge helpers ────────────────────────────────────────────────────────
+
+function getRoleBadgeClass(role: string | undefined | null): string {
+  switch (role?.toLowerCase()) {
+    case "admin":
+      return "bg-amber-500/15 text-amber-400 border-amber-500/20";
+    case "clinician":
+    case "doctor":
+    case "orthodontist":
+      return "bg-primary/15 text-primary border-primary/20";
+    default:
+      return "bg-muted/50 text-sidebar-foreground/40 border-sidebar-border";
+  }
+}
+
+function getRoleLabel(role: string | undefined | null, isSignedIn: boolean): string {
+  if (!isSignedIn) return "Not signed in";
+  if (!role) return "Clinician";
+  return role.charAt(0).toUpperCase() + role.slice(1);
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -174,7 +192,8 @@ export default function Shell({
     : "G";
 
   const userName = authUser ? displayUserName(authUser) : "Guest";
-  const userRole = authUser?.role ?? (authUser ? "Doctor" : "Not signed in");
+  const userRole = getRoleLabel(authUser?.role, !!authUser);
+  const roleBadgeClass = getRoleBadgeClass(authUser?.role);
 
   // ── Sidebar contents (shared between mobile drawer and desktop) ────────────
   const SidebarContent = () => (
@@ -239,7 +258,15 @@ export default function Shell({
           </div>
           <div className="min-w-0 flex-1">
             <p className="truncate text-[12px] font-semibold text-sidebar-foreground leading-tight">{userName}</p>
-            <p className="truncate text-[10px] text-sidebar-foreground/40 leading-tight">{userRole}</p>
+            <span
+              className={cn(
+                "inline-flex items-center gap-1 mt-0.5 rounded-md border px-1.5 py-px text-[9px] font-semibold uppercase tracking-wider",
+                roleBadgeClass
+              )}
+            >
+              {authUser?.role?.toLowerCase() === "admin" && <ShieldCheck className="h-2.5 w-2.5" />}
+              {userRole}
+            </span>
           </div>
           <button
             type="button"

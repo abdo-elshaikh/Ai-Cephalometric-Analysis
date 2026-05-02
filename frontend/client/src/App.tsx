@@ -72,12 +72,26 @@ import {
 
 // ─── Routing Guards ──────────────────────────────────────────────────────────
 
+function AuthRedirectScreen() {
+  return (
+    <div className="flex h-[60vh] flex-col items-center justify-center gap-4 text-center">
+      <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-primary/20 bg-primary/10">
+        <ShieldCheck className="h-5 w-5 text-primary animate-pulse" />
+      </div>
+      <div>
+        <p className="text-sm font-medium text-foreground">Redirecting to sign in…</p>
+        <p className="mt-1 text-xs text-muted-foreground">Your session is not active.</p>
+      </div>
+    </div>
+  );
+}
+
 function ProtectedRoute({ 
   authUser, 
-  children 
+  children,
 }: { 
   authUser: BackendAuthUser | null; 
-  children: React.ReactNode 
+  children: React.ReactNode;
 }) {
   const [, navigate] = useLocation();
   
@@ -87,7 +101,7 @@ function ProtectedRoute({
     }
   }, [authUser, navigate]);
 
-  if (!authUser) return null;
+  if (!authUser) return <AuthRedirectScreen />;
   return <>{children}</>;
 }
 
@@ -258,6 +272,20 @@ export default function App() {
   const [editingPatient, setEditingPatient] = useState<Patient | null>(null);
   const [cmdPaletteOpen, setCmdPaletteOpen] = useState(false);
 
+  // ── Session expiry guard ─────────────────────────────────────────────────────
+  useEffect(() => {
+    cephApi.setOnAuthExpired(() => {
+      toast.error("Session expired — please sign in again.", { duration: 5000 });
+      setAuthUser(null);
+      setPatients([]); setCases([]); setReports([]); setHistory([]);
+      setLandmarks([]); setClinicalArtifacts(DEFAULT_ARTIFACTS); setOverlayArtifacts([]);
+      setActivePatientId(""); setActiveCaseId("");
+      setApiMode("checking");
+    });
+    return () => cephApi.clearOnAuthExpired();
+  }, []);
+
+  // ── Cmd+K handler ─────────────────────────────────────────────────────────────
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
@@ -511,17 +539,30 @@ export default function App() {
     return (
       <ThemeProvider defaultTheme="dark" switchable>
         <div className="flex h-screen items-center justify-center bg-background p-4">
-          <Card className="max-w-sm p-8 text-center border-border/40">
-            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl border border-primary/20 bg-primary/10">
-              <ShieldCheck className="h-5 w-5 text-primary" />
+          <div className="flex flex-col items-center gap-5 text-center">
+            {/* Animated logo mark */}
+            <div className="relative flex h-16 w-16 items-center justify-center">
+              <div className="absolute inset-0 rounded-2xl border border-primary/20 bg-primary/8 animate-pulse" />
+              <ShieldCheck className="h-7 w-7 text-primary relative z-10" />
             </div>
-            <h1 className="text-lg font-semibold text-foreground">
-              {routeBlocked ? "Redirecting…" : "Authenticating"}
-            </h1>
-            <p className="mt-1.5 text-sm text-muted-foreground">
-              {routeBlocked ? "Redirecting to secure gateway." : "Verifying clinical session."}
-            </p>
-          </Card>
+            {/* Spinner */}
+            <div className="flex items-center gap-2">
+              <div className="h-1 w-1 rounded-full bg-primary animate-bounce [animation-delay:-0.3s]" />
+              <div className="h-1 w-1 rounded-full bg-primary animate-bounce [animation-delay:-0.15s]" />
+              <div className="h-1 w-1 rounded-full bg-primary animate-bounce" />
+            </div>
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.25em] text-primary/50 mb-1">CephAI</p>
+              <p className="text-sm font-medium text-foreground">
+                {routeBlocked ? "Redirecting to sign in…" : "Verifying session"}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {routeBlocked
+                  ? "Authentication required to access this page."
+                  : "Loading your clinical workspace."}
+              </p>
+            </div>
+          </div>
         </div>
       </ThemeProvider>
     );

@@ -267,12 +267,18 @@ function authHeaders() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+// ─── Auth-expired callback (fires when 401 persists after token refresh) ───────
+let _onAuthExpired: (() => void) | null = null;
+
 function storeAuth(auth: BackendAuthResponse) {
   localStorage.setItem("accessToken", auth.accessToken);
   localStorage.setItem("refreshToken", auth.refreshToken);
   localStorage.setItem("cephai_access_token", auth.accessToken);
   localStorage.setItem("cephai_refresh_token", auth.refreshToken);
   localStorage.setItem("cephai_user", JSON.stringify(auth.user));
+  if (auth.expiresAt) {
+    localStorage.setItem("cephai_token_expiry", auth.expiresAt);
+  }
 }
 
 function clearAuth() {
@@ -281,6 +287,7 @@ function clearAuth() {
   localStorage.removeItem("cephai_access_token");
   localStorage.removeItem("cephai_refresh_token");
   localStorage.removeItem("cephai_user");
+  localStorage.removeItem("cephai_token_expiry");
 }
 
 let refreshPromise: Promise<boolean> | null = null;
@@ -289,7 +296,7 @@ function getRefreshToken() {
   return localStorage.getItem("refreshToken") || localStorage.getItem("cephai_refresh_token");
 }
 
-async function refreshAccessToken() {
+async function refreshAccessToken(): Promise<boolean> {
   const refreshToken = getRefreshToken();
   if (!refreshToken) return false;
 
@@ -299,12 +306,20 @@ async function refreshAccessToken() {
     body: JSON.stringify({ refreshToken }),
   })
     .then(async response => {
-      if (!response.ok) return false;
+      if (!response.ok) {
+        clearAuth();
+        _onAuthExpired?.();
+        return false;
+      }
       const auth = (await response.json()) as BackendAuthResponse;
       storeAuth(auth);
       return true;
     })
-    .catch(() => false)
+    .catch(() => {
+      clearAuth();
+      _onAuthExpired?.();
+      return false;
+    })
     .finally(() => {
       refreshPromise = null;
     });
@@ -341,8 +356,13 @@ async function apiRequest<T>(path: string, options: RequestOptions = {}): Promis
         !path.startsWith("/auth/register") &&
         !path.startsWith("/auth/refresh");
 
-      if (canRefresh && (await refreshAccessToken())) {
-        return apiRequest<T>(path, { ...options, skipRefresh: true });
+      if (canRefresh) {
+        const refreshed = await refreshAccessToken();
+        if (refreshed) {
+          return apiRequest<T>(path, { ...options, skipRefresh: true });
+        }
+        // refresh failed → already cleared auth and fired _onAuthExpired
+        return { ok: false, error: "Session expired. Please sign in again.", status: 401 };
       }
 
       let detail = response.statusText || "Request failed";
@@ -384,6 +404,32 @@ async function firstSettled<T>(task: Promise<ApiResult<T>>, fallback: T): Promis
 }
 
 export const cephApi = {
+  // ─── Auth-expired hook ──────────────────────────────────────────────────────
+  setOnAuthExpired(callback: () => void) {
+    _onAuthExpired = callback;
+  },
+
+  clearOnAuthExpired() {
+    _onAuthExpired = null;
+  },
+
+  // ─── Token expiry helpers ───────────────────────────────────────────────────
+  getTokenExpiry(): Date | null {
+    const raw = localStorage.getItem("cephai_token_expiry");
+    if (!raw) return null;
+    const d = new Date(raw);
+    return isNaN(d.getTime()) ? null : d;
+  },
+
+  isTokenExpired(): boolean {
+    // Google auth users don't use JWT expiry
+    if (localStorage.getItem("cephai_google_auth")) return false;
+    const expiry = this.getTokenExpiry();
+    if (!expiry) return false;
+    // Consider expired if within 60 seconds of actual expiry
+    return Date.now() >= expiry.getTime() - 60_000;
+  },
+
   getStoredUser(): BackendAuthUser | null {
     const raw = localStorage.getItem("cephai_user");
     if (!raw) return null;
@@ -395,7 +441,13 @@ export const cephApi = {
   },
 
   hasAccessToken() {
-    return Boolean(localStorage.getItem("accessToken") || localStorage.getItem("cephai_access_token"));
+    const hasToken = Boolean(
+      localStorage.getItem("accessToken") || localStorage.getItem("cephai_access_token")
+    );
+    if (!hasToken) return false;
+    // Google auth doesn't have a backend JWT expiry to check
+    if (localStorage.getItem("cephai_google_auth")) return true;
+    return !this.isTokenExpired();
   },
 
   async login(input: { email: string; password: string }) {
