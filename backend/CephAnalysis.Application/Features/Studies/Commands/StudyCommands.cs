@@ -174,71 +174,27 @@ public record DeleteStudyCommand(Guid StudyId, string DoctorId) : IRequest<Resul
 public class DeleteStudyHandler : IRequestHandler<DeleteStudyCommand, Result<Unit>>
 {
     private readonly IApplicationDbContext _db;
-    private readonly IStorageService       _storage;
+    private readonly IStorageManager       _storageManager;
 
-    public DeleteStudyHandler(IApplicationDbContext db, IStorageService storage)
+    public DeleteStudyHandler(IApplicationDbContext db, IStorageManager storageManager)
     {
-        _db      = db;
-        _storage = storage;
+        _db             = db;
+        _storageManager = storageManager;
     }
 
     public async Task<Result<Unit>> Handle(DeleteStudyCommand cmd, CancellationToken ct)
     {
         var study = await _db.Studies
-            .Include(s => s.XRayImages)
-                .ThenInclude(i => i.AnalysisSessions)
-                    .ThenInclude(a => a.Reports)
             .FirstOrDefaultAsync(s => s.Id == cmd.StudyId, ct);
 
         if (study is null) return Result<Unit>.NotFound("Study not found.");
         if (study.DoctorId.ToString() != cmd.DoctorId)
             return Result<Unit>.Unauthorized("You do not have access to this study.");
 
-        // ── 1. Collect all storage URLs to delete ───────────────────────────
-        var urlsToDelete = new HashSet<string>();
-        foreach (var img in study.XRayImages)
-        {
-            if (!string.IsNullOrWhiteSpace(img.StorageUrl))   urlsToDelete.Add(img.StorageUrl);
-            if (!string.IsNullOrWhiteSpace(img.ThumbnailUrl)) urlsToDelete.Add(img.ThumbnailUrl);
+        // ── 1. Cascade-delete all associated storage files in parallel ──────
+        await _storageManager.DeleteStudyAssetsAsync(cmd.StudyId, ct);
 
-            foreach (var session in img.AnalysisSessions)
-            {
-                if (!string.IsNullOrWhiteSpace(session.ResultImageUrl))
-                    urlsToDelete.Add(session.ResultImageUrl);
-
-                if (!string.IsNullOrWhiteSpace(session.OverlayImagesJson))
-                {
-                    try
-                    {
-                        var overlays = System.Text.Json.JsonSerializer.Deserialize<List<OverlayImageEntry>>(session.OverlayImagesJson);
-                        if (overlays != null)
-                        {
-                            foreach (var o in overlays)
-                            {
-                                if (!string.IsNullOrWhiteSpace(o.StorageUrl) && !o.StorageUrl.StartsWith("error:"))
-                                    urlsToDelete.Add(o.StorageUrl);
-                            }
-                        }
-                    }
-                    catch { /* ignore malformed json */ }
-                }
-
-                foreach (var report in session.Reports)
-                {
-                    if (!string.IsNullOrWhiteSpace(report.StorageUrl))
-                        urlsToDelete.Add(report.StorageUrl);
-                }
-            }
-        }
-
-        // ── 2. Delete from storage ──────────────────────────────────────────
-        foreach (var url in urlsToDelete)
-        {
-            try { await _storage.DeleteFileAsync(url, ct); }
-            catch { /* non-fatal */ }
-        }
-
-        // ── 3. Hard delete from database ────────────────────────────────────
+        // ── 2. Hard delete from database (EF cascade handles children) ──────
         _db.Studies.Remove(study);
         await _db.SaveChangesAsync(ct);
 

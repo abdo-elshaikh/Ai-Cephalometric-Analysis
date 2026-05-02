@@ -137,8 +137,11 @@ public class AiOverlayService : IMultiOverlayService
                 byte[] bytes = Convert.FromBase64String(img.ImageBase64);
                 await using var ms = new MemoryStream(bytes);
 
-                string path = $"overlays/{sessionId}/{img.Key}.jpg";
-                string url  = await _storage.UploadFileAsync(ms, path, "image/jpeg", ct);
+                string path = $"{img.Key}.jpg";
+                string url  = await _storage.UploadFileAsync(
+                    ms, path, "image/jpeg",
+                    new StorageOptions(StorageCategory.Overlay),
+                    ct);
 
                 entries.Add(new OverlayImageEntry(img.Key, img.Label, url, img.Width, img.Height));
             }

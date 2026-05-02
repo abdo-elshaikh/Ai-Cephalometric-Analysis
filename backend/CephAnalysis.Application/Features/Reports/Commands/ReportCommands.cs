@@ -123,10 +123,15 @@ public class GenerateReportHandler : IRequestHandler<GenerateReportCommand, Resu
         // Generate the PDF byte array using QuestPDF
         var pdfBytes = await _reportGenerator.GeneratePdfReportAsync(session, req, ct);
 
-        // Define a unique file name and store it
-        var fileName = $"reports/{cmd.SessionId}/report_{Guid.NewGuid():N}.pdf";
+        // Store the PDF under the patient's categorised report path
+        var patient = session.XRayImage.Study.Patient;
+        var opts = new StorageOptions(
+            StorageCategory.Report,
+            patient.Id,
+            session.XRayImage.Study.StudyDate);
+        var fileName = $"report_{Guid.NewGuid():N}.pdf";
         using var memoryStream = new MemoryStream(pdfBytes);
-        var storageUrl = await _storage.UploadFileAsync(memoryStream, fileName, "application/pdf", ct);
+        var storageUrl = await _storage.UploadFileAsync(memoryStream, fileName, "application/pdf", opts, ct);
 
         var report = new Report
         {

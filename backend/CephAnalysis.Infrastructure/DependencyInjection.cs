@@ -45,6 +45,7 @@ public static class DependencyInjection
 
         // ── Local Storage (dev default) ───────────────────────────────────
         services.AddScoped<IStorageService, LocalStorageService>();
+        services.AddScoped<IStorageManager, StorageManager>();
 
         // ── AI Service ────────────────────────────────────────────────────
         services.AddHttpClient<IAiService, Services.AiService>(client =>

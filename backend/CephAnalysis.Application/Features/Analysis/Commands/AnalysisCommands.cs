@@ -1037,8 +1037,11 @@ public class FinalizeAnalysisHandler : IRequestHandler<FinalizeAnalysisCommand, 
                 using var baseStream = await _storage.DownloadFileAsync(fullSession.XRayImage.StorageUrl, ct);
                 using var overlaidStream = await _imageOverlay.GenerateOverlaidImageAsync(baseStream, fullSession, ct);
                 
-                string snapshotPath = $"snapshots/{fullSession.Id}_markup.png";
-                var snapshotUrl = await _storage.UploadFileAsync(overlaidStream, snapshotPath, "image/png", ct);
+                string snapshotPath = $"{fullSession.Id}_markup.png";
+                var snapshotUrl = await _storage.UploadFileAsync(
+                    overlaidStream, snapshotPath, "image/png",
+                    new StorageOptions(StorageCategory.Overlay),
+                    ct);
                 
                 fullSession.ResultImageUrl = snapshotUrl;
                 fullSession.Status = SessionStatus.Finalized;

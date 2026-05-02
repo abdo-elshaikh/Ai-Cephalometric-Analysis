@@ -78,6 +78,49 @@ Only the **frontend** is configured as a workflow (port 5000). The backend and A
 6. **Review results** → ViewerPage → LandmarkViewer (drag landmarks)
 7. **Finalize & export** → ResultsPage → Generate Report
 
+## Backend Storage System
+
+### Categorised File Layout
+
+Files are stored as: `{base}/{patientId:N}/{yyyy-MM}/{category}/{guid}_{filename}`
+
+Categories: `xray`, `thumbnail`, `overlay`, `report`, `other`
+
+When no PatientId is provided (e.g. overlay from AI service), the path falls back to `{base}/{yyyy-MM}/{category}/{guid}_{filename}`.
+
+### Key Interfaces
+
+| Interface | Location | Purpose |
+|-----------|----------|---------|
+| `IStorageService` | `Application/Interfaces` | Upload, download, delete files. `UploadFileAsync` accepts optional `StorageOptions` for categorised paths. `DeleteFilesAsync` does parallel bulk deletion (max 8 concurrent). |
+| `IStorageManager` | `Application/Interfaces` | High-level cascade deletion. Queries DB to collect all URLs, then calls `IStorageService.DeleteFilesAsync`. Three methods: `DeletePatientAssetsAsync`, `DeleteStudyAssetsAsync`, `DeleteSessionAssetsAsync`. |
+| `LocalStorageService` | `Infrastructure/Storage` | Dev implementation of `IStorageService` using local filesystem. |
+| `StorageManager` | `Infrastructure/Storage` | Implementation of `IStorageManager`. |
+
+### Cascade Deletion Flow
+
+When a **Patient** is deleted:
+1. `DeletePatientHandler` calls `IStorageManager.DeletePatientAssetsAsync(patientId)`
+2. `StorageManager` queries all XRayImages → AnalysisSessions → Reports for that patient
+3. Collects all StorageUrls, ThumbnailUrls, ResultImageUrls, OverlayImagesJson entries, Report StorageUrls
+4. Calls `IStorageService.DeleteFilesAsync` (parallel, max 8 concurrent)
+5. EF cascade handles DB deletion
+
+Same pattern for **Study** deletion.
+
+### SkiaImageOverlayService Enhancements
+
+- **Defensive per-layer rendering**: each `Draw*` call is wrapped in `SafeDraw(try/catch)` so a single layer failure never aborts the whole render
+- **Enhanced patient header**: now includes MRN, study date, generation timestamp (UTC)
+- **Quality score badge**: top-right badge showing average landmark confidence with colour-coded progress bar (Excellent/Good/Moderate/Low)
+- **Uncalibrated watermark**: diagonal "UNCALIBRATED" banner drawn when `IsCalibrated == false`
+
+### QuestPdfReportGenerator Enhancements
+
+- **Risk Signals card**: executive summary metric card now shows abnormal count vs. total with colour coding (green=0, amber=1-3, red=4+)
+- **Landmark quality tone**: landmark count card colour-coded by low-confidence count
+- **Normative References section**: auto-generated at end of report, listing all cited literature sources for measurement categories present in the session
+
 ## Environment Variables
 
 See `.env.example`:

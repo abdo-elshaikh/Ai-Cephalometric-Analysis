@@ -246,79 +246,28 @@ public record DeletePatientCommand(Guid PatientId, string DoctorId, string UserR
 public class DeletePatientHandler : IRequestHandler<DeletePatientCommand, Result>
 {
     private readonly IApplicationDbContext _db;
-    private readonly IStorageService       _storage;
+    private readonly IStorageManager       _storageManager;
 
-    public DeletePatientHandler(IApplicationDbContext db, IStorageService storage)
+    public DeletePatientHandler(IApplicationDbContext db, IStorageManager storageManager)
     {
-        _db      = db;
-        _storage = storage;
+        _db             = db;
+        _storageManager = storageManager;
     }
 
     public async Task<Result> Handle(DeletePatientCommand cmd, CancellationToken ct)
     {
         var patient = await _db.Patients
-            .Include(p => p.Studies)
-                .ThenInclude(s => s.XRayImages)
-                    .ThenInclude(i => i.AnalysisSessions)
-                        .ThenInclude(a => a.Reports)
             .FirstOrDefaultAsync(p => p.Id == cmd.PatientId, ct);
 
         if (patient is null) return Result.NotFound("Patient not found.");
 
-        // Admin can delete any patient; doctors can only delete their own
         if (cmd.UserRole != "Admin" && patient.DoctorId.ToString() != cmd.DoctorId)
             return Result.Failure("You do not have permission to delete this patient.", 403);
 
-        // ── 1. Collect all storage URLs to delete ───────────────────────────
-        var urlsToDelete = new HashSet<string>();
-        
-        foreach (var study in patient.Studies)
-        {
-            foreach (var img in study.XRayImages)
-            {
-                if (!string.IsNullOrWhiteSpace(img.StorageUrl))   urlsToDelete.Add(img.StorageUrl);
-                if (!string.IsNullOrWhiteSpace(img.ThumbnailUrl)) urlsToDelete.Add(img.ThumbnailUrl);
+        // ── 1. Cascade-delete all associated storage files in parallel ──────
+        await _storageManager.DeletePatientAssetsAsync(cmd.PatientId, ct);
 
-                foreach (var session in img.AnalysisSessions)
-                {
-                    if (!string.IsNullOrWhiteSpace(session.ResultImageUrl))
-                        urlsToDelete.Add(session.ResultImageUrl);
-
-                    if (!string.IsNullOrWhiteSpace(session.OverlayImagesJson))
-                    {
-                        try
-                        {
-                            var overlays = System.Text.Json.JsonSerializer.Deserialize<List<OverlayImageEntry>>(session.OverlayImagesJson);
-                            if (overlays != null)
-                            {
-                                foreach (var o in overlays)
-                                {
-                                    if (!string.IsNullOrWhiteSpace(o.StorageUrl) && !o.StorageUrl.StartsWith("error:"))
-                                        urlsToDelete.Add(o.StorageUrl);
-                                }
-                            }
-                        }
-                        catch { /* ignore malformed json */ }
-                    }
-
-                    foreach (var report in session.Reports)
-                    {
-                        if (!string.IsNullOrWhiteSpace(report.StorageUrl))
-                            urlsToDelete.Add(report.StorageUrl);
-                    }
-                }
-            }
-        }
-
-        // ── 2. Delete from storage (fire and forget or sequential?) ─────────
-        // We'll do it sequentially or in a simple loop to ensure completion
-        foreach (var url in urlsToDelete)
-        {
-            try { await _storage.DeleteFileAsync(url, ct); }
-            catch { /* non-fatal if file already gone or storage down */ }
-        }
-
-        // ── 3. Hard delete from database (Cascade configured in DB handles children) ──
+        // ── 2. Hard delete from database (EF cascade handles children) ──────
         _db.Patients.Remove(patient);
         await _db.SaveChangesAsync(ct);
 

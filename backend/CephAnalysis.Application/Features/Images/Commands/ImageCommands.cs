@@ -66,8 +66,9 @@ public class UploadImageHandler : IRequestHandler<UploadImageCommand, Result<XRa
             return Result<XRayImageDto>.Failure("File content does not match a supported medical image format (DICOM/JPEG/PNG).", 400);
         }
 
-        // Upload to storage provider
-        var storageUrl = await _storage.UploadFileAsync(req.FileStream, req.FileName, req.ContentType, ct);
+        // Upload to storage provider under the patient's categorised path
+        var opts = new StorageOptions(StorageCategory.Xray, study.PatientId, study.StudyDate);
+        var storageUrl = await _storage.UploadFileAsync(req.FileStream, req.FileName, req.ContentType, opts, ct);
 
         var fileFormat = Path.GetExtension(req.FileName).ToLowerInvariant() switch
         {

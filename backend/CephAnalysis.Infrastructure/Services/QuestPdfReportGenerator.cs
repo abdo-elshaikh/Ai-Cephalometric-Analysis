@@ -329,6 +329,78 @@ public sealed class QuestPdfReportGenerator(
 
             ComposeSection(column, context, "Clinical Governance", "Review, limitations, and sign-off",
                 c => ComposeGovernance(c, session, request));
+
+            var usedCategories = session.Measurements
+                .Where(m => m.Category.HasValue)
+                .Select(m => m.Category!.Value.ToString())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Where(cat => CategoryReferences.ContainsKey(cat))
+                .ToList();
+
+            if (usedCategories.Count > 0)
+            {
+                ComposeSection(column, context, "Normative References", "Literature sources for reported norms",
+                    c => ComposeNormativeReferences(c, usedCategories));
+            }
+        });
+    }
+
+    private static void ComposeNormativeReferences(IContainer container, IReadOnlyList<string> usedCategories)
+    {
+        container.Column(col =>
+        {
+            col.Spacing(5);
+
+            col.Item().Text("All measurement norms referenced in this report are derived from the following peer-reviewed literature and protocol sources.")
+                .FontSize(8.2f)
+                .FontColor(Palette.Muted)
+                .LineHeight(1.35f);
+
+            col.Item().PaddingTop(4).Column(refs =>
+            {
+                refs.Spacing(4);
+
+                foreach (var cat in usedCategories.OrderBy(c => c, StringComparer.OrdinalIgnoreCase))
+                {
+                    if (!CategoryReferences.TryGetValue(cat, out var citation)) continue;
+
+                    refs.Item().Row(row =>
+                    {
+                        row.ConstantItem(5)
+                            .Height(5)
+                            .AlignMiddle()
+                            .Background(Palette.Brand);
+
+                        row.RelativeItem()
+                            .PaddingLeft(8)
+                            .Column(entry =>
+                            {
+                                entry.Item().Text(cat)
+                                    .FontSize(7.8f)
+                                    .Bold()
+                                    .FontColor(Palette.Navy);
+
+                                entry.Item().PaddingTop(1).Text(citation)
+                                    .FontSize(7.5f)
+                                    .Italic()
+                                    .FontColor(Palette.InkSoft)
+                                    .LineHeight(1.3f);
+                            });
+                    });
+                }
+            });
+
+            col.Item().PaddingTop(6)
+                .Background(Palette.Panel)
+                .Border(0.5f)
+                .BorderColor(Palette.BorderSoft)
+                .Padding(8)
+                .Text("This report was generated using the CephAI automated cephalometric analysis platform. " +
+                      "All measurements and classifications are produced by AI-assisted analysis and must be reviewed " +
+                      "and validated by a licensed clinician prior to use in diagnosis or treatment planning.")
+                .FontSize(7.5f)
+                .FontColor(Palette.Muted)
+                .LineHeight(1.35f);
         });
     }
 
@@ -388,9 +460,11 @@ public sealed class QuestPdfReportGenerator(
 
                 column.Item().Row(row =>
                 {
+                    var abnormalTone = abnormalCount == 0 ? Palette.Green : abnormalCount <= 3 ? Palette.Amber : Palette.Red;
+                    var landmarkTone = lowConfidenceCount == 0 ? Palette.Brand : lowConfidenceCount <= 2 ? Palette.Amber : Palette.Red;
                     MetricCard(row.RelativeItem(), "AI Confidence", FormatPercent(confidence, "Pending"), ConfidenceTone(confidence), "Diagnosis confidence");
-                    MetricCard(row.RelativeItem(), "Measurements", session.Measurements.Count.ToString(), Palette.Blue, $"{abnormalCount} outside normal");
-                    MetricCard(row.RelativeItem(), "Landmarks", session.Landmarks.Count.ToString(), Palette.Brand, $"{lowConfidenceCount} low confidence");
+                    MetricCard(row.RelativeItem(), "Risk Signals", abnormalCount.ToString(), abnormalTone, $"{abnormalCount}/{session.Measurements.Count} outside normal");
+                    MetricCard(row.RelativeItem(), "Landmarks", session.Landmarks.Count.ToString(), landmarkTone, $"{lowConfidenceCount} low confidence");
                     MetricCard(row.RelativeItem(), "Runtime", FormatDuration(session.TotalDurationMs ?? session.InferenceDurationMs), Palette.Violet, EmptyToDash(session.ModelVersion));
                 });
             });

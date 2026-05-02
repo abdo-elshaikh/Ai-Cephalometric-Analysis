@@ -141,25 +141,37 @@ public sealed class SkiaImageOverlayService : IImageOverlayService
         var ctx = OverlayContext.Create(session, bitmap.Width, bitmap.Height);
         using var canvas = new SKCanvas(bitmap);
 
-        DrawReadabilityLayer(canvas, ctx);
-        DrawExtendedSkeletalPlanes(canvas, ctx);
-        DrawAnatomicalOutlines(canvas, ctx);
-        DrawPharyngealAirway(canvas, ctx);
-        DrawAnatomicalProfileSpline(canvas, ctx);
-        DrawSoftTissueLines(canvas, ctx);
-        DrawDentalAxes(canvas, ctx);
-        DrawClinicalAppraisals(canvas, ctx);
-        DrawAngleArcSectors(canvas, ctx);
-        DrawBjorkGrowthVector(canvas, ctx);
-        DrawLandmarkPoints(canvas, ctx);
-        DrawMeasurementCallouts(canvas, ctx);
-        DrawOnImageLegend(canvas, ctx);
-        DrawCalibrationRuler(canvas, ctx);
-        DrawPatientHeader(canvas, ctx);
+        // Each layer is wrapped in try/catch so a single rendering failure
+        // never aborts the whole image — remaining layers still render.
+        SafeDraw(canvas, ctx, DrawReadabilityLayer);
+        SafeDraw(canvas, ctx, DrawExtendedSkeletalPlanes);
+        SafeDraw(canvas, ctx, DrawAnatomicalOutlines);
+        SafeDraw(canvas, ctx, DrawPharyngealAirway);
+        SafeDraw(canvas, ctx, DrawAnatomicalProfileSpline);
+        SafeDraw(canvas, ctx, DrawSoftTissueLines);
+        SafeDraw(canvas, ctx, DrawDentalAxes);
+        SafeDraw(canvas, ctx, DrawClinicalAppraisals);
+        SafeDraw(canvas, ctx, DrawAngleArcSectors);
+        SafeDraw(canvas, ctx, DrawBjorkGrowthVector);
+        SafeDraw(canvas, ctx, DrawLandmarkPoints);
+        SafeDraw(canvas, ctx, DrawMeasurementCallouts);
+        SafeDraw(canvas, ctx, DrawOnImageLegend);
+        SafeDraw(canvas, ctx, DrawCalibrationRuler);
+        SafeDraw(canvas, ctx, DrawQualityScoreBadge);
+        SafeDraw(canvas, ctx, DrawPatientHeader);
+
+        if (session.XRayImage?.IsCalibrated == false)
+            SafeDraw(canvas, ctx, DrawUncalibratedWatermark);
 
         using var image = SKImage.FromBitmap(bitmap);
         using var encoded = image.Encode(SKEncodedImageFormat.Png, 100);
         return new MemoryStream(encoded?.ToArray() ?? sourceBytes, writable: false);
+    }
+
+    private static void SafeDraw(SKCanvas canvas, OverlayContext ctx, Action<SKCanvas, OverlayContext> draw)
+    {
+        try { draw(canvas, ctx); }
+        catch { /* rendering layer failed — continue with remaining layers */ }
     }
 
     private static void DrawReadabilityLayer(SKCanvas canvas, OverlayContext ctx)
@@ -195,33 +207,114 @@ public sealed class SkiaImageOverlayService : IImageOverlayService
         var patient = ctx.Session.XRayImage?.Study?.Patient;
         var image = ctx.Session.XRayImage;
         var name = patient?.FullName ?? "Unknown Patient";
+        var mrn = patient?.MedicalRecordNo is { Length: > 0 } m ? $"  MRN: {m}" : string.Empty;
         var gender = patient?.Gender.ToString() ?? "U";
         var age = patient is null ? "--Y" : $"{patient.Age}Y";
-        var confidence = ctx.Session.Diagnosis?.ConfidenceScore;
-        var confidenceText = confidence.HasValue ? $"{NormalizePercent(confidence.Value):P0}" : "pending";
+        var studyDate = image?.Study?.StudyDate is { } sd ? sd.ToString("dd MMM yyyy") : "—";
+        var generatedAt = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm") + " UTC";
 
         var pad = Math.Max(12f, ctx.ImageWidth * 0.012f);
-        var panelWidth = Math.Min(ctx.ImageWidth * 0.62f, 620f * (fs.F13 / 13f));
-        var panelHeight = fs.F18 + fs.F11 + pad * 2.5f;
+        var panelWidth = Math.Min(ctx.ImageWidth * 0.72f, 720f * (fs.F13 / 13f));
+        var panelHeight = fs.F18 + fs.F11 * 2f + pad * 2.8f;
 
-        using var bg = new SKPaint { IsAntialias = true, Color = new SKColor(2, 6, 23, 215) };
+        using var bg = new SKPaint { IsAntialias = true, Color = new SKColor(2, 6, 23, 220) };
         canvas.DrawRoundRect(new SKRect(0, 0, panelWidth, panelHeight), 0, 0, bg);
 
-        using var accent = new SKPaint { IsAntialias = true, Color = ColAdvanced.WithAlpha(220), StrokeWidth = 3f };
-        canvas.DrawLine(0, panelHeight - 1.5f, panelWidth, panelHeight - 1.5f, accent);
+        using var accent = new SKPaint
+        {
+            IsAntialias = true,
+            Color = ColAdvanced.WithAlpha(230),
+            Style = SKPaintStyle.Fill,
+        };
+        canvas.DrawRect(0, 0, 4f, panelHeight, accent);
 
         using var titleFont = new SKFont(SKTypeface.Default, fs.F18) { Embolden = true };
         using var textFont = new SKFont(SKTypeface.Default, fs.F11);
+        using var dimFont = new SKFont(SKTypeface.Default, fs.F9);
         using var titlePaint = new SKPaint { IsAntialias = true, Color = SKColors.White };
-        using var softPaint = new SKPaint { IsAntialias = true, Color = new SKColor(190, 230, 245, 225) };
+        using var softPaint = new SKPaint { IsAntialias = true, Color = new SKColor(190, 230, 245, 230) };
+        using var dimPaint = new SKPaint { IsAntialias = true, Color = new SKColor(148, 163, 184, 200) };
 
-        canvas.DrawText("CephAI tracing overlay", pad, pad + fs.F18, titleFont, titlePaint);
-        canvas.DrawText($"{name} ({age}, {gender})  |  {ctx.Session.AnalysisType}  |  AI {confidenceText}", pad, pad + fs.F18 + fs.F11 + 5f, textFont, softPaint);
+        var tx = pad + 6f;
+        canvas.DrawText("CephAI Tracing Overlay", tx, pad + fs.F18, titleFont, titlePaint);
+        canvas.DrawText($"{name}{mrn}  ·  {age}  ·  {gender}  ·  {ctx.Session.AnalysisType}", tx, pad + fs.F18 + fs.F11 + 5f, textFont, softPaint);
+        canvas.DrawText($"Study date: {studyDate}  ·  Generated: {generatedAt}", tx, pad + fs.F18 + fs.F11 * 2f + 8f, dimFont, dimPaint);
 
-        var calibration = image?.IsCalibrated == true && ctx.PixelSpacingMm.HasValue
-            ? $"Calibrated {ctx.PixelSpacingMm:0.####} mm/px"
-            : "Calibration unavailable";
-        DrawPillLabel(canvas, panelWidth + pad, pad + fs.F15, calibration, image?.IsCalibrated == true ? ColNormal : ColIncreased, fs.F11);
+        var calibrationLabel = image?.IsCalibrated == true && ctx.PixelSpacingMm.HasValue
+            ? $"✓ Calibrated  {ctx.PixelSpacingMm.Value:0.0000} mm/px"
+            : "⚠ Not calibrated";
+        DrawPillLabel(
+            canvas,
+            panelWidth + pad,
+            pad + fs.F15,
+            calibrationLabel,
+            image?.IsCalibrated == true ? ColNormal : ColIncreased,
+            fs.F11);
+    }
+
+    private static void DrawQualityScoreBadge(SKCanvas canvas, OverlayContext ctx)
+    {
+        if (ctx.Landmarks.Count == 0) return;
+
+        var avgConfidence = ctx.Landmarks.Values
+            .Where(l => l.ConfidenceScore.HasValue)
+            .Select(l => NormalizePercent(l.ConfidenceScore!.Value))
+            .DefaultIfEmpty(0.75m)
+            .Average();
+
+        var score = (float)avgConfidence;
+        var label = score >= 0.90f ? "Excellent" : score >= 0.80f ? "Good" : score >= 0.65f ? "Moderate" : "Low";
+        var color = score >= 0.85f ? ColNormal : score >= 0.70f ? ColIncreased : ColDecreased;
+        var fs = ctx.Fonts;
+
+        var x = ctx.ImageWidth - Math.Max(100f, fs.F11 * 9f);
+        var y = ctx.ImageHeight * 0.12f;
+        var badgeW = Math.Max(90f, fs.F11 * 8f);
+        var badgeH = fs.F18 + fs.F11 + fs.F9 + 20f;
+
+        using var bg = new SKPaint { IsAntialias = true, Color = new SKColor(2, 6, 23, 215) };
+        canvas.DrawRoundRect(new SKRect(x, y, x + badgeW, y + badgeH), 8f, 8f, bg);
+
+        using var border = Stroke(color.WithAlpha(200), 1.5f);
+        canvas.DrawRoundRect(new SKRect(x, y, x + badgeW, y + badgeH), 8f, 8f, border);
+
+        using var scoreFont = new SKFont(SKTypeface.Default, fs.F18) { Embolden = true };
+        using var labelFont = new SKFont(SKTypeface.Default, fs.F9);
+        using var titleFont = new SKFont(SKTypeface.Default, fs.F9);
+        using var scorePaint = new SKPaint { IsAntialias = true, Color = color };
+        using var labelPaint = new SKPaint { IsAntialias = true, Color = SKColors.White.WithAlpha(225) };
+        using var titlePaint = new SKPaint { IsAntialias = true, Color = new SKColor(148, 163, 184, 200) };
+
+        canvas.DrawText("AI QUALITY", x + 7f, y + fs.F9 + 5f, titleFont, titlePaint);
+        canvas.DrawText($"{score:P0}", x + 7f, y + fs.F9 + 8f + fs.F18, scoreFont, scorePaint);
+        canvas.DrawText(label, x + 7f, y + fs.F9 + 12f + fs.F18 + fs.F11, labelFont, labelPaint);
+
+        var barW = badgeW - 14f;
+        var barY = y + badgeH - 7f;
+        using var barBg = new SKPaint { IsAntialias = true, Color = new SKColor(30, 41, 59, 200) };
+        canvas.DrawRoundRect(new SKRect(x + 7f, barY, x + 7f + barW, barY + 4f), 2f, 2f, barBg);
+        using var barFill = new SKPaint { IsAntialias = true, Color = color.WithAlpha(220) };
+        canvas.DrawRoundRect(new SKRect(x + 7f, barY, x + 7f + barW * score, barY + 4f), 2f, 2f, barFill);
+    }
+
+    private static void DrawUncalibratedWatermark(SKCanvas canvas, OverlayContext ctx)
+    {
+        var text = "UNCALIBRATED — MEASUREMENTS NOT TO SCALE";
+        var fs = ctx.Fonts;
+
+        canvas.Save();
+        canvas.Translate(ctx.ImageWidth / 2f, ctx.ImageHeight / 2f);
+        canvas.RotateDegrees(-28f);
+
+        using var font = new SKFont(SKTypeface.Default, fs.F13 * 2.2f) { Embolden = true };
+        using var shadow = new SKPaint { IsAntialias = true, Color = new SKColor(0, 0, 0, 110) };
+        using var paint = new SKPaint { IsAntialias = true, Color = ColIncreased.WithAlpha(95) };
+
+        var tw = font.MeasureText(text);
+        canvas.DrawText(text, -tw / 2f + 2f, 2f, font, shadow);
+        canvas.DrawText(text, -tw / 2f, 0f, font, paint);
+
+        canvas.Restore();
     }
 
     private static void DrawExtendedSkeletalPlanes(SKCanvas canvas, OverlayContext ctx)
