@@ -52,11 +52,13 @@ C_ORANGE  = (234,  88,  12)
 C_RED     = (220,  38,  38)
 C_BLUE    = ( 37,  99, 235)
 
-ANAT_COLOR      = (200, 200, 200)
-SKELETAL_COLOR  = C_RED
-DENTAL_COLOR    = C_BLUE
-C_TRACING       = (  0,   0,   0)
-SOFT_TISSUE_TRACE = C_GREEN
+ANAT_COLOR        = (200, 200, 200)
+ANAT_COLOR_GREEN  = (  0, 185,   0)   # PointNix green anatomy (Image 1)
+SKELETAL_COLOR    = (140,   0, 210)   # Purple – Steiner/analysis lines
+DENTAL_COLOR      = C_BLUE
+C_TRACING         = (  0,   0,   0)
+SOFT_TISSUE_TRACE = ANAT_COLOR_GREEN  # green in Image 1
+SOFT_TISSUE_RED   = (160,   0,   0)   # dark red in Images 2 & 4
 
 def _apply_clahe_to_pil(img: Image.Image) -> Image.Image:
     """Enhance X-ray visibility using CLAHE so landmarks pop."""
@@ -84,6 +86,23 @@ STATUS_COLOR = {
     "Increased": C_ORANGE,
     "Decreased": C_RED,
     "Severe":    C_RED,
+}
+
+# PointNix measurement-value colour map (matches reference images exactly)
+MVAL_COLOR: dict[str, tuple] = {
+    "SNA":      C_GREEN,
+    "ANB":      (  0,  90, 210),   # blue
+    "SNB":      C_ORANGE,
+    "SN_MP":    C_ORANGE,
+    "FMA":      C_ORANGE,
+    "UI_SN":    C_GREEN,
+    "UI_NA_MM": C_GREEN,
+    "LI_NB_MM": C_RED,
+    "LI_MP":    C_RED,
+    "OVERJET":  C_GREEN,
+    "OVERBITE": C_GREEN,
+    "LS_ELINE": C_ORANGE,
+    "LI_ELINE": C_RED,
 }
 
 # Status icons (safe ASCII/unicode)
@@ -324,6 +343,28 @@ def _draw_label_with_bg(draw: ImageDraw.ImageDraw, text: str,
 
 # alias for backward compat with internal callers
 _draw_label_with_box = _draw_label_with_bg
+
+
+def _draw_plain_value(
+    draw: ImageDraw.ImageDraw,
+    value: float,
+    unit: str,
+    pos: tuple,
+    color: tuple,
+    font: ImageFont.ImageFont,
+):
+    """
+    Render a measurement value in PointNix style:
+    plain bold colored text, no background box.
+    e.g.  "82.69 °"  or  "4.26"
+    """
+    if unit in ("°", "deg"):
+        txt = f"{value:.2f} °"
+    elif unit in ("mm",):
+        txt = f"{value:.2f}"
+    else:
+        txt = f"{value:.2f} {unit}"
+    draw.text(pos, txt, font=font, fill=(*color, 255))
 
 
 def _to_jpeg(img: Image.Image, quality: int = 95) -> bytes:
@@ -964,64 +1005,37 @@ def _render_wiggle_matplotlib(
     show_value_triplet: bool = True,
 ) -> Image.Image:
     """
-    Render a full Björk–Skieller wiggle chart using matplotlib.
+    PointNix-style Björk–Skieller wiggle chart.
 
-    Features (v2):
-      • Coloured group-band background stripes
-      • σ column headers with clinical labels
-      • Redline + circular markers, arrowheads for extreme deviations
-      • Value triplet column: σ | patient value | norm
-      • Compact, professional typography
+    Layout (matches Yasmin reference Image 3):
+      LEFT  – value triplet column: "-σ  norm  +σ"  (e.g. "-2  82  2")
+      CENTRE– green grid with σ column headers (-3σ 2σ -σ m σ 2σ 3σ)
+      RIGHT – measurement names in green bold
+      RED   – polyline connecting deviation dots
     """
     if not measurements:
         return Image.new("RGB", (width_px, height_px), C_WHITE)
 
-    n         = len(measurements)
-    fig_w     = width_px  / dpi
-    fig_h     = height_px / dpi
-    fig, ax   = plt.subplots(figsize=(fig_w, fig_h), dpi=dpi)
+    n       = len(measurements)
+    fig_w   = width_px  / dpi
+    fig_h   = height_px / dpi
+
+    # Two-panel layout: left triplet panel + right chart+names panel
+    fig, (ax_l, ax_r) = plt.subplots(
+        1, 2,
+        figsize=(fig_w, fig_h),
+        dpi=dpi,
+        gridspec_kw={"width_ratios": [1, 2.8]},
+    )
     fig.patch.set_facecolor("white")
-    ax.set_facecolor("white")
+    for ax in (ax_l, ax_r):
+        ax.set_facecolor("white")
 
-    # ── Group colour bands ──────────────────────────────────────────────────
-    GROUP_PALETTE = [
-        "#f0fdf4",   # light green
-        "#eff6ff",   # light blue
-        "#fff7ed",   # light amber
-        "#fdf4ff",   # light purple
-        "#f0f9ff",   # sky
-    ]
-    if show_group_bands:
-        current_group = None
-        group_idx     = -1
-        group_ranges: list[tuple[int, int, str]] = []
-        band_start    = 0
-        for i, m in enumerate(measurements):
-            g = m.group_name or "General"
-            if g != current_group:
-                if current_group is not None:
-                    group_ranges.append((band_start, i-1, current_group))
-                current_group = g
-                group_idx    += 1
-                band_start    = i
-        group_ranges.append((band_start, n-1, current_group or "General"))
-
-        for (g_start, g_end, g_name), palette_color in zip(
-            group_ranges, GROUP_PALETTE * 4
-        ):
-            ax.axhspan(g_start - 0.5, g_end + 0.5,
-                       facecolor=palette_color, alpha=0.6, zorder=0)
-            ax.text(-3.95, (g_start + g_end) / 2, g_name,
-                    fontsize=6.5, color="#6b7280", va="center",
-                    fontstyle="italic", zorder=1)
-
-    # ── σ values and data ───────────────────────────────────────────────────
-    sigmas   = []
-    y_pos    = np.arange(n)
-    colors   = []
+    # ── σ values and colours ────────────────────────────────────────────────
+    sigmas, colors, y_pos = [], [], np.arange(n)
     for m in measurements:
-        sd    = m.std_deviation or 1.0
-        sig   = m.difference / sd
+        sd  = m.std_deviation or 1.0
+        sig = m.difference / sd
         sigmas.append(max(-3.5, min(3.5, sig)))
         colors.append(
             "#059669" if m.status == "Normal"
@@ -1029,67 +1043,110 @@ def _render_wiggle_matplotlib(
             else "#dc2626"
         )
 
-    # ── Grid ────────────────────────────────────────────────────────────────
-    ax.set_xlim(-4.2, 4.8)
-    ax.set_ylim(-0.5, n - 0.5)
-    ax.set_xticks([-3, -2, -1, 0, 1, 2, 3])
-    ax.set_xticklabels(["-3σ", "-2σ", "-σ", "m", "+σ", "+2σ", "+3σ"],
-                        fontsize=8, color="#059669")
+    # ── LEFT panel: value triplets "-σ norm +σ" ─────────────────────────────
+    ax_l.set_xlim(0, 1)
+    ax_l.set_ylim(-0.5, n - 0.5)
+    ax_l.axis("off")
+    ax_l.invert_yaxis()
+
+    # Header row
+    ax_l.text(0.5, -0.7, "-3σ2σ-σ  m  σ 2σ3σ",
+              fontsize=7, color="#059669", ha="center", va="center",
+              fontweight="bold")
+
+    for i, m in enumerate(measurements):
+        sd     = m.std_deviation or 1.0
+        sig_v  = m.difference / sd
+        # PointNix triplet: lower_bound  norm  upper_bound (integer steps)
+        lo_str = f"-{int(round(abs(m.std_deviation)))}"
+        hi_str = f"{int(round(abs(m.std_deviation)))}"
+        norm_str = f"{m.normal_value:.0f}"
+        triplet  = f"{lo_str} {norm_str} {hi_str}"
+        ax_l.text(0.5, i, triplet,
+                  fontsize=8.5, color="#059669", ha="center", va="center",
+                  fontweight="bold")
+
+    # Group band labels on far left
+    if show_group_bands:
+        current_group, band_start = None, 0
+        group_ranges: list[tuple[int, int, str]] = []
+        for i, m in enumerate(measurements):
+            g = m.group_name or "General"
+            if g != current_group:
+                if current_group is not None:
+                    group_ranges.append((band_start, i - 1, current_group))
+                current_group, band_start = g, i
+        group_ranges.append((band_start, n - 1, current_group or "General"))
+
+    # ── RIGHT panel: grid + polyline + names ─────────────────────────────────
+    ax_r.set_xlim(-3.8, 5.6)
+    ax_r.set_ylim(-0.5, n - 0.5)
+    ax_r.invert_yaxis()
+
+    # Group colour bands
+    GROUP_PALETTE = ["#f0fdf4", "#eff6ff", "#fff7ed", "#fdf4ff", "#f0f9ff"]
+    if show_group_bands:
+        for (g_start, g_end, g_name), pal in zip(group_ranges, GROUP_PALETTE * 4):
+            ax_r.axhspan(g_start - 0.5, g_end + 0.5,
+                         facecolor=pal, alpha=0.5, zorder=0)
+
+    # Vertical σ grid lines
     for sv in [-3, -2, -1, 0, 1, 2, 3]:
-        lw  = 1.5 if sv == 0 else 0.6
-        ls  = "-" if sv == 0 else "--"
-        alp = 0.5 if sv == 0 else 0.25
-        ax.axvline(sv, color="#059669", linewidth=lw, linestyle=ls, alpha=alp, zorder=1)
+        lw  = 1.4 if sv == 0 else 0.7
+        ls  = "-"  if sv == 0 else "--"
+        alp = 0.6  if sv == 0 else 0.3
+        ax_r.axvline(sv, color="#059669", linewidth=lw, linestyle=ls, alpha=alp, zorder=1)
+        # Horizontal tick lines per row
+    for i in range(n):
+        for sv in [-3, -2, -1, 0, 1, 2, 3]:
+            ax_r.plot(sv, i, "+", markersize=5, color="#059669",
+                      markeredgewidth=0.8, alpha=0.5, zorder=1)
 
-    # ── Red polyline ────────────────────────────────────────────────────────
-    ax.plot(sigmas, y_pos, color="#dc2626", linewidth=2.2,
-            zorder=3, solid_capstyle="round", solid_joinstyle="round")
+    # σ column headers
+    ax_r.set_xticks([-3, -2, -1, 0, 1, 2, 3])
+    ax_r.set_xticklabels(["-3σ", "-2σ", "-σ", "m", "σ", "2σ", "3σ"],
+                          fontsize=8, color="#059669")
+    ax_r.tick_params(axis="x", which="both", length=0, pad=2)
 
-    # ── Markers ─────────────────────────────────────────────────────────────
+    # Red polyline + dots
+    ax_r.plot(sigmas, y_pos, color="#dc2626", linewidth=2.2,
+              zorder=3, solid_capstyle="round", solid_joinstyle="round")
     for i, (sig, col) in enumerate(zip(sigmas, colors)):
-        ax.plot(sig, i, "o", markersize=7, color=col,
-                markeredgecolor="white", markeredgewidth=1.0, zorder=4)
         if abs(sig) >= 3.3:
             direction = 1 if sig > 0 else -1
-            ax.annotate("", xy=(sig + direction*0.3, i),
-                         xytext=(sig, i),
-                         arrowprops=dict(arrowstyle="->", color=col, lw=1.5))
+            ax_r.annotate(
+                "", xy=(sig + direction * 0.35, i), xytext=(sig, i),
+                arrowprops=dict(arrowstyle="->", color="#dc2626", lw=1.5),
+            )
+        else:
+            ax_r.plot(sig, i, "o", markersize=7, color="#dc2626",
+                      markeredgecolor="white", markeredgewidth=0.8, zorder=4)
 
-    # ── Row labels ──────────────────────────────────────────────────────────
-    ax.set_yticks(y_pos)
-    ax.set_yticklabels([_wiggle_display_name(m) for m in measurements],
-                        fontsize=8.5, color="#059669", fontweight="bold")
-    ax.invert_yaxis()
+    # Measurement names on the RIGHT of the chart
+    ax_r.set_yticks(y_pos)
+    ax_r.set_yticklabels([])  # suppress left labels
+    for i, m in enumerate(measurements):
+        ax_r.text(3.6, i, _wiggle_display_name(m),
+                  fontsize=9, color="#059669", va="center",
+                  fontweight="bold", zorder=4)
 
-    # ── Value triplet panel ──────────────────────────────────────────────────
-    if show_value_triplet:
-        for i, m in enumerate(measurements):
-            sd    = m.std_deviation or 1.0
-            sig_i = int(round(max(-3.0, min(3.0, m.difference / sd))))
-            txt   = f"{sig_i:+d}  {m.value:.1f}  {m.normal_value:.1f}"
-            icon  = STATUS_ICON.get(m.status, "")
-            col   = colors[i]
-            ax.text(3.65, i, f"{icon} {txt}", fontsize=7.5, va="center",
-                    color=col, fontweight="bold", zorder=4)
+    # Remove spines
+    for ax in (ax_l, ax_r):
+        for spine in ax.spines.values():
+            spine.set_visible(False)
+    ax_r.tick_params(axis="y", which="both", length=0)
 
-    # ── Column header ────────────────────────────────────────────────────────
-    ax.text(0, -0.85, "Standard Deviation from Norm",
-            fontsize=9, color="#059669", ha="center", fontweight="bold")
-
-    # ── Patient / date header ─────────────────────────────────────────────────
-    title_parts = ["Björk–Skieller Wiggle Analysis"]
+    # Patient / date header
+    title_parts = []
     if patient_label:
-        title_parts.append(f"Patient: {patient_label}")
+        title_parts.append(patient_label)
     if date_label:
-        title_parts.append(f"Date: {date_label}")
-    ax.set_title("\n".join(title_parts), fontsize=10, color="#059669",
-                 fontweight="bold", pad=8)
+        title_parts.append(date_label)
+    if title_parts:
+        fig.suptitle("  ".join(title_parts), fontsize=9,
+                     color="#1a1a1a", x=0.05, ha="left")
 
-    for spine in ax.spines.values():
-        spine.set_visible(False)
-    ax.tick_params(axis="both", which="both", length=0)
-
-    plt.tight_layout(pad=0.6)
+    plt.tight_layout(pad=0.5, w_pad=0.2)
 
     buf = io.BytesIO()
     plt.savefig(buf, format="png", dpi=dpi, bbox_inches="tight",
@@ -1126,15 +1183,34 @@ def _embed_wiggle(canvas: Image.Image, measurements: list[MeasurementItem],
 #  Wiggle deviation bar (table column)
 # ─────────────────────────────────────────────
 def _draw_wiggle_bar(draw, msr, mid_y, x_start, x_end):
-    color    = _msr_color(msr)
-    bar_w    = x_end - x_start
-    tick_step = bar_w / 6
-    tick_h   = 10
+    """
+    PointNix-style Wiggle bar: horizontal baseline with + tick marks at each
+    sigma position, matching Image 5 reference (green ticks, colored bar).
+    """
+    color     = _msr_color(msr)
+    green     = C_GREEN
+    bar_w     = x_end - x_start
+    tick_step = bar_w / 6          # 7 positions: -3σ … +3σ
+    tick_h_lg = 10                  # large ticks at -3, 0, +3
+    tick_h_sm = 6                   # small ticks at ±1, ±2
+
+    # Green horizontal baseline
+    draw.line([(x_start, mid_y), (x_end, mid_y)], fill=green, width=1)
+
+    # PointNix "+" cross ticks at each σ mark (green)
     for i in range(7):
         tx = int(x_start + i * tick_step)
-        th = tick_h if i in (0, 3, 6) else tick_h - 4
-        draw.line([(tx, mid_y-th), (tx, mid_y+th)], fill=color, width=2)
-    draw.line([(x_start, mid_y), (x_end, mid_y)], fill=color, width=1)
+        th = tick_h_lg if i in (0, 3, 6) else tick_h_sm
+        draw.line([(tx, mid_y - th), (tx, mid_y + th)], fill=green, width=1)
+        draw.line([(tx - th // 2, mid_y), (tx + th // 2, mid_y)], fill=green, width=1)
+
+    # Colored dot at patient's deviation position
+    sd    = msr.std_deviation or 1.0
+    dev   = max(-3.0, min(3.0, msr.difference / sd))
+    dot_x = int(x_start + (dev + 3) / 6 * bar_w)
+    r     = 5
+    draw.ellipse([dot_x - r, mid_y - r, dot_x + r, mid_y + r],
+                 fill=color, outline=C_WHITE, width=1)
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -1168,18 +1244,14 @@ def render_xray_with_tracing(req: OverlayRequest,
     if method in ("tweed", "full"):
         _draw_tweed_lines(draw, lms, sx, sy)
 
-    _draw_anatomical_outlines(draw, lms, sx, sy, req=req)
+    # Image 1: green anatomical tracing (PointNix style) + green soft tissue
+    _draw_anatomical_outlines(draw, lms, sx, sy, req=req, color=ANAT_COLOR_GREEN)
     _draw_reference_planes(draw, lms, sx, sy)
-    _draw_soft_tissue(draw, lms, sx, sy)
+    _draw_soft_tissue(draw, lms, sx, sy, alpha=200, color=ANAT_COLOR_GREEN)
     _draw_landmark_dots(overlay, lms, sx, sy)
     _draw_landmark_labels(draw, lms, sx, sy, font_size=18, dark_bg=True)
 
     result = Image.alpha_composite(base_img.convert("RGBA"), overlay).convert("RGB")
-
-    # Embed mini wiggle chart (top-right)
-    if req.measurements:
-        result = _embed_wiggle(result, req.measurements,
-                               (canvas_w-290, 20, canvas_w-20, 320))
 
     draw_f = ImageDraw.Draw(result)
     font_sm = _try_font(24)
@@ -1188,10 +1260,7 @@ def render_xray_with_tracing(req: OverlayRequest,
     if req.date_label:
         draw_f.text((20, 52), req.date_label, font=font_sm, fill=(220, 220, 220))
 
-    # Legend — analysis line colours
-    _draw_line_legend(draw_f, result.width, result.height, method)
     _draw_scale_bar(draw_f, canvas_w, canvas_h, req, sx, font_sm, bg_dark=True)
-    _draw_clinical_watermark(draw_f, canvas_w, canvas_h)
 
     return _to_jpeg(result)
 
@@ -1215,87 +1284,69 @@ def render_xray_with_measurements(req: OverlayRequest,
     draw    = ImageDraw.Draw(overlay)
     lms     = req.landmarks
 
+    # Image 2: black anatomy, purple Steiner lines, dark-red soft tissue
     _draw_anatomical_outlines(draw, lms, sx, sy, req=req, color=C_BLACK)
     _draw_steiner_lines(draw, lms, sx, sy)
-    _draw_soft_tissue(draw, lms, sx, sy, alpha=230, color=(*SOFT_TISSUE_TRACE, 230))
+    _draw_soft_tissue(draw, lms, sx, sy, alpha=230, color=SOFT_TISSUE_RED)
     _draw_landmark_dots(overlay, lms, sx, sy)
-    _draw_landmark_labels(draw, lms, sx, sy, font_size=16, dark_bg=True)
 
-    # Measurement annotations
-    font_val = _try_font(30, bold=True)
-    font_hdr = _try_font(28)
+    # PointNix-style plain colored measurement values (no background box)
+    font_val = _try_font(32, bold=True)
+    font_hdr = _try_font(26)
     msr_map  = {m.code: m for m in req.measurements}
-
-    REF_COLORS = {
-        "SNA": C_GREEN, "ANB": C_BLUE, "SNB": C_ORANGE,
-        "SN_MP": C_ORANGE, "FMA": C_ORANGE,
-        "UI_SN": C_GREEN, "UI_NA_MM": C_GREEN,
-        "LI_NB_MM": C_RED, "LI_MP": C_RED,
-        "OVERJET": C_GREEN, "OVERBITE": C_GREEN,
-        "LS_ELINE": C_ORANGE, "LI_ELINE": C_RED,
-    }
 
     def pt(name):
         lm = _lm(lms, name)
         return _scale(lm, sx, sy) if lm else None
 
-    def label_at(pos, code, offset=(0, 0), unit_str=None):
+    def plain_label(pos, code, offset=(0, 0)):
         if pos is None:
             return
-        m   = msr_map.get(code)
-        val = m.value if m else None
-        if val is None:
+        m = msr_map.get(code)
+        if m is None:
             return
-        col = _msr_color_ref(m, REF_COLORS.get(code, C_GREEN)) if m else C_GREEN
-        ut  = unit_str or (m.unit if m else "°")
-        txt = f"{code}: {val:.1f}{ut}"
-        x   = int(pos[0] + offset[0] * sx)
-        y   = int(pos[1] + offset[1] * sy)
-        _draw_label_with_bg(draw, txt, (x, y), (*col, 255), font_val)
+        col = MVAL_COLOR.get(code, _msr_color(m))
+        x   = int(pos[0] + offset[0] * canvas_w)
+        y   = int(pos[1] + offset[1] * canvas_h)
+        _draw_plain_value(draw, m.value, m.unit, (x, y), col, font_val)
 
-    nasion = pt("Nasion")
-    go_pt  = pt("Constructed Gonion (tangent)")
-    por    = pt("Porion")
+    nasion   = pt("Nasion")
+    go_pt    = pt("Constructed Gonion (tangent)") or pt("tGo-abo")
+    por      = pt("Porion")
     soft_pog = pt("Point Soft Pogonion")
+    ui_tip   = pt("Incisal edge of upper incisor")
+    li_tip   = pt("Incisal edge of lower incisor")
 
     if nasion:
-        for code, off in [("SNA",(-120,-140)),("SNB",(-120,-100)),("ANB",(-120,-60))]:
-            label_at(nasion, code, offset=off)
-
-    ui_tip = pt("Incisal edge of upper incisor")
-    if ui_tip:
-        label_at(ui_tip, "UI_SN",   offset=(-280,-60))
-        label_at(ui_tip, "UI_NA_MM",offset=(40,-80))
+        plain_label(nasion, "SNA",  offset=(-0.08, -0.14))
+        plain_label(nasion, "SNB",  offset=(-0.08, -0.10))
+        plain_label(nasion, "ANB",  offset=(-0.08, -0.06))
+        plain_label(nasion, "UI_SN",offset=( 0.02, -0.10))
 
     if go_pt:
-        label_at(go_pt, "SN_MP", offset=(-180, 20))
+        plain_label(go_pt, "SN_MP", offset=(-0.15,  0.02))
     if por:
-        label_at(por, "FMA", offset=(-180, 60))
+        plain_label(por, "FMA", offset=(-0.15,  0.06))
 
-    li_tip = pt("Incisal edge of lower incisor")
+    if ui_tip:
+        plain_label(ui_tip, "UI_NA_MM", offset=( 0.02, -0.07))
     if li_tip:
-        label_at(li_tip, "LI_NB_MM", offset=(30, 60))
-        label_at(li_tip, "LI_MP",    offset=(30,100))
+        plain_label(li_tip, "LI_NB_MM", offset=( 0.03,  0.05))
+        plain_label(li_tip, "LI_MP",    offset=( 0.03,  0.09))
 
     if soft_pog:
-        label_at(soft_pog, "LS_ELINE", offset=(20,-60))
-        label_at(soft_pog, "LI_ELINE", offset=(20,-20))
+        plain_label(soft_pog, "LS_ELINE", offset=(0.02, -0.06))
+        plain_label(soft_pog, "LI_ELINE", offset=(0.02, -0.02))
 
     result = Image.alpha_composite(base_img.convert("RGBA"), overlay).convert("RGB")
-
-    # Embed mini wiggle chart — fixed: uses _embed_wiggle not stale draw handle
-    if req.measurements:
-        result = _embed_wiggle(result, req.measurements,
-                               (canvas_w-290, 20, canvas_w-20, 320))
 
     draw_f = ImageDraw.Draw(result)
     if req.patient_label:
         draw_f.text((20, 20), req.patient_label, font=font_hdr, fill=C_WHITE)
     if req.date_label:
-        draw_f.text((20, 54), req.date_label, font=font_hdr, fill=(220, 220, 220))
+        draw_f.text((20, 50), req.date_label, font=font_hdr, fill=(210, 210, 210))
 
     _draw_scale_bar(draw_f, canvas_w, canvas_h, req, sx, font_hdr, bg_dark=True)
-    _draw_clinical_watermark(draw_f, canvas_w, canvas_h)
 
     return _to_jpeg(result)
 
@@ -1354,24 +1405,33 @@ def render_tracing_only(req: OverlayRequest,
     if method in ("tweed", "full"):
         _draw_tweed_lines(draw, lms, sx, sy)
 
+    # Image 4: black anatomy, dark-red soft tissue (same as Image 2 but white bg)
     _draw_anatomical_outlines(draw, lms, sx, sy, req=req, color=C_BLACK)
     _draw_reference_planes(draw, lms, sx, sy)
-    _draw_soft_tissue(draw, lms, sx, sy, alpha=255, color=(*SOFT_TISSUE_TRACE, 255))
+    _draw_soft_tissue(draw, lms, sx, sy, alpha=255, color=SOFT_TISSUE_RED)
     _draw_landmark_dots(img, lms, sx, sy)
-    _draw_landmark_labels(draw, lms, sx, sy, font_size=18, dark_bg=False)
 
-    # Measurement labels
-    font_val = _try_font(26, bold=True)
+    # PointNix-style plain colored measurement labels (no bg boxes)
+    font_val = _try_font(30, bold=True)
+    font_hdr = _try_font(26)
     msr_map  = {m.code: m for m in req.measurements}
+
+    def _pt4(name):
+        lm = _lm(lms, name)
+        return _scale(lm, sx, sy) if lm else None
+
     POSITIONS = [
-        ("SNA",      "Nasion",                          (-130,-150)),
-        ("SNB",      "Nasion",                          (-130,-110)),
-        ("ANB",      "Nasion",                          (-130, -70)),
-        ("UI_SN",    "Incisal edge of upper incisor",   (-280, -60)),
-        ("SN_MP",    "Constructed Gonion (tangent)",    (-200,  20)),
-        ("FMA",      "Constructed Gonion (tangent)",    (-200,  60)),
-        ("LI_NB_MM", "Incisal edge of lower incisor",   ( 30,  60)),
-        ("LI_MP",    "Incisal edge of lower incisor",   ( 30, 100)),
+        ("SNA",      "Nasion",                          (-0.08, -0.14)),
+        ("SNB",      "Nasion",                          (-0.08, -0.10)),
+        ("ANB",      "Nasion",                          (-0.08, -0.06)),
+        ("UI_SN",    "Nasion",                          ( 0.02, -0.10)),
+        ("SN_MP",    "tGo-abo",                         (-0.15,  0.02)),
+        ("FMA",      "tGo-abo",                         (-0.15,  0.06)),
+        ("UI_NA_MM", "Incisal edge of upper incisor",   ( 0.02, -0.07)),
+        ("LI_NB_MM", "Incisal edge of lower incisor",   ( 0.03,  0.05)),
+        ("LI_MP",    "Incisal edge of lower incisor",   ( 0.03,  0.09)),
+        ("LS_ELINE", "Point Soft Pogonion",             ( 0.02, -0.06)),
+        ("LI_ELINE", "Point Soft Pogonion",             ( 0.02, -0.02)),
     ]
     for code, anchor_name, offset in POSITIONS:
         anch = _lm(lms, anchor_name)
@@ -1379,28 +1439,20 @@ def render_tracing_only(req: OverlayRequest,
         if anch is None or m is None:
             continue
         ax_, ay_ = _scale(anch, sx, sy)
-        col      = _msr_color(m)
-        pos      = (int(ax_+offset[0]*sx), int(ay_+offset[1]*sy))
-        _draw_label_with_bg(draw, f"{code}: {m.value:.1f}{m.unit}", pos,
-                            (*col, 255), font_val, pad=3)
+        col      = MVAL_COLOR.get(code, _msr_color(m))
+        pos      = (int(ax_ + offset[0] * canvas_w),
+                    int(ay_ + offset[1] * canvas_h))
+        _draw_plain_value(draw, m.value, m.unit, pos, col, font_val)
 
     result = img.convert("RGB")
 
-    # Embedded mini wiggle (top-right)
-    if req.measurements:
-        result = _embed_wiggle(result, req.measurements,
-                               (canvas_w-290, 20, canvas_w-20, 320))
-
-    draw_f  = ImageDraw.Draw(result)
-    font_hdr = _try_font(28)
+    draw_f = ImageDraw.Draw(result)
     if req.patient_label:
         draw_f.text((20, 20), req.patient_label, font=font_hdr, fill=C_BLACK)
     if req.date_label:
-        draw_f.text((20, 54), req.date_label, font=font_hdr, fill=(80, 80, 80))
+        draw_f.text((20, 52), req.date_label, font=font_hdr, fill=(80, 80, 80))
 
-    _draw_line_legend(draw_f, canvas_w, canvas_h, method, dark_bg=False)
     _draw_scale_bar(draw_f, canvas_w, canvas_h, req, sx, font_hdr, bg_dark=False)
-    _draw_clinical_watermark(draw_f, canvas_w, canvas_h)
 
     return _to_jpeg(result)
 
@@ -1467,7 +1519,7 @@ def render_measurement_table(req: OverlayRequest,
     for txt, col_range in [
         ("", COL_ICON), ("Measurement Name", COL_NAME),
         ("Unit", COL_UNIT), ("Value", COL_VAL),
-        ("Norm", COL_NORM), ("Diff", COL_DIFF), ("Deviation", COL_WIG),
+        ("Norm", COL_NORM), ("Diff", COL_DIFF), ("Wiggle", COL_WIG),
     ]:
         draw.text((col_range[0], y+6), txt, font=font_hdr, fill=C_BLACK)
     # Vertical column separators
