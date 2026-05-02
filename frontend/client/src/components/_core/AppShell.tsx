@@ -19,6 +19,8 @@ import {
   Wifi,
   WifiOff,
   RefreshCw,
+  Settings,
+  BookOpen,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { ThemeToggle } from "./ClinicalComponents";
@@ -52,13 +54,17 @@ const NAV_SECTIONS = [
   {
     label: "Outputs",
     items: [
-      { label: "History", href: "/history", icon: History },
+      { label: "History", href: "/history", icon: History  },
       { label: "Reports", href: "/reports", icon: FileText },
     ],
   },
   {
-    label: "Account",
-    items: [{ label: "Account", href: "/auth", icon: LockKeyhole }],
+    label: "Platform",
+    items: [
+      { label: "Settings", href: "/settings", icon: Settings  },
+      { label: "Guide",    href: "/guide",    icon: BookOpen  },
+      { label: "Account",  href: "/auth",     icon: LockKeyhole },
+    ],
   },
 ];
 

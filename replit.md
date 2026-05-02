@@ -229,6 +229,31 @@ Five tabs:
 | **Growth** | CVM staging guide (Baccetti 2002 CS1–CS6) + Proffit/Petrovic growth prediction timeline |
 | **Reports** | PDF/Word export buttons + generated report list with preview/download |
 
+## Settings Page (`/settings`)
+
+Accessible to authenticated users. Persists all preferences to `localStorage` via the `useSettings()` hook (`src/lib/settings.ts`).
+
+| Section | Options |
+|---------|---------|
+| **Appearance** | Color theme (light/dark/system), UI density (compact/comfortable/spacious), reduce motion |
+| **Clinical** | Default analysis protocol (Steiner/Tweed/McNamara/Jarabak/Ricketts/Full), population norms (8 populations), AI confidence threshold (slider 50–95%), CBCT-derived default |
+| **Workflow** | Auto-refresh interval (off/30s/1m/5m), default report format (PDF/DOCX), auto-generate overlays after finalize, show confidence overlay in viewer |
+| **Notifications** | AI pipeline complete, report ready, connection lost |
+| **Data & Privacy** | Clear local cache, HIPAA compliance notice |
+| **System** | Read-only platform version and endpoint info |
+
+## User Guide (`/guide`)
+
+Public route — accessible without authentication. Five tabs:
+
+| Tab | Contents |
+|-----|---------|
+| **Getting Started** | Feature cards, 8-step quick-start checklist, system requirements, image requirements, HIPAA warning |
+| **Workflow** | 7-step visual timeline (patient → case → upload → calibrate → AI → viewer → report) with callouts |
+| **Measurements** | Reference tables for skeletal, vertical, dental, and soft-tissue measurements with normal ranges, units, and descriptions |
+| **Shortcuts** | Global navigation, Viewer, Analysis, and UI keyboard shortcut tables |
+| **FAQ** | 10 expandable accordion items covering common issues |
+
 ## Backend Performance Improvements (v2.2)
 
 ### Response Compression (`Program.cs`)

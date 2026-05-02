@@ -26,6 +26,8 @@ import ResultsPage from "@/pages/ResultsPage";
 import HistoryPage from "@/pages/HistoryPage";
 import ReportsPage from "@/pages/ReportsPage";
 import AuthPage from "@/pages/AuthPage";
+import SettingsPage from "@/pages/SettingsPage";
+import GuidePage from "@/pages/GuidePage";
 
 import {
   cephApi,
@@ -212,6 +214,14 @@ function AppRoutes({
         <ProtectedRoute authUser={authUser}>
           <ReportsPage reports={reports} cases={cases} activeCase={activeCase} onRequestReport={requestReport} />
         </ProtectedRoute>
+      </Route>
+      <Route path="/settings">
+        <ProtectedRoute authUser={authUser}>
+          <SettingsPage />
+        </ProtectedRoute>
+      </Route>
+      <Route path="/guide">
+        <GuidePage />
       </Route>
       <Route path="/auth">
          {/* AuthPage is accessible without ProtectedRoute via direct rendering in App root */}
@@ -478,12 +488,13 @@ export default function App() {
     toast.success(`${format} report ready`);
   }
 
-  const authRoute = location.startsWith("/auth");
-  const routeBlocked = !authRoute && authChecked && !authUser;
+  const authRoute   = location.startsWith("/auth");
+  const publicRoute = location.startsWith("/guide");  // no login required
+  const routeBlocked = !authRoute && !publicRoute && authChecked && !authUser;
 
   useEffect(() => { if (routeBlocked) navigate("/auth"); }, [navigate, routeBlocked]);
 
-  if (!authRoute && (!authChecked || routeBlocked)) {
+  if (!authRoute && !publicRoute && (!authChecked || routeBlocked)) {
     return (
       <ThemeProvider defaultTheme="dark" switchable>
         <div className="flex h-screen items-center justify-center bg-background p-4">
