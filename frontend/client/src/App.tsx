@@ -14,6 +14,7 @@ import {
   PrimaryBtn,
 } from "@/components/_core/ClinicalComponents";
 import AppShell from "@/components/_core/AppShell";
+import CommandPalette from "@/components/_core/CommandPalette";
 import { PatientDialog, CaseDialog } from "@/components/ClinicalDialogs";
 
 import DashboardPage from "@/pages/DashboardPage";
@@ -255,6 +256,18 @@ export default function App() {
   const [patientDialogOpen, setPatientDialogOpen] = useState(false);
   const [caseDialogOpen, setCaseDialogOpen] = useState(false);
   const [editingPatient, setEditingPatient] = useState<Patient | null>(null);
+  const [cmdPaletteOpen, setCmdPaletteOpen] = useState(false);
+
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        setCmdPaletteOpen(true);
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   const activeCase = useMemo(() => cases.find(c => c.id === activeCaseId), [activeCaseId, cases]);
 
@@ -530,6 +543,7 @@ export default function App() {
             <AppShell
               apiMode={apiMode} authUser={authUser} serviceHealth={serviceHealth}
               onAuth={() => navigate("/auth")} onLogout={handleLogout} onRefreshHealth={refreshServiceHealth}
+              onOpenCommandPalette={() => setCmdPaletteOpen(true)}
             >
               <AppRoutes
                 patients={patients} cases={cases} reports={reports} history={history}
@@ -546,6 +560,14 @@ export default function App() {
                 onRefreshHealth={refreshServiceHealth} onAuth={() => navigate("/auth")}
               />
             </AppShell>
+            <CommandPalette
+              open={cmdPaletteOpen}
+              onClose={() => setCmdPaletteOpen(false)}
+              patients={patients}
+              cases={cases}
+              onCreatePatient={openPatientCreate}
+              onCreateCase={() => setCaseDialogOpen(true)}
+            />
             <PatientDialog open={patientDialogOpen} onClose={() => setPatientDialogOpen(false)} onSave={savePatient} patient={editingPatient} />
             <CaseDialog open={caseDialogOpen} onClose={() => setCaseDialogOpen(false)} onSave={saveCase} patients={patients} activePatientId={activePatientId} />
           </>

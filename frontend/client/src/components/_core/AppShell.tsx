@@ -68,6 +68,23 @@ const NAV_SECTIONS = [
   },
 ];
 
+// ─── Breadcrumb map ───────────────────────────────────────────────────────────
+
+const BREADCRUMB_MAP: Record<string, { section: string; page: string }> = {
+  "/":          { section: "Overview",  page: "Dashboard"  },
+  "/patients":  { section: "Records",   page: "Patients"   },
+  "/cases":     { section: "Records",   page: "Cases"      },
+  "/analysis":  { section: "Workflow",  page: "Analysis"   },
+  "/calibrate": { section: "Workflow",  page: "Calibrate"  },
+  "/viewer":    { section: "Workflow",  page: "Viewer"     },
+  "/results":   { section: "Workflow",  page: "Results"    },
+  "/history":   { section: "Outputs",   page: "History"    },
+  "/reports":   { section: "Outputs",   page: "Reports"    },
+  "/settings":  { section: "Platform",  page: "Settings"   },
+  "/guide":     { section: "Platform",  page: "Guide"      },
+  "/auth":      { section: "Platform",  page: "Account"    },
+};
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface ShellProps {
@@ -78,6 +95,8 @@ interface ShellProps {
   onAuth: () => void;
   onLogout: () => void | Promise<void>;
   onRefreshHealth: () => void | Promise<void>;
+  onOpenCommandPalette?: () => void;
+  notificationCount?: number;
 }
 
 // ─── Sidebar nav item ─────────────────────────────────────────────────────────
@@ -129,9 +148,18 @@ export default function Shell({
   onAuth,
   onLogout,
   onRefreshHealth,
+  onOpenCommandPalette,
+  notificationCount = 0,
 }: ShellProps) {
   const [location] = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  const crumb = (() => {
+    const key = Object.keys(BREADCRUMB_MAP)
+      .filter(k => k !== "/")
+      .find(k => location.startsWith(k));
+    return key ? BREADCRUMB_MAP[key] : BREADCRUMB_MAP["/"];
+  })();
 
   const isLive    = apiMode === "live";
   const isChecking = apiMode === "checking";
@@ -197,13 +225,17 @@ export default function Shell({
         <div className="flex items-center gap-2.5 rounded-md px-2 py-2">
           <div
             className={cn(
-              "flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-bold",
+              "flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-bold overflow-hidden",
               authUser
                 ? "bg-sidebar-primary/20 text-sidebar-primary"
                 : "bg-sidebar-accent text-sidebar-foreground/50"
             )}
           >
-            {initials}
+            {authUser?.profileImageUrl ? (
+              <img src={authUser.profileImageUrl} alt={initials} className="h-full w-full object-cover" />
+            ) : (
+              initials
+            )}
           </div>
           <div className="min-w-0 flex-1">
             <p className="truncate text-[12px] font-semibold text-sidebar-foreground leading-tight">{userName}</p>
@@ -283,9 +315,33 @@ export default function Shell({
       {/* ── Main area ─────────────────────────────────────────────────────── */}
       <div className="flex min-h-screen flex-col lg:pl-[240px]">
         {/* Topbar */}
-        <header className="sticky top-0 z-30 hidden h-[60px] items-center justify-between border-b border-border bg-background/95 px-6 backdrop-blur-sm lg:flex">
-          {/* Left: connection status */}
-          <div className="flex items-center gap-3">
+        <header className="sticky top-0 z-30 hidden h-[60px] items-center justify-between border-b border-border bg-background/95 px-6 backdrop-blur-sm lg:flex gap-4">
+          {/* Left: breadcrumb */}
+          <div className="flex items-center gap-1.5 text-[13px] min-w-0">
+            <span className="text-muted-foreground/50 font-medium shrink-0">{crumb.section}</span>
+            <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/30 shrink-0" />
+            <span className="font-semibold text-foreground truncate">{crumb.page}</span>
+          </div>
+
+          {/* Center: command palette trigger */}
+          {onOpenCommandPalette && (
+            <button
+              type="button"
+              onClick={onOpenCommandPalette}
+              className="hidden xl:flex items-center gap-2 h-8 rounded-md border border-border/60 bg-muted/30 px-3 text-[12px] text-muted-foreground hover:border-border hover:bg-muted/60 hover:text-foreground transition-all min-w-[200px]"
+            >
+              <RefreshCw className="h-3 w-3 opacity-0 pointer-events-none absolute" />
+              <Wifi className="h-3 w-3 opacity-40" />
+              <span className="flex-1 text-left">Search or navigate…</span>
+              <kbd className="flex items-center gap-0.5 rounded border border-border/60 bg-muted px-1 py-px font-mono text-[9px] text-muted-foreground/60 shrink-0">
+                <span>⌘K</span>
+              </kbd>
+            </button>
+          )}
+
+          {/* Right: status + actions */}
+          <div className="flex items-center gap-2 shrink-0">
+            {/* Connection indicator */}
             <div
               className={cn(
                 "flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-semibold",
@@ -299,23 +355,24 @@ export default function Shell({
               <span
                 className={cn(
                   "h-1.5 w-1.5 rounded-full",
-                  isLive ? "bg-green-500 animate-pulse" : isChecking ? "bg-muted-foreground" : "bg-amber-500"
+                  isLive ? "bg-green-500 animate-pulse" : isChecking ? "bg-muted-foreground animate-spin" : "bg-amber-500"
                 )}
               />
-              {isLive ? "Connected" : isChecking ? "Syncing…" : "Disconnected"}
+              {isLive ? "Online" : isChecking ? "Syncing" : "Offline"}
             </div>
-            <span className="text-[12px] text-muted-foreground">CephAI Clinical Platform</span>
-          </div>
-
-          {/* Right: actions */}
-          <div className="flex items-center gap-2">
             <ThemeToggle />
+            {/* Bell with notification badge */}
             <button
               type="button"
               aria-label="Notifications"
-              className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+              className="relative flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
             >
               <Bell className="h-4 w-4" />
+              {notificationCount > 0 && (
+                <span className="absolute right-1 top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-primary text-[8px] font-bold text-primary-foreground">
+                  {notificationCount > 9 ? "9+" : notificationCount}
+                </span>
+              )}
             </button>
             {authUser && (
               <button

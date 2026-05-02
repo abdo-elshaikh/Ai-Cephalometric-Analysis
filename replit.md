@@ -102,6 +102,38 @@ Only the **frontend** is configured as a workflow (port 5000). The backend and A
 - Build: `cd frontend && pnpm run build`
 - Public dir: `frontend/dist`
 
+## Frontend Design System (v3.1)
+
+### Design Language
+Linear/Vercel aesthetic — violet/indigo primary (`oklch(0.55 0.22 275)`), near-black dark mode, always-dark 240px sidebar, 8px border radius, Inter font.
+
+### Key Components (`ClinicalComponents.tsx`)
+- **`KpiCard`** — Animated count-up numbers (RAF ease-out cubic), left accent stripe, mini sparkbar chart, trend indicator (TrendingUp/TrendingDown)
+- **`useCountUp(target, duration)`** — Hook animating numeric values from 0 → target
+- **`TrendBadge`** — Inline +/-% badge with directional arrow
+- **`MiniSparkBar`** — 6-bar inline sparkline chart for KPI cards
+- **`TabBar`, `Card`, `Pill`, `SearchInput`, `DeviationBar`, `ProgressRing`** — Full design system
+
+### AppShell (`AppShell.tsx`)
+- Always-dark 240px sidebar with 5 nav sections (Overview, Records, Workflow, Outputs, Platform)
+- **Topbar breadcrumb** — Section › Page based on current route
+- **Command palette trigger** — "Search or navigate… ⌘K" button (center topbar, xl+)
+- **Notification bell** with count badge
+- **Profile photo** in sidebar avatar (uses `authUser.profileImageUrl` if available)
+- Animated connection status pulse dot
+
+### Command Palette (`CommandPalette.tsx`)
+- Global `Cmd+K` / `Ctrl+K` keyboard shortcut
+- Groups: Navigate (all pages), Patients (recent 5), Cases (recent 5), Quick Actions
+- Arrow key navigation, Enter to select, Escape to close
+- Registered globally in `App.tsx`, renders outside AppShell
+
+### Pages Enhanced
+- **Dashboard** — Animated KPI counters with sparkbars + trend percentages
+- **Cases** — Filter chips (All/Draft/In Progress/Reviewing/Complete), sort controls (Newest/Oldest/A→Z/Status), patient name search
+- **Settings** — 6-section settings with `useSettings` hook (localStorage persistence)
+- **Guide** — 5-tab layout (public route, no auth required)
+
 ## Clinical Workflow (UI)
 
 1. **Register patient** → PatientsPage → create patient form

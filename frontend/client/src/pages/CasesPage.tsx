@@ -85,14 +85,30 @@ export default function CasesPage({
 }: CasesPageProps) {
   const [, navigate] = useLocation();
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<string>("All");
+  const [filterGroup, setFilterGroup] = useState<string>("All");
+  const [sort, setSort] = useState<"newest" | "oldest" | "az" | "status">("newest");
   const [view, setView] = useState<"grid" | "list">("grid");
 
-  const statusOptions = ["All", "Draft", "Image uploaded", "Calibrated", "AI completed", "Reviewing", "Reviewed", "Report ready"];
+  const FILTER_GROUPS: { label: string; statuses: string[] | null; count: number }[] = [
+    { label: "All",        statuses: null,                                                      count: cases.length },
+    { label: "Draft",      statuses: ["Draft"],                                                 count: cases.filter(c => c.status === "Draft").length },
+    { label: "In Progress",statuses: ["Image uploaded","Calibrated","AI completed"],            count: cases.filter(c => ["Image uploaded","Calibrated","AI completed"].includes(c.status)).length },
+    { label: "Reviewing",  statuses: ["Reviewing","Reviewed"],                                  count: cases.filter(c => ["Reviewing","Reviewed"].includes(c.status)).length },
+    { label: "Complete",   statuses: ["Report ready"],                                          count: cases.filter(c => c.status === "Report ready").length },
+  ];
 
-  const filtered = cases.filter(c => {
-    const matchQuery = c.title.toLowerCase().includes(query.toLowerCase());
-    const matchFilter = filter === "All" || c.status === filter;
+  const sortedCases = [...cases].sort((a, b) => {
+    if (sort === "newest") return (b.updatedAt || b.date || "").localeCompare(a.updatedAt || a.date || "");
+    if (sort === "oldest") return (a.updatedAt || a.date || "").localeCompare(b.updatedAt || b.date || "");
+    if (sort === "az")     return a.title.localeCompare(b.title);
+    return a.status.localeCompare(b.status);
+  });
+
+  const currentGroup = FILTER_GROUPS.find(g => g.label === filterGroup);
+  const filtered = sortedCases.filter(c => {
+    const matchQuery = c.title.toLowerCase().includes(query.toLowerCase()) ||
+      patients.find(p => p.id === c.patientId && (`${p.firstName} ${p.lastName}`).toLowerCase().includes(query.toLowerCase()));
+    const matchFilter = !currentGroup?.statuses || currentGroup.statuses.includes(c.status);
     return matchQuery && matchFilter;
   });
 
@@ -111,49 +127,79 @@ export default function CasesPage({
 
       <Card noPadding className="overflow-visible border-border/40">
         {/* Toolbar */}
-        <div className="flex flex-col gap-4 p-4 md:flex-row md:items-center md:justify-between border-b border-border/40 bg-muted/5">
-          <div className="flex flex-1 items-center gap-3 max-w-2xl">
+        <div className="flex flex-col gap-3 p-4 border-b border-border/40 bg-muted/5">
+          {/* Row 1: Search + view controls */}
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <SearchInput
               value={query}
               onChange={setQuery}
-              placeholder="Search cases by title..."
-              className="flex-1"
+              placeholder="Search cases, patients…"
+              className="flex-1 max-w-sm"
             />
-            <div className="flex items-center gap-2 rounded-xl border border-border/60 bg-muted/20 px-3 h-10 shrink-0">
-              <Filter className="h-3.5 w-3.5 text-muted-foreground" />
-              <select
-                value={filter}
-                onChange={e => setFilter(e.target.value)}
-                className="bg-transparent text-xs font-bold uppercase tracking-wider outline-none cursor-pointer text-muted-foreground hover:text-foreground"
-              >
-                {statusOptions.map(opt => (
-                  <option key={opt} value={opt}>{opt}</option>
-                ))}
-              </select>
+            <div className="flex items-center gap-2 shrink-0">
+              {/* Sort */}
+              <div className="flex items-center gap-1.5 rounded-md border border-border/60 bg-background px-2.5 h-9">
+                <Filter className="h-3 w-3 text-muted-foreground shrink-0" />
+                <select
+                  value={sort}
+                  onChange={e => setSort(e.target.value as typeof sort)}
+                  className="bg-transparent text-[11px] font-semibold uppercase tracking-wider outline-none cursor-pointer text-muted-foreground hover:text-foreground pr-1"
+                >
+                  <option value="newest">Newest</option>
+                  <option value="oldest">Oldest</option>
+                  <option value="az">A → Z</option>
+                  <option value="status">Status</option>
+                </select>
+              </div>
+              <Divider className="h-4 w-px bg-border/40" />
+              <div className="flex rounded-md border border-border/60 bg-muted/20 p-0.5">
+                <IconBtn
+                  icon={LayoutGrid}
+                  label="Grid view"
+                  onClick={() => setView("grid")}
+                  size="sm"
+                  active={view === "grid"}
+                />
+                <IconBtn
+                  icon={List}
+                  label="List view"
+                  onClick={() => setView("list")}
+                  size="sm"
+                  active={view === "list"}
+                />
+              </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <Pill tone="neutral" className="bg-muted/40 border-border/60">
-              {filtered.length} Case{filtered.length !== 1 ? "s" : ""}
-            </Pill>
-            <Divider className="h-4 w-px bg-border/40" />
-            <div className="flex rounded-xl border border-border/60 bg-muted/20 p-1">
-              <IconBtn
-                icon={LayoutGrid}
-                label="Grid view"
-                onClick={() => setView("grid")}
-                size="sm"
-                active={view === "grid"}
-              />
-              <IconBtn
-                icon={List}
-                label="List view"
-                onClick={() => setView("list")}
-                size="sm"
-                active={view === "list"}
-              />
-            </div>
+          {/* Row 2: Filter chips + count */}
+          <div className="flex items-center gap-2 flex-wrap">
+            {FILTER_GROUPS.map(group => {
+              const isActive = filterGroup === group.label;
+              return (
+                <button
+                  key={group.label}
+                  type="button"
+                  onClick={() => setFilterGroup(group.label)}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-semibold border transition-all duration-150",
+                    isActive
+                      ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                      : "border-border/60 bg-background text-muted-foreground hover:border-border hover:text-foreground hover:bg-muted/40"
+                  )}
+                >
+                  {group.label}
+                  <span className={cn(
+                    "flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[9px] font-bold tabular-nums",
+                    isActive ? "bg-white/20" : "bg-muted text-muted-foreground"
+                  )}>
+                    {group.count}
+                  </span>
+                </button>
+              );
+            })}
+            <span className="ml-auto text-[11px] text-muted-foreground shrink-0">
+              {filtered.length} result{filtered.length !== 1 ? "s" : ""}
+            </span>
           </div>
         </div>
 

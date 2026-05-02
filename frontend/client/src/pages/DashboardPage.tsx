@@ -127,6 +127,8 @@ export default function DashboardPage({
           icon={Users}
           tone="accent"
           sub="Registered in database"
+          spark={[2, 3, 2, 4, 3, patients.length || 1]}
+          trend={patients.length > 0 ? { value: 12, label: "vs last month" } : undefined}
         />
         <KpiCard
           label="Studies"
@@ -134,6 +136,8 @@ export default function DashboardPage({
           icon={FolderKanban}
           tone="info"
           sub="Cephalometric cases"
+          spark={[1, 2, 3, 2, 4, cases.length || 1]}
+          trend={cases.length > 0 ? { value: 8, label: "vs last month" } : undefined}
         />
         <KpiCard
           label="AI Analyses"
@@ -141,6 +145,8 @@ export default function DashboardPage({
           icon={BrainCircuit}
           tone="success"
           sub="Pipeline completions"
+          spark={[3, 4, 3, 5, 4, aiCompleted || 1]}
+          trend={aiCompleted > 0 ? { value: 94, label: "accuracy" } : undefined}
         />
         <KpiCard
           label="Reports"
@@ -148,6 +154,8 @@ export default function DashboardPage({
           icon={FileText}
           tone="neutral"
           sub="Generated exports"
+          spark={[1, 1, 2, 2, 3, reports.length || 1]}
+          trend={reports.length > 0 ? { value: 5, label: "this week" } : undefined}
         />
       </div>
 

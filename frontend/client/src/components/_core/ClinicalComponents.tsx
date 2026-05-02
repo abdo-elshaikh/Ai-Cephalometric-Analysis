@@ -1,6 +1,7 @@
 import {
   Activity,
   ArrowUpRight,
+  ArrowDownRight,
   ChevronLeft,
   ChevronRight,
   Loader2,
@@ -9,9 +10,11 @@ import {
   Sun,
   X,
   Database,
+  TrendingUp,
+  TrendingDown,
   type LucideIcon,
 } from "lucide-react";
-import React, { type FormEvent, type ReactNode } from "react";
+import React, { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -26,6 +29,66 @@ export const toneClasses = {
   accent:  "border-primary/20 bg-primary/10 text-primary",
   neutral: "border-border/50 bg-muted/40 text-muted-foreground",
 };
+
+const toneAccentBar: Record<string, string> = {
+  success: "bg-success",
+  warning: "bg-warning",
+  danger:  "bg-destructive",
+  info:    "bg-info",
+  accent:  "bg-primary",
+  neutral: "bg-muted-foreground/30",
+};
+
+const toneSparkBar: Record<string, string> = {
+  success: "bg-success",
+  warning: "bg-warning",
+  danger:  "bg-destructive",
+  info:    "bg-info",
+  accent:  "bg-primary",
+  neutral: "bg-muted-foreground",
+};
+
+// ─── Hooks ────────────────────────────────────────────────────────────────────
+
+/** Animates a number from 0 → target using an ease-out cubic over `duration` ms. */
+export function useCountUp(target: number, duration = 1000): number {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    if (target === 0) { setCount(0); return; }
+    const startTime = performance.now();
+    let rafId: number;
+    function tick(now: number) {
+      const elapsed = now - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      setCount(Math.round(eased * target));
+      if (progress < 1) rafId = requestAnimationFrame(tick);
+    }
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }, [target, duration]);
+  return count;
+}
+
+// ─── Mini helpers ─────────────────────────────────────────────────────────────
+
+function MiniSparkBar({ data, tone }: { data: number[]; tone: string }) {
+  const max = Math.max(...data, 1);
+  return (
+    <div className="flex items-end gap-px h-6 w-16 shrink-0">
+      {data.map((v, i) => (
+        <div
+          key={i}
+          className={cn("flex-1 rounded-sm transition-all", toneSparkBar[tone] ?? "bg-primary")}
+          style={{
+            height: `${Math.max(8, (v / max) * 100)}%`,
+            opacity: 0.3 + (i / (data.length - 1 || 1)) * 0.7,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
 
 // ─── Design System Components ─────────────────────────────────────────────────
 
@@ -102,7 +165,7 @@ export function Pill({
   );
 }
 
-/** Metric display card — Linear/Vercel KPI aesthetic */
+/** Metric display card — Linear/Vercel KPI aesthetic with count-up animation */
 export function KpiCard({
   label,
   value,
@@ -110,6 +173,8 @@ export function KpiCard({
   tone = "accent",
   delta,
   sub,
+  spark,
+  trend,
 }: {
   label: string;
   value: string | number;
@@ -117,30 +182,79 @@ export function KpiCard({
   tone?: keyof typeof toneClasses;
   delta?: string;
   sub?: string;
+  spark?: number[];
+  trend?: { value: number; label?: string };
 }) {
+  const numVal = typeof value === "number" ? value : parseFloat(String(value));
+  const isNumeric = !isNaN(numVal) && typeof value === "number";
+  const animated = useCountUp(isNumeric ? numVal : 0);
+  const displayValue = isNumeric ? animated.toLocaleString() : value;
+
+  const trendUp   = trend && trend.value >= 0;
+  const TrendIcon = trendUp ? TrendingUp : TrendingDown;
+
   return (
-    <Card className="group hover:border-border/80 hover:shadow-sm">
+    <div className="group relative overflow-hidden rounded-lg border border-border bg-card transition-all duration-200 hover:border-border/80 hover:shadow-md p-6">
+      <div className={cn("absolute left-0 top-0 h-full w-[3px] rounded-l-lg transition-all", toneAccentBar[tone])} />
       <div className="flex items-start justify-between gap-3 mb-3">
         <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground leading-none">
           {label}
         </p>
-        <div className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-md border", toneClasses[tone])}>
-          <Icon className="h-3.5 w-3.5" />
+        <div className="flex items-center gap-2">
+          {spark && <MiniSparkBar data={spark} tone={tone} />}
+          <div className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-md border", toneClasses[tone])}>
+            <Icon className="h-3.5 w-3.5" />
+          </div>
         </div>
       </div>
       <p className="text-[2rem] font-bold leading-none tracking-tight text-foreground tabular-nums">
-        {value}
+        {displayValue}
       </p>
       {sub && (
         <p className="mt-2 text-[11px] text-muted-foreground leading-tight">{sub}</p>
       )}
-      {delta && (
-        <div className="mt-3 flex items-center gap-1 text-[11px] font-semibold text-success-foreground">
-          <ArrowUpRight className="h-3 w-3" />
-          {delta}
-        </div>
-      )}
-    </Card>
+      <div className="mt-3 flex items-center gap-3">
+        {trend && (
+          <div className={cn(
+            "flex items-center gap-1 text-[11px] font-bold",
+            trendUp ? "text-success-foreground" : "text-destructive"
+          )}>
+            <TrendIcon className="h-3 w-3" />
+            <span>{trendUp ? "+" : ""}{trend.value}%</span>
+            {trend.label && <span className="text-muted-foreground font-normal">{trend.label}</span>}
+          </div>
+        )}
+        {delta && !trend && (
+          <div className="flex items-center gap-1 text-[11px] font-semibold text-success-foreground">
+            <ArrowUpRight className="h-3 w-3" />
+            {delta}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Trend badge — small inline positive/negative indicator */
+export function TrendBadge({
+  value,
+  label,
+}: {
+  value: number;
+  label?: string;
+}) {
+  const up = value >= 0;
+  return (
+    <span className={cn(
+      "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold",
+      up
+        ? "bg-success/15 text-success-foreground"
+        : "bg-destructive/15 text-destructive"
+    )}>
+      {up ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
+      {up ? "+" : ""}{value}%
+      {label && <span className="opacity-70 font-normal ml-0.5">{label}</span>}
+    </span>
   );
 }
 
