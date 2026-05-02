@@ -26,6 +26,8 @@ from torchvision import transforms
 
 from schemas.schemas import LandmarkPoint
 from engines.hrnet import HRNet_W32
+from torch.nn import functional as F
+from engines.net import UNet
 from engines.func import (
     dsnt_decode,
     get_heatmap_stats,
@@ -147,6 +149,14 @@ LANDMARK_NAMES: list[str] = [
     "H",       # H point (Holdaway — intersection of soft-tissue profile line)
 ]
 
+# Legacy 38-landmark set (v1)
+LANDMARK_NAMES_V1: list[str] = [
+    "S", "N", "Or", "Po", "ANS", "PNS", "A", "B", "Pog", "Gn", "Me", "Go",
+    "L1", "L1_c", "U1", "U1_c", "U6", "L6", "Ba", "Ar", "Pt", "GLA",
+    "SoftN", "Prn", "Sn", "Ls", "Li", "SoftPog", "SoftGn",
+    "Cv2a", "Cv2ai", "Cv3a", "Cv3ai", "Cv4a", "Cv4ai", "Hy", "Epi", "Xi"
+]
+
 assert len(LANDMARK_NAMES) == 80, f"Expected 80 landmarks, got {len(LANDMARK_NAMES)}"
 
 # Upper-cased name → canonical key normalisation
@@ -215,7 +225,6 @@ def load_model(model_dir: str, device: str) -> None:
             is_unet = any(k.startswith("inc.") for k in state.keys())
             
             if is_unet:
-                from engines.net import UNet
                 # Count classes from the output layer
                 out_weight = state.get("outc.conv.weight", state.get("outc.weight"))
                 n_classes = out_weight.shape[0] if out_weight is not None else settings.num_landmarks
@@ -245,8 +254,14 @@ def load_model(model_dir: str, device: str) -> None:
 
 # ── Image Utilities ───────────────────────────────────────────────────────────
 
-pre_trans = transforms.Compose([
+pre_trans_v2 = transforms.Compose([
     transforms.Resize((H, W)),
+    transforms.ToTensor(),
+    transforms.Normalize((0.485,), (0.229,)),
+])
+
+pre_trans_v1 = transforms.Compose([
+    transforms.Resize((600, 480)),
     transforms.ToTensor(),
     transforms.Normalize((0.5,), (0.5,)),
 ])
@@ -334,11 +349,18 @@ def _decode_outputs(
             f"expected {len(LANDMARK_NAMES)}. Using intersection mapping."
         )
 
-    for i in range(min(len(LANDMARK_NAMES), num_detected)):
-        name = LANDMARK_NAMES[i]
+    num_detected = outputs.shape[1]
+    # Use legacy naming if 38 landmarks detected
+    names_to_use = LANDMARK_NAMES_V1 if num_detected == 38 else LANDMARK_NAMES
+    
+    # Model-specific dimensions for decoding
+    dec_H, dec_W = (600, 480) if num_detected == 38 else (H, W)
+    
+    for i in range(min(len(names_to_use), num_detected)):
+        name = names_to_use[i]
         canonical = _NAME_MAP.get(str(name).upper(), name)
-        px_y = (float(y_np[i]) + 1.0) / 2.0 * (H - 1) * scale_y
-        px_x = (float(x_np[i]) + 1.0) / 2.0 * (W - 1) * scale_x
+        px_y = (float(y_np[i]) + 1.0) / 2.0 * (dec_H - 1) * scale_y
+        px_x = (float(x_np[i]) + 1.0) / 2.0 * (dec_W - 1) * scale_x
         result[canonical] = _clamp_to_image(
             LandmarkPoint(
                 x=px_x, y=px_y,
@@ -368,17 +390,20 @@ def _decode_heatmap_sigmas(
         var_y_np = var_y_norm[0].cpu().numpy()   # [C] in [-1, 1]² space
         var_x_np = var_x_norm[0].cpu().numpy()
 
-    scale_y = orig_h / H
-    scale_x = orig_w / W
+    num_detected = var_y_np.shape[0]
+    names_to_use = LANDMARK_NAMES_V1 if num_detected == 38 else LANDMARK_NAMES
+    dec_H, dec_W = (600, 480) if num_detected == 38 else (H, W)
+    
+    scale_y = orig_h / dec_H
+    scale_x = orig_w / dec_W
     sigmas: Dict[str, float] = {}
 
-    num = min(len(LANDMARK_NAMES), var_y_np.shape[0])
-    for i in range(num):
-        name = LANDMARK_NAMES[i]
+    for i in range(min(len(names_to_use), num_detected)):
+        name = names_to_use[i]
         canonical = _NAME_MAP.get(str(name).upper(), name)
         # Convert normalized variance → pixel sigma at original resolution
-        sigma_y_px = math.sqrt(max(0.0, float(var_y_np[i]))) * (H - 1) / 2.0 * scale_y
-        sigma_x_px = math.sqrt(max(0.0, float(var_x_np[i]))) * (W - 1) / 2.0 * scale_x
+        sigma_y_px = math.sqrt(max(0.0, float(var_y_np[i]))) * (dec_H - 1) / 2.0 * scale_y
+        sigma_x_px = math.sqrt(max(0.0, float(var_x_np[i]))) * (dec_W - 1) / 2.0 * scale_x
         # Isotropic RMS: σ = sqrt((σ_y² + σ_x²) / 2)
         sigmas[canonical] = math.sqrt((sigma_y_px ** 2 + sigma_x_px ** 2) / 2.0)
 
@@ -474,12 +499,18 @@ def _apply_variance_penalty(
     # Mean over spatial dims (H, W) for the first item in batch
     var_np = var_out[0].mean(dim=(-2, -1)).cpu().numpy()   # [C]
     var_max = float(var_np.max()) + 1e-8
-    for i, name in enumerate(LANDMARK_NAMES):
+    num_var = var_np.shape[0]
+    # Match the name list to the variance output size
+    names_to_use = LANDMARK_NAMES_V1 if num_var == 38 else LANDMARK_NAMES
+    
+    for i, name in enumerate(names_to_use):
+        if i >= num_var: break
         canonical = _NAME_MAP.get(str(name).upper(), name)
-        if canonical in landmarks:
-            normalized_var = float(var_np[i]) / var_max
-            penalty = max(0.5, 1.0 - normalized_var * 0.4)
-            landmarks[canonical] = _update_confidence(landmarks[canonical], penalty)
+        if canonical not in landmarks:
+            continue
+        normalized_var = float(var_np[i]) / var_max
+        penalty = max(0.5, 1.0 - normalized_var * 0.4)
+        landmarks[canonical] = _update_confidence(landmarks[canonical], penalty)
 
 
 # ── Confidence-Weighted Landmark Merge ───────────────────────────────────────
@@ -921,19 +952,22 @@ def infer(
 
     try:
         pil_orig = Image.fromarray(img_np)
-        t_orig = pre_trans(pil_orig).unsqueeze(0).to(_device)
+        from engines.net import UNet
+        is_v1 = any(isinstance(m, UNet) for m in _ensemble) if _ensemble else False
+        transform = pre_trans_v1 if is_v1 else pre_trans_v2
+        input_tensor = transform(pil_orig).unsqueeze(0).to(_device)
 
         # ── Primary ensemble pass ─────────────────────────────────────────────
-        mean_out, var_out = _run_ensemble(t_orig)
+        mean_out, var_out = _run_ensemble(input_tensor)
         landmarks = _decode_outputs(mean_out, orig_W, orig_H)
         # Heatmap spatial variance → per-landmark sigma (pixels) for conformal refinement
         heatmap_sigmas_px = _decode_heatmap_sigmas(mean_out, orig_W, orig_H)
         _apply_variance_penalty(landmarks, var_out)
 
         if settings.tta_enabled:
-            # ── TTA pass 1: Horizontal flip (spatial axis) ────────────────────
+            # ── TTA (Test-Time Augmentation): Horizontal Flip ─────────────────────
             pil_flip = pil_orig.transpose(Image.FLIP_LEFT_RIGHT)
-            t_flip = pre_trans(pil_flip).unsqueeze(0).to(_device)
+            t_flip = transform(pil_flip).unsqueeze(0).to(_device)
             mean_flip, _ = _run_ensemble(t_flip)
             lm_flip = _decode_outputs(mean_flip, orig_W, orig_H)
             _mirror_landmarks_x(lm_flip, orig_W)
@@ -946,7 +980,7 @@ def infer(
             # in clinical practice without requiring additional model training.
             for gamma in (0.8, 1.2):
                 img_gamma = _apply_gamma(img_np, gamma)
-                t_gamma = pre_trans(Image.fromarray(img_gamma)).unsqueeze(0).to(_device)
+                t_gamma = transform(Image.fromarray(img_gamma)).unsqueeze(0).to(_device)
                 mean_gamma, _ = _run_ensemble(t_gamma)
                 lm_gamma = _decode_outputs(mean_gamma, orig_W, orig_H)
                 landmarks = _merge_landmarks(landmarks, lm_gamma, orig_W, orig_H)

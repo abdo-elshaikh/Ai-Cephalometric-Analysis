@@ -103,6 +103,15 @@ class Up(nn.Module):
 
     def forward(self, x1: torch.Tensor, x2: torch.Tensor) -> torch.Tensor:
         x1 = self.up(x1)
+        # input is CHW
+        diffY = x2.size()[2] - x1.size()[2]
+        diffX = x2.size()[3] - x1.size()[3]
+
+        x1 = F.pad(x1, [diffX // 2, diffX - diffX // 2,
+                        diffY // 2, diffY - diffY // 2])
+        # if you have padding issues, see
+        # https://github.com/HaiyongJiang/U-Net-Pytorch-Unfold-Gate-Adoption/blob/master/unet/unet_model.py
+        # for a more robust implementation with cropping
         x = torch.cat([x2, x1], dim=1)
         return self.conv(x)
 

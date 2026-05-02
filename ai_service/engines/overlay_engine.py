@@ -922,12 +922,12 @@ def _draw_anatomical_outlines(draw, lms, sx, sy, req=None, color=ANAT_COLOR):
         lm = _lm(lms, name, *aliases)
         return _scale(lm, sx, sy) if lm else None
 
-    s, n, ba, orb = pt("Sella Turcica"), pt("Nasion"), pt("Basion"), pt("Orbitale")
+    s, n, ba, orb = pt("S", "Sella Turcica"), pt("N", "Nasion"), pt("Ba", "Basion"), pt("Or", "Orbitale")
     if s and n:   draw.line([s, n],   fill=COL, width=2)
     if s and ba:  draw.line([s, ba],  fill=COL, width=2)
     if n and orb: draw.line([n, orb], fill=COL, width=2)
 
-    ans, pns = pt("Anterior Nasal Spine"), pt("Posterior Nasal Spine")
+    ans, pns = pt("ANS", "Anterior Nasal Spine"), pt("PNS", "Posterior Nasal Spine")
     if ans and pns:
         draw.line([ans, pns], fill=COL, width=2)
 
@@ -944,10 +944,10 @@ def _draw_anatomical_outlines(draw, lms, sx, sy, req=None, color=ANAT_COLOR):
     if len(bpts) >= 3:
         _scipy_spline(draw, bpts, fill=COL, width=3)
 
-    ui_a, ui_t = pt("Apex of upper incisor"), pt("Incisal edge of upper incisor")
+    ui_a, ui_t = pt("U1_c", "Apex of upper incisor"), pt("U1", "Incisal edge of upper incisor")
     if ui_a and ui_t:
         _draw_incisor_upper(draw, ui_a, ui_t, lms, sx, sy, color=COL)
-    li_a, li_t = pt("Apex of lower incisor"), pt("Incisal edge of lower incisor")
+    li_a, li_t = pt("L1_c", "Apex of lower incisor"), pt("L1", "Incisal edge of lower incisor")
     if li_a and li_t:
         _draw_incisor_lower(draw, li_a, li_t, lms, sx, sy, color=COL)
     _draw_molar(draw, lms, sx, sy, "upper", color=COL)
