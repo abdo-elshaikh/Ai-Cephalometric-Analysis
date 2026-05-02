@@ -1,4 +1,6 @@
-import React, { useState, useRef, useEffect, useMemo, useCallback } from "react";
+import React, {
+  useState, useRef, useEffect, useMemo, useCallback,
+} from "react";
 import { useLocation } from "wouter";
 import {
   Ruler, Save, Layers3, RefreshCw, Eye, BarChart3, Move,
@@ -7,6 +9,8 @@ import {
   Maximize2, Minimize2, FlipHorizontal, Sun, Contrast,
   X, CheckCircle2, AlertTriangle, Undo2, Redo2, Download,
   EyeOff, Copy, RotateCcw, Zap, Sliders, Trash2, ListChecks,
+  Search, Star, ExternalLink, ImageOff, Clipboard,
+  PencilLine, ChevronLeft,
 } from "lucide-react";
 import {
   Card, Pill, PrimaryBtn, SecondaryBtn, IconBtn,
@@ -49,12 +53,12 @@ const TRACING_PLANES: TracingPlane[] = [
 
 type ToolMode = "select" | "pan" | "ruler" | "calibrate" | "angle";
 
-const TOOLS: { mode: ToolMode; icon: React.ElementType; label: string; shortcut: string }[] = [
-  { mode:"select",    icon:MousePointer2, label:"Select / Move",    shortcut:"S" },
-  { mode:"pan",       icon:Move,          label:"Pan / Navigate",   shortcut:"H" },
-  { mode:"ruler",     icon:Ruler,         label:"Measure Distance", shortcut:"R" },
-  { mode:"calibrate", icon:ScanLine,      label:"Calibrate Scale",  shortcut:"C" },
-  { mode:"angle",     icon:Triangle,      label:"Measure Angle",    shortcut:"A" },
+const TOOLS: { mode: ToolMode; icon: React.ElementType; label: string; shortcut: string; hint: string }[] = [
+  { mode:"select",    icon:MousePointer2, label:"Select / Move",    shortcut:"S", hint:"Click to select · Drag to reposition · Arrows ±1px" },
+  { mode:"pan",       icon:Move,          label:"Pan / Navigate",   shortcut:"H", hint:"Drag to pan · Alt+drag from any mode · Middle-mouse" },
+  { mode:"ruler",     icon:Ruler,         label:"Measure Distance", shortcut:"R", hint:"Click two points to measure · Snaps to landmarks"     },
+  { mode:"calibrate", icon:ScanLine,      label:"Calibrate Scale",  shortcut:"C", hint:"Click two known reference points on the radiograph"    },
+  { mode:"angle",     icon:Triangle,      label:"Measure Angle",    shortcut:"A", hint:"Click three points: arm1 → vertex → arm2"             },
 ];
 
 const IMAGE_PRESETS = [
@@ -110,7 +114,7 @@ type ImageFilters = { brightness:number; contrast:number; gamma:number; invert:b
 
 type SavedMeasurement = {
   id: string; kind: "distance"|"angle";
-  value: number; unit: string; pts: Point[]; label?: string; at: string;
+  value: number; unit: string; pts: Point[]; label: string; at: string;
 };
 
 type CtxMenu = { screenX: number; screenY: number; code: string };
@@ -149,14 +153,16 @@ export default function ViewerPage({
   const [rulerPts, setRulerPts]       = useState<Point[]>([]);
   const [anglePts, setAnglePts]       = useState<Point[]>([]);
   const [measurements, setMeasurements] = useState<SavedMeasurement[]>([]);
+  const [editingMsrId, setEditingMsrId] = useState<string|null>(null);
 
   // Image filters
   const [filters, setFilters] = useState<ImageFilters>(
     { brightness:100, contrast:110, gamma:1.0, invert:false, sharpen:false }
   );
+  const [flipH, setFlipH] = useState(false);
 
   // Layer / plane visibility
-  const [layers, setLayers] = useState({ landmarks:true, planes:true, softTissue:true, grid:false });
+  const [layers, setLayers] = useState({ landmarks:true, planes:true, softTissue:true, grid:false, measurements:true });
   const [planeVis, setPlaneVis] = useState<Record<string,boolean>>(
     Object.fromEntries(TRACING_PLANES.map(p => [p.key, true]))
   );
@@ -168,33 +174,43 @@ export default function ViewerPage({
   );
   const [ctxMenu, setCtxMenu]         = useState<CtxMenu|null>(null);
   const [alwaysLabels, setAlwaysLabels] = useState(false);
-  const [flipH, setFlipH]             = useState(false);
   const [centerTarget, setCenterTarget] = useState<Point|null>(null);
+  const [overlayModal, setOverlayModal] = useState<OverlayArtifact|null>(null);
+  const [lmSearch, setLmSearch]       = useState("");
+  const [fitSignal, setFitSignal]     = useState(0);  // increment to trigger fit
 
-  // Undo / Redo
-  const undoStack = useRef<Landmark[][]>([]);
-  const redoStack = useRef<Landmark[][]>([]);
+  // Undo / Redo — useState so canUndo/canRedo trigger re-renders
+  const [undoStack, setUndoStack] = useState<Landmark[][]>([]);
+  const [redoStack, setRedoStack] = useState<Landmark[][]>([]);
 
-  function pushUndo() {
-    undoStack.current = [...undoStack.current.slice(-24), [...landmarks]];
-    redoStack.current = [];
-  }
+  // Store original AI-predicted positions for "Reset to AI" feature
+  const origLandmarksRef = useRef<Landmark[]>([]);
+  useEffect(() => {
+    if (landmarks.length > 0 && origLandmarksRef.current.length === 0) {
+      origLandmarksRef.current = [...landmarks];
+    }
+  }, [landmarks]);
 
-  function undo() {
-    if (!undoStack.current.length) return;
-    redoStack.current = [landmarks, ...redoStack.current.slice(0, 24)];
-    setLandmarks(undoStack.current[undoStack.current.length - 1]);
-    undoStack.current = undoStack.current.slice(0, -1);
+  const pushUndo = useCallback(() => {
+    setUndoStack(prev => [...prev.slice(-29), [...landmarks]]);
+    setRedoStack([]);
+  }, [landmarks]);
+
+  const undo = useCallback(() => {
+    if (!undoStack.length) return;
+    setRedoStack(prev => [[...landmarks], ...prev.slice(0, 29)]);
+    setLandmarks(undoStack[undoStack.length - 1]);
+    setUndoStack(prev => prev.slice(0, -1));
     toast.info("Undo");
-  }
+  }, [undoStack, landmarks, setLandmarks]);
 
-  function redo() {
-    if (!redoStack.current.length) return;
-    undoStack.current = [...undoStack.current, landmarks];
-    setLandmarks(redoStack.current[0]);
-    redoStack.current = redoStack.current.slice(1);
+  const redo = useCallback(() => {
+    if (!redoStack.length) return;
+    setUndoStack(prev => [...prev, [...landmarks]]);
+    setLandmarks(redoStack[0]);
+    setRedoStack(prev => prev.slice(1));
     toast.info("Redo");
-  }
+  }, [redoStack, landmarks, setLandmarks]);
 
   useEffect(() => {
     setCalibPts(activeCase?.calibrationPoints ?? []);
@@ -208,6 +224,14 @@ export default function ViewerPage({
     window.addEventListener("pointerdown", close);
     return () => window.removeEventListener("pointerdown", close);
   }, [ctxMenu]);
+
+  // ── Overlay lightbox Escape ──
+  useEffect(() => {
+    if (!overlayModal) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOverlayModal(null); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [overlayModal]);
 
   // ── Keyboard shortcuts ──
   useEffect(() => {
@@ -228,11 +252,12 @@ export default function ViewerPage({
         case "c": setTool("calibrate"); break;
         case "a": setTool("angle"); break;
         case "l": setAlwaysLabels(v => !v); break;
-        case "f": setFilters(f => ({ ...f, flipH: !flipH })); break;
+        case "f": setFitSignal(s => s + 1); break;          // zoom-to-fit — FIXED (was incorrectly modifying filters)
+        case "x": setFlipH(v => !v); break;                  // flip horizontal
         case "escape":
           setRulerPts([]); setAnglePts([]);
           if (tool === "calibrate") setCalibPts([]);
-          setSelectedCode(null); setCtxMenu(null);
+          setSelectedCode(null); setCtxMenu(null); setOverlayModal(null);
           break;
         case "arrowleft":  moveSel(e.shiftKey?-5:-1, 0); e.preventDefault(); break;
         case "arrowright": moveSel(e.shiftKey? 5: 1, 0); e.preventDefault(); break;
@@ -242,7 +267,7 @@ export default function ViewerPage({
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [tool, selectedCode, landmarks, isLocked, flipH]);
+  }, [tool, selectedCode, landmarks, isLocked, undo, redo]);
 
   function updateLandmark(code: string, patch: Partial<Landmark>) {
     if (isLocked) return;
@@ -253,6 +278,15 @@ export default function ViewerPage({
     if (!selectedCode || isLocked) return;
     const lm = landmarks.find(l => l.code === selectedCode);
     if (lm) { pushUndo(); updateLandmark(selectedCode, { x:lm.x+dx, y:lm.y+dy, adjusted:true }); }
+  }
+
+  // ── Reset landmark to original AI position ──
+  function resetLandmarkToAI(code: string) {
+    const orig = origLandmarksRef.current.find(l => l.code === code);
+    if (!orig) { toast.error("Original AI position not available"); return; }
+    pushUndo();
+    updateLandmark(code, { x: orig.x, y: orig.y, adjusted: false, confidence: orig.confidence });
+    toast.success(`${code} reset to AI prediction`);
   }
 
   // ── Context menu actions ──
@@ -293,12 +327,36 @@ export default function ViewerPage({
   }
 
   // ── Measurements ──
-  function saveMeasurement(m: Omit<SavedMeasurement,"id"|"at">) {
-    setMeasurements(prev => [{ ...m, id: uid(), at: new Date().toLocaleTimeString() }, ...prev.slice(0, 49)]);
+  function saveMeasurement(m: Omit<SavedMeasurement,"id"|"at"|"label">) {
+    const id = uid();
+    const kind = m.kind === "distance" ? "Dist" : "Angle";
+    const label = `${kind} ${Math.round(m.value)}${m.unit}`;
+    setMeasurements(prev => [{ ...m, id, at: new Date().toLocaleTimeString(), label }, ...prev.slice(0, 49)]);
     setActiveTab("measures");
   }
 
-  // ── Export ──
+  function updateMeasurementLabel(id: string, label: string) {
+    setMeasurements(prev => prev.map(m => m.id === id ? { ...m, label } : m));
+  }
+
+  // ── Export measurements ──
+  function exportMeasurements() {
+    if (!measurements.length) { toast.error("No measurements to export"); return; }
+    const lines = measurements.map(m =>
+      `${m.label}\t${m.value.toFixed(2)} ${m.unit}\t${m.at}`
+    );
+    const text = ["Label\tValue\tTime", ...lines].join("\n");
+    navigator.clipboard?.writeText(text)
+      .then(() => toast.success(`${measurements.length} measurements copied to clipboard`))
+      .catch(() => {
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(new Blob([text], {type:"text/tab-separated-values"}));
+        a.download = "measurements.tsv";
+        a.click();
+      });
+  }
+
+  // ── Export SVG ──
   const svgRef = useRef<SVGSVGElement>(null);
   function exportSVG() {
     const svg = svgRef.current;
@@ -320,31 +378,43 @@ export default function ViewerPage({
     } else { document.exitFullscreen?.(); setFullscreen(false); }
   }
 
-  const selected = landmarks.find(l => l.code === selectedCode) ?? null;
-  const lowConf  = landmarks.filter(l => l.confidence < 0.7);
-  const canUndo  = undoStack.current.length > 0;
-  const canRedo  = redoStack.current.length > 0;
+  const selected    = landmarks.find(l => l.code === selectedCode) ?? null;
+  const lowConf     = landmarks.filter(l => l.confidence < 0.7);
+  const canUndo     = undoStack.length > 0;
+  const canRedo     = redoStack.length > 0;
+
+  // ── Filtered landmarks for inventory ──
+  const filteredLandmarks = useMemo(() => {
+    if (!lmSearch.trim()) return landmarks;
+    const q = lmSearch.toLowerCase();
+    return landmarks.filter(l =>
+      l.code.toLowerCase().includes(q) || l.name.toLowerCase().includes(q)
+    );
+  }, [landmarks, lmSearch]);
 
   const groupedLandmarks = useMemo(() => {
-    const byCode = Object.fromEntries(landmarks.map(l => [l.code, l]));
+    const byCode = Object.fromEntries(filteredLandmarks.map(l => [l.code, l]));
     return LANDMARK_GROUPS
       .map(g => ({ ...g, landmarks: g.codes.map(c => byCode[c]).filter(Boolean) as Landmark[] }))
       .filter(g => g.landmarks.length > 0);
-  }, [landmarks]);
+  }, [filteredLandmarks]);
 
   const ungroupedLandmarks = useMemo(() => {
     const known = new Set(LANDMARK_GROUPS.flatMap(g => g.codes));
-    return landmarks.filter(l => !known.has(l.code));
-  }, [landmarks]);
+    return filteredLandmarks.filter(l => !known.has(l.code));
+  }, [filteredLandmarks]);
+
+  const activeTool = TOOLS.find(t=>t.mode===tool);
 
   return (
     <div className="space-y-5 animate-in fade-in duration-500">
       <PageHeader
         eyebrow="Diagnostic Review"
         title="Clinical Viewer"
-        description="Professional cephalometric workspace with live landmark editing, measurement tools, and spatial calibration."
+        description="Professional cephalometric workspace — landmark editing, measurement tools, spatial calibration."
         actions={
           <>
+            {/* Undo / Redo */}
             <div className="flex items-center gap-1 rounded-xl border border-border/40 bg-muted/20 p-1">
               {([
                 { icon:Undo2, label:"Undo (Ctrl+Z)",       action:undo, enabled:canUndo },
@@ -365,16 +435,20 @@ export default function ViewerPage({
                 </button>
               ))}
             </div>
-            <IconBtn icon={Download} label="Export SVG" onClick={exportSVG} variant="outline" />
+
+            <IconBtn icon={Download} label="Export SVG (canvas tracing)" onClick={exportSVG} variant="outline" />
+
             <div className="flex items-center gap-2 rounded-xl border border-border/40 bg-muted/20 px-3 h-10">
               <Switch checked={isCbct} onChange={setIsCbct} label="CBCT" />
             </div>
+
             <IconBtn
               icon={isLocked ? Lock : Unlock}
-              label={isLocked ? "Unlock" : "Lock editing"}
-              onClick={() => setIsLocked(l => !l)}
+              label={isLocked ? "Unlock editing" : "Lock editing"}
+              onClick={() => { setIsLocked(l => !l); toast.info(isLocked ? "Editing unlocked" : "Editing locked"); }}
               variant={isLocked ? "solid" : "outline"}
             />
+
             <PrimaryBtn onClick={() => onSaveAndSend(isCbct)} icon={Save}>Save & Send</PrimaryBtn>
           </>
         }
@@ -384,8 +458,10 @@ export default function ViewerPage({
         "grid gap-4 xl:grid-cols-[1fr_360px]",
         fullscreen && "fixed inset-0 z-50 bg-background p-4 overflow-auto"
       )}>
-        {/* Left column */}
+
+        {/* ── Left column ── */}
         <div className="space-y-4 min-h-0">
+
           <CephCanvas
             svgRef={svgRef}
             imageUrl={activeCase?.imageUrl}
@@ -405,6 +481,7 @@ export default function ViewerPage({
             setCalibPts={setCalibPts}
             locked={isLocked}
             pixPerMm={pixPerMm}
+            distMm={distMm}
             rulerPts={rulerPts}
             setRulerPts={setRulerPts}
             anglePts={anglePts}
@@ -414,12 +491,14 @@ export default function ViewerPage({
             centerTarget={centerTarget}
             onCenterConsumed={() => setCenterTarget(null)}
             onAddMeasurement={saveMeasurement}
-            onContextMenu={(code, x, y) => { setCtxMenu({ screenX:x, screenY:y, code }); }}
+            measurements={measurements}
+            onContextMenu={(code, x, y) => setCtxMenu({ screenX:x, screenY:y, code })}
             onFullscreen={toggleFullscreen}
             fullscreen={fullscreen}
+            fitSignal={fitSignal}
           />
 
-          {/* Landmark Inventory */}
+          {/* ── Landmark Inventory ── */}
           <Card noPadding className="overflow-hidden">
             <div className="flex items-center justify-between px-4 py-3 border-b border-border/40">
               <div className="flex items-center gap-3">
@@ -439,15 +518,13 @@ export default function ViewerPage({
                   title="Toggle all labels (L)"
                   onClick={() => setAlwaysLabels(v=>!v)}
                   className={cn(
-                    "flex h-7 w-7 items-center justify-center rounded-lg border text-[10px] transition-all",
+                    "flex h-7 w-7 items-center justify-center rounded-lg border text-[10px] transition-all font-bold",
                     alwaysLabels ? "border-primary/40 bg-primary/10 text-primary" : "border-border/50 text-muted-foreground"
                   )}
                 >
                   L
                 </button>
-                {lowConf.length > 0 && (
-                  <Pill tone="warning" size="xs">{lowConf.length} low</Pill>
-                )}
+                {lowConf.length > 0 && <Pill tone="warning" size="xs">{lowConf.length} low conf</Pill>}
                 <Pill tone={!landmarks.length ? "neutral" : lowConf.length ? "warning" : "success"} size="xs">
                   {landmarks.length
                     ? `${Math.round(landmarks.reduce((s,l)=>s+l.confidence,0)/landmarks.length*100)}% avg`
@@ -455,6 +532,28 @@ export default function ViewerPage({
                 </Pill>
               </div>
             </div>
+
+            {/* Search bar */}
+            {landmarks.length > 0 && (
+              <div className="px-3 pt-3 pb-0">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground/50" />
+                  <input
+                    type="text"
+                    placeholder="Search landmarks…"
+                    value={lmSearch}
+                    onChange={e => setLmSearch(e.target.value)}
+                    className="w-full h-8 pl-8 pr-8 rounded-xl border border-border/40 bg-muted/20 text-xs placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary/40 transition-colors"
+                  />
+                  {lmSearch && (
+                    <button type="button" onClick={() => setLmSearch("")}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground/40 hover:text-foreground">
+                      <X className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
 
             <div className="p-3 space-y-1">
               {groupedLandmarks.map(grp => {
@@ -482,7 +581,8 @@ export default function ViewerPage({
                           <LandmarkChip
                             key={lm.code} landmark={lm}
                             selected={lm.code === selectedCode} hovered={lm.code === hoveredCode}
-                            color={grp.color} onClick={() => setSelectedCode(lm.code)}
+                            color={grp.color}
+                            onClick={() => { setSelectedCode(lm.code); centerOnLandmark(lm.code); }}
                           />
                         ))}
                       </div>
@@ -503,8 +603,9 @@ export default function ViewerPage({
                       <span className="text-xs font-bold">Other</span>
                       <span className="text-[10px] text-muted-foreground/50">{ungroupedLandmarks.length} pts</span>
                     </div>
-                    {expandedGroups["__other"] ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-                                               : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
+                    {expandedGroups["__other"]
+                      ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                      : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
                   </button>
                   {expandedGroups["__other"] && (
                     <div className="grid gap-1 p-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 animate-in fade-in duration-150">
@@ -512,7 +613,7 @@ export default function ViewerPage({
                         <LandmarkChip
                           key={lm.code} landmark={lm}
                           selected={lm.code === selectedCode} hovered={lm.code === hoveredCode}
-                          onClick={() => setSelectedCode(lm.code)}
+                          onClick={() => { setSelectedCode(lm.code); centerOnLandmark(lm.code); }}
                         />
                       ))}
                     </div>
@@ -520,23 +621,31 @@ export default function ViewerPage({
                 </div>
               )}
 
-              {landmarks.length === 0 && (
+              {lmSearch && groupedLandmarks.length === 0 && ungroupedLandmarks.length === 0 && (
+                <div className="py-6 text-center border border-dashed border-border/60 rounded-2xl bg-muted/10">
+                  <Search className="h-6 w-6 text-muted-foreground/20 mx-auto mb-1.5" />
+                  <p className="text-xs text-muted-foreground italic">No landmarks match "{lmSearch}"</p>
+                </div>
+              )}
+
+              {!lmSearch && landmarks.length === 0 && (
                 <div className="py-8 text-center border border-dashed border-border/60 rounded-2xl bg-muted/10">
                   <Crosshair className="h-8 w-8 text-muted-foreground/20 mx-auto mb-2" />
-                  <p className="text-xs text-muted-foreground italic">Run AI to populate landmarks.</p>
+                  <p className="text-xs text-muted-foreground italic">Run AI analysis to populate landmarks.</p>
                 </div>
               )}
             </div>
           </Card>
         </div>
 
-        {/* Right panel */}
+        {/* ── Right panel ── */}
         <div className="space-y-4">
-          {/* Landmark detail */}
+
+          {/* ── Landmark Detail ── */}
           <Card className={cn("transition-all", selected ? "border-primary/30" : "opacity-80")}>
             <div className="flex items-center gap-3 mb-4">
               <div
-                className="flex h-10 w-10 items-center justify-center rounded-xl border font-bold text-xs uppercase"
+                className="flex h-10 w-10 items-center justify-center rounded-xl border font-bold text-xs uppercase shrink-0"
                 style={selected ? {
                   background: getGroupColor(selected.code) + "20",
                   borderColor: getGroupColor(selected.code) + "50",
@@ -552,14 +661,26 @@ export default function ViewerPage({
                 </p>
               </div>
               {selected && (
-                <button
-                  type="button"
-                  title="Center view on landmark"
-                  onClick={() => centerOnLandmark(selected.code)}
-                  className="h-7 w-7 flex items-center justify-center rounded-lg border border-border/50 text-muted-foreground hover:text-primary hover:border-primary/40 transition-all"
-                >
-                  <Crosshair className="h-3.5 w-3.5" />
-                </button>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    title="Center view on landmark (double-click chip)"
+                    onClick={() => centerOnLandmark(selected.code)}
+                    className="h-7 w-7 flex items-center justify-center rounded-lg border border-border/50 text-muted-foreground hover:text-primary hover:border-primary/40 transition-all"
+                  >
+                    <Crosshair className="h-3.5 w-3.5" />
+                  </button>
+                  {origLandmarksRef.current.length > 0 && selected.adjusted && (
+                    <button
+                      type="button"
+                      title="Reset to original AI position"
+                      onClick={() => resetLandmarkToAI(selected.code)}
+                      className="h-7 w-7 flex items-center justify-center rounded-lg border border-warning/30 text-warning/70 hover:text-warning hover:border-warning/60 transition-all"
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
               )}
             </div>
 
@@ -567,45 +688,55 @@ export default function ViewerPage({
               <div className="space-y-3 animate-in fade-in duration-200">
                 <div className="grid grid-cols-2 gap-2">
                   <Field label="X (px)">
-                    <TextInput type="number" value={Math.round(selected.x)}
-                      onChange={v => updateLandmark(selected.code, { x:Number(v) })} />
+                    <TextInput
+                      type="number"
+                      value={Math.round(selected.x)}
+                      onChange={v => { pushUndo(); updateLandmark(selected.code, { x:Number(v), adjusted:true }); }}
+                    />
                   </Field>
                   <Field label="Y (px)">
-                    <TextInput type="number" value={Math.round(selected.y)}
-                      onChange={v => updateLandmark(selected.code, { y:Number(v) })} />
+                    <TextInput
+                      type="number"
+                      value={Math.round(selected.y)}
+                      onChange={v => { pushUndo(); updateLandmark(selected.code, { y:Number(v), adjusted:true }); }}
+                    />
                   </Field>
                 </div>
+
                 {pixPerMm && (
                   <div className="grid grid-cols-2 gap-2">
                     <div className="rounded-xl border border-border/40 bg-muted/20 p-2.5 text-center">
                       <p className="text-[10px] font-bold uppercase text-muted-foreground tracking-widest mb-1">X (mm)</p>
-                      <p className="text-sm font-bold">{(selected.x/pixPerMm).toFixed(1)}</p>
+                      <p className="text-sm font-bold tabular-nums">{(selected.x/pixPerMm).toFixed(2)}</p>
                     </div>
                     <div className="rounded-xl border border-border/40 bg-muted/20 p-2.5 text-center">
                       <p className="text-[10px] font-bold uppercase text-muted-foreground tracking-widest mb-1">Y (mm)</p>
-                      <p className="text-sm font-bold">{(selected.y/pixPerMm).toFixed(1)}</p>
+                      <p className="text-sm font-bold tabular-nums">{(selected.y/pixPerMm).toFixed(2)}</p>
                     </div>
                   </div>
                 )}
+
                 <div className="rounded-xl border border-border/40 bg-muted/20 p-3">
                   <div className="flex justify-between mb-2">
                     <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">AI Confidence</p>
-                    <span className={cn("text-sm font-bold",
+                    <span className={cn("text-sm font-bold tabular-nums",
                       selected.confidence>=0.85?"text-success":selected.confidence>=0.7?"text-primary":"text-warning"
                     )}>{Math.round(selected.confidence*100)}%</span>
                   </div>
-                  <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+                  <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
                     <div className={cn("h-full transition-all duration-500",
                       selected.confidence>=0.85?"bg-success":selected.confidence>=0.7?"bg-primary":"bg-warning"
                     )} style={{ width:`${selected.confidence*100}%` }} />
                   </div>
                 </div>
+
                 <div className="flex flex-wrap gap-1.5">
                   {selected.adjusted && <Pill tone="accent" size="xs">Manually adjusted</Pill>}
                   {selected.confidence < 0.7 && <Pill tone="warning" size="xs">Low confidence</Pill>}
                 </div>
+
                 <p className="text-[10px] text-muted-foreground/40">
-                  Arrows ±1px · Shift+arrows ±5px · Right-click for more
+                  Drag on canvas · Arrows ±1px · Shift+Arrows ±5px
                 </p>
               </div>
             ) : (
@@ -615,7 +746,7 @@ export default function ViewerPage({
             )}
           </Card>
 
-          {/* Tabbed controls */}
+          {/* ── Tabbed Controls ── */}
           <Card noPadding className="overflow-hidden">
             <div className="flex border-b border-border/40 overflow-x-auto">
               {(["controls","planes","calibrate","measures"] as const).map(tab => (
@@ -636,6 +767,9 @@ export default function ViewerPage({
                       {measurements.length}
                     </span>
                   )}
+                  {tab === "calibrate" && calibrated && (
+                    <span className="ml-1 inline-flex h-1.5 w-1.5 rounded-full bg-success" />
+                  )}
                 </button>
               ))}
             </div>
@@ -643,8 +777,7 @@ export default function ViewerPage({
             <div className="p-4">
               {/* ── Image Controls ── */}
               {activeTab === "controls" && (
-                <div className="space-y-5">
-                  {/* Presets */}
+                <div className="space-y-4">
                   <div>
                     <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">Presets</p>
                     <div className="flex flex-wrap gap-1.5">
@@ -663,7 +796,6 @@ export default function ViewerPage({
 
                   <Divider className="opacity-40" />
 
-                  {/* Sliders */}
                   <div className="space-y-3">
                     {[
                       { key:"brightness" as const, label:"Brightness", icon:Sun,      min:20, max:220 },
@@ -682,7 +814,6 @@ export default function ViewerPage({
                       </div>
                     ))}
 
-                    {/* Gamma */}
                     <div className="space-y-1">
                       <div className="flex items-center justify-between text-[10px] font-bold uppercase text-muted-foreground">
                         <span className="flex items-center gap-1"><Sliders className="h-3 w-3"/>Gamma</span>
@@ -699,11 +830,10 @@ export default function ViewerPage({
 
                   <Divider className="opacity-40" />
 
-                  {/* Toggles */}
                   <div className="space-y-2">
                     {[
-                      { key:"invert"  as const, label:"Invert (Negative)",    icon:FlipHorizontal },
-                      { key:"sharpen" as const, label:"Edge Sharpen",          icon:Zap            },
+                      { key:"invert"  as const, label:"Invert (Negative)", icon:FlipHorizontal },
+                      { key:"sharpen" as const, label:"Edge Sharpen",       icon:Zap            },
                     ].map(t => (
                       <div key={t.key} className="flex items-center justify-between">
                         <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
@@ -715,6 +845,7 @@ export default function ViewerPage({
                     <div className="flex items-center justify-between">
                       <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-1.5">
                         <FlipHorizontal className="h-3 w-3"/>Flip Horizontal
+                        <kbd className="ml-1 text-[8px] bg-muted/40 px-1 py-0.5 rounded">X</kbd>
                       </span>
                       <Switch checked={flipH} onChange={setFlipH} />
                     </div>
@@ -722,14 +853,14 @@ export default function ViewerPage({
 
                   <Divider className="opacity-40" />
 
-                  {/* Layers */}
                   <div className="space-y-1.5">
                     <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Layers</p>
                     {[
-                      { key:"landmarks",  label:"Clinical Landmarks" },
-                      { key:"planes",     label:"Tracing Planes"     },
-                      { key:"softTissue", label:"Soft Tissue Profile" },
-                      { key:"grid",       label:"Reference Grid"      },
+                      { key:"landmarks",    label:"Clinical Landmarks" },
+                      { key:"planes",       label:"Tracing Planes"     },
+                      { key:"softTissue",   label:"Soft Tissue Profile" },
+                      { key:"measurements", label:"Measurements Overlay" },
+                      { key:"grid",         label:"Reference Grid"      },
                     ].map(({ key, label }) => (
                       <button
                         key={key}
@@ -765,9 +896,23 @@ export default function ViewerPage({
                 <div className="space-y-1">
                   {(["skeletal","vertical","dental","soft"] as const).map(grp => {
                     const planes = TRACING_PLANES.filter(p => p.group === grp);
+                    const allOn  = planes.every(p => planeVis[p.key]);
                     return (
                       <div key={grp}>
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1.5 px-1">{grp}</p>
+                        <div className="flex items-center justify-between mb-1.5 px-1">
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{grp}</p>
+                          <button
+                            type="button"
+                            onClick={() => setPlaneVis(pv => {
+                              const next = {...pv};
+                              planes.forEach(p => { next[p.key] = !allOn; });
+                              return next;
+                            })}
+                            className="text-[9px] text-muted-foreground/50 hover:text-primary transition-colors"
+                          >
+                            {allOn ? "hide all" : "show all"}
+                          </button>
+                        </div>
                         {planes.map(plane => (
                           <button
                             key={plane.key}
@@ -779,13 +924,10 @@ export default function ViewerPage({
                             )}
                           >
                             <div className="flex items-center gap-2">
-                              <div
-                                className="h-3 w-3 rounded-full shrink-0"
-                                style={{
-                                  background: planeVis[plane.key] ? plane.color : "transparent",
-                                  border: `1.5px solid ${plane.color}`,
-                                }}
-                              />
+                              <div className="h-3 w-3 rounded-full shrink-0" style={{
+                                background: planeVis[plane.key] ? plane.color : "transparent",
+                                border: `1.5px solid ${plane.color}`,
+                              }} />
                               <span className="font-bold" style={{ color: planeVis[plane.key] ? plane.color : undefined }}>
                                 {plane.label}
                               </span>
@@ -799,17 +941,17 @@ export default function ViewerPage({
                     );
                   })}
                   <div className="flex gap-2">
-                    <button
-                      type="button"
+                    <button type="button"
                       onClick={() => setPlaneVis(Object.fromEntries(TRACING_PLANES.map(p=>[p.key,true])))}
-                      className="text-[10px] font-bold text-primary/60 hover:text-primary transition-colors"
-                    >Show all</button>
+                      className="text-[10px] font-bold text-primary/60 hover:text-primary transition-colors">
+                      Show all
+                    </button>
                     <span className="text-muted-foreground/30">·</span>
-                    <button
-                      type="button"
+                    <button type="button"
                       onClick={() => setPlaneVis(Object.fromEntries(TRACING_PLANES.map(p=>[p.key,false])))}
-                      className="text-[10px] font-bold text-muted-foreground/50 hover:text-foreground transition-colors"
-                    >Hide all</button>
+                      className="text-[10px] font-bold text-muted-foreground/50 hover:text-foreground transition-colors">
+                      Hide all
+                    </button>
                   </div>
                 </div>
               )}
@@ -826,21 +968,25 @@ export default function ViewerPage({
                       : <AlertTriangle className="h-5 w-5 text-warning shrink-0" />}
                     <div>
                       <p className="text-xs font-bold">{calibrated ? "Image calibrated" : "Calibration required"}</p>
-                      {pixPerMm && (
-                        <p className="text-[10px] text-muted-foreground mt-0.5">
-                          {pixPerMm.toFixed(2)} px/mm · {(1/pixPerMm).toFixed(3)} mm/px
+                      {pixPerMm ? (
+                        <p className="text-[10px] text-muted-foreground mt-0.5 font-mono">
+                          {pixPerMm.toFixed(3)} px/mm · {(1/pixPerMm).toFixed(3)} mm/px
+                        </p>
+                      ) : (
+                        <p className="text-[10px] text-muted-foreground/60 mt-0.5">
+                          Place two reference points to calibrate
                         </p>
                       )}
                     </div>
                   </div>
 
-                  <div className="rounded-xl border border-border/40 bg-muted/20 p-3 text-xs text-muted-foreground leading-relaxed space-y-1.5">
+                  <div className="rounded-xl border border-border/40 bg-muted/20 p-3 space-y-1.5">
                     <p className="font-bold text-foreground text-[10px] uppercase tracking-widest">Protocol</p>
-                    <ol className="list-decimal list-inside space-y-1 text-[10px]">
-                      <li>Activate <strong className="text-warning">Calibrate</strong> tool (C key)</li>
+                    <ol className="list-decimal list-inside space-y-1 text-[10px] text-muted-foreground">
+                      <li>Activate <strong className="text-warning">Calibrate</strong> tool (<kbd className="bg-muted px-1 py-0.5 rounded">C</kbd>)</li>
                       <li>Click two known reference points on the radiograph</li>
-                      <li>Points are draggable — reposition as needed</li>
-                      <li>Enter true distance in mm and save</li>
+                      <li>Drag reference points to reposition if needed</li>
+                      <li>Enter the true distance in mm below and save</li>
                     </ol>
                   </div>
 
@@ -849,7 +995,7 @@ export default function ViewerPage({
                   </Field>
 
                   <div className="grid grid-cols-3 gap-2">
-                    {[0,1,"dist"].map((k,i) => {
+                    {[0, 1, "dist" as const].map((k, i) => {
                       const isRef = typeof k === "number";
                       const active = isRef ? calibPts.length > k : calibPts.length === 2;
                       return (
@@ -874,11 +1020,8 @@ export default function ViewerPage({
                   </div>
 
                   {calibPts.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setCalibPts([])}
-                      className="text-[10px] font-bold text-destructive/60 hover:text-destructive transition-colors"
-                    >
+                    <button type="button" onClick={() => setCalibPts([])}
+                      className="text-[10px] font-bold text-destructive/60 hover:text-destructive transition-colors">
                       ✕ Clear reference points
                     </button>
                   )}
@@ -906,7 +1049,8 @@ export default function ViewerPage({
                     <div className="py-8 text-center border border-dashed border-border/60 rounded-2xl bg-muted/10">
                       <ListChecks className="h-8 w-8 text-muted-foreground/20 mx-auto mb-2" />
                       <p className="text-xs text-muted-foreground italic">
-                        Use the Ruler (R) or Angle (A) tools to record measurements
+                        Use Ruler (<kbd className="bg-muted px-1 py-0.5 rounded text-[9px]">R</kbd>) or
+                        Angle (<kbd className="bg-muted px-1 py-0.5 rounded text-[9px]">A</kbd>) tools
                       </p>
                     </div>
                   ) : (
@@ -915,38 +1059,69 @@ export default function ViewerPage({
                         <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
                           {measurements.length} recorded
                         </p>
-                        <button
-                          type="button"
-                          onClick={() => setMeasurements([])}
-                          className="text-[10px] font-bold text-destructive/50 hover:text-destructive transition-colors flex items-center gap-1"
-                        >
-                          <Trash2 className="h-3 w-3" /> Clear all
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={exportMeasurements}
+                            title="Copy all to clipboard"
+                            className="flex items-center gap-1 text-[10px] font-bold text-primary/60 hover:text-primary transition-colors"
+                          >
+                            <Clipboard className="h-3 w-3" /> Copy
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setMeasurements([])}
+                            className="flex items-center gap-1 text-[10px] font-bold text-destructive/50 hover:text-destructive transition-colors"
+                          >
+                            <Trash2 className="h-3 w-3" /> Clear
+                          </button>
+                        </div>
                       </div>
                       <div className="space-y-1.5">
                         {measurements.map(m => (
                           <div
                             key={m.id}
-                            className="flex items-center justify-between p-3 rounded-xl border border-border/40 bg-muted/10"
+                            className="flex items-center gap-2 p-2.5 rounded-xl border border-border/40 bg-muted/10"
                           >
-                            <div className="flex items-center gap-2.5">
-                              <div className={cn(
-                                "flex h-7 w-7 items-center justify-center rounded-lg border text-[10px] font-bold shrink-0",
-                                m.kind === "distance"
-                                  ? "border-blue-500/30 bg-blue-500/10 text-blue-400"
-                                  : "border-purple-500/30 bg-purple-500/10 text-purple-400"
-                              )}>
-                                {m.kind === "distance" ? <Ruler className="h-3 w-3" /> : <Triangle className="h-3 w-3" />}
-                              </div>
-                              <div>
-                                <p className="text-sm font-bold tabular-nums">{m.value.toFixed(1)} {m.unit}</p>
-                                <p className="text-[9px] text-muted-foreground font-mono">{m.at}</p>
-                              </div>
+                            <div className={cn(
+                              "flex h-7 w-7 items-center justify-center rounded-lg border shrink-0",
+                              m.kind === "distance"
+                                ? "border-blue-500/30 bg-blue-500/10 text-blue-400"
+                                : "border-purple-500/30 bg-purple-500/10 text-purple-400"
+                            )}>
+                              {m.kind === "distance"
+                                ? <Ruler className="h-3 w-3" />
+                                : <Triangle className="h-3 w-3" />}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              {editingMsrId === m.id ? (
+                                <input
+                                  autoFocus
+                                  type="text"
+                                  value={m.label}
+                                  onChange={e => updateMeasurementLabel(m.id, e.target.value)}
+                                  onBlur={() => setEditingMsrId(null)}
+                                  onKeyDown={e => { if (e.key === "Enter" || e.key === "Escape") setEditingMsrId(null); }}
+                                  className="w-full text-xs font-bold bg-transparent border-b border-primary/40 outline-none"
+                                />
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingMsrId(m.id)}
+                                  className="text-xs font-bold text-left truncate hover:text-primary transition-colors group flex items-center gap-1"
+                                >
+                                  {m.label}
+                                  <PencilLine className="h-2.5 w-2.5 opacity-0 group-hover:opacity-40" />
+                                </button>
+                              )}
+                              <p className="text-[9px] text-muted-foreground font-mono">
+                                {m.value.toFixed(2)} {m.unit} · {m.at}
+                              </p>
                             </div>
                             <button
                               type="button"
                               onClick={() => setMeasurements(prev => prev.filter(x => x.id !== m.id))}
-                              className="h-6 w-6 flex items-center justify-center rounded-lg text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10 transition-all"
+                              className="h-6 w-6 flex items-center justify-center rounded-lg text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10 transition-all shrink-0"
                             >
                               <X className="h-3 w-3" />
                             </button>
@@ -960,26 +1135,34 @@ export default function ViewerPage({
             </div>
           </Card>
 
-          {/* AI Overlays */}
+          {/* ── AI Overlays ── */}
           {overlays.length > 0 && (
-            <Card>
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">AI Overlays</h3>
-                <IconBtn icon={RefreshCw} label="Refresh" onClick={onRefreshOverlays} variant="outline" size="sm" />
+            <Card noPadding className="overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-border/40">
+                <div className="flex items-center gap-2">
+                  <Layers3 className="h-4 w-4 text-primary" />
+                  <h3 className="text-xs font-bold">AI Overlays</h3>
+                  <Pill tone="accent" size="xs">{overlays.length}</Pill>
+                </div>
+                <IconBtn icon={RefreshCw} label="Re-generate overlays" onClick={onRefreshOverlays} variant="outline" size="sm" />
               </div>
-              <div className="grid gap-2">
+              <div className="p-3 grid grid-cols-2 gap-2">
                 {overlays.map(ov => (
                   <button
                     key={ov.key}
                     type="button"
-                    onClick={() => window.open(ov.url, "_blank", "noopener,noreferrer")}
-                    className="group relative aspect-video overflow-hidden rounded-2xl border border-border/60 bg-black/80 hover:border-primary/40 transition-all"
+                    onClick={() => setOverlayModal(ov)}
+                    className="group relative aspect-video overflow-hidden rounded-xl border border-border/60 bg-black/80 hover:border-primary/50 transition-all"
                   >
-                    <img src={ov.url} alt={ov.label} className="h-full w-full object-cover opacity-60 transition group-hover:opacity-100" />
+                    <img
+                      src={ov.url}
+                      alt={ov.label}
+                      className="h-full w-full object-cover opacity-60 transition group-hover:opacity-100"
+                    />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
-                    <div className="absolute bottom-2 left-3 right-3 flex items-center justify-between">
-                      <span className="text-[10px] font-bold uppercase tracking-widest text-white">{ov.label}</span>
-                      <Eye className="h-3.5 w-3.5 text-white/60" />
+                    <div className="absolute bottom-1.5 left-2 right-2 flex items-center justify-between">
+                      <span className="text-[9px] font-bold uppercase tracking-widest text-white/90 truncate">{ov.label}</span>
+                      <Maximize2 className="h-3 w-3 text-white/50 shrink-0" />
                     </div>
                   </button>
                 ))}
@@ -989,24 +1172,32 @@ export default function ViewerPage({
         </div>
       </div>
 
-      {/* Proceed */}
-      <div className="flex justify-end">
+      {/* ── Proceed ── */}
+      <div className="flex items-center justify-between">
+        <div className="text-[10px] text-muted-foreground/60 font-mono">
+          {!calibrated && (
+            <span className="flex items-center gap-1 text-warning/80">
+              <AlertTriangle className="h-3 w-3" />
+              Calibration recommended before analysis
+            </span>
+          )}
+        </div>
         <SecondaryBtn onClick={() => navigate("/results")} icon={BarChart3} className="h-12 px-8">
-          Analysis Results <ChevronRight className="h-4 w-4 ml-1" />
+          View Analysis Results <ChevronRight className="h-4 w-4 ml-1" />
         </SecondaryBtn>
       </div>
 
-      {/* Context Menu */}
+      {/* ── Context Menu ── */}
       {ctxMenu && (
         <div
-          className="fixed z-[200] rounded-2xl border border-border/60 bg-popover/98 backdrop-blur-sm shadow-2xl overflow-hidden py-1.5 min-w-[200px] animate-in fade-in zoom-in-95 duration-100"
+          className="fixed z-[200] rounded-2xl border border-border/60 bg-popover/98 backdrop-blur-sm shadow-2xl overflow-hidden py-1.5 min-w-[210px] animate-in fade-in zoom-in-95 duration-100"
           style={{ left: ctxMenu.screenX + 4, top: ctxMenu.screenY + 4 }}
           onPointerDown={e => e.stopPropagation()}
         >
           {[
-            { icon:Crosshair, label:"Select Landmark",      action:() => { setSelectedCode(ctxMenu.code); } },
-            { icon:Copy,      label:"Copy Coordinates",     action:() => copyLandmarkCoords(ctxMenu.code)   },
-            { icon:MousePointer2, label:"Center View Here", action:() => centerOnLandmark(ctxMenu.code)     },
+            { icon:Crosshair,     label:"Select Landmark",       action:() => setSelectedCode(ctxMenu.code) },
+            { icon:Copy,          label:"Copy Coordinates",       action:() => copyLandmarkCoords(ctxMenu.code) },
+            { icon:MousePointer2, label:"Center View Here",       action:() => centerOnLandmark(ctxMenu.code)  },
           ].map(item => (
             <button
               key={item.label}
@@ -1018,17 +1209,105 @@ export default function ViewerPage({
               {item.label}
             </button>
           ))}
-          {landmarks.find(l=>l.code===ctxMenu.code)?.adjusted && (
+
+          {/* Reset to AI — only if adjusted */}
+          {landmarks.find(l => l.code === ctxMenu.code)?.adjusted && origLandmarksRef.current.length > 0 && (
             <>
               <div className="h-px bg-border/40 mx-3 my-1" />
               <button
                 type="button"
-                onClick={() => { clearAdjusted(ctxMenu.code); setCtxMenu(null); }}
-                className="w-full flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-muted/40 transition-colors text-left text-muted-foreground"
+                onClick={() => { resetLandmarkToAI(ctxMenu.code); setCtxMenu(null); }}
+                className="w-full flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-warning/10 transition-colors text-left text-warning/80"
               >
-                <RotateCcw className="h-3.5 w-3.5 shrink-0" /> Clear Adjustment Flag
+                <RotateCcw className="h-3.5 w-3.5 shrink-0" /> Reset to AI Position
               </button>
             </>
+          )}
+
+          {/* Clear adjustment flag */}
+          {landmarks.find(l => l.code === ctxMenu.code)?.adjusted && (
+            <button
+              type="button"
+              onClick={() => { clearAdjusted(ctxMenu.code); setCtxMenu(null); }}
+              className="w-full flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-muted/40 transition-colors text-left text-muted-foreground"
+            >
+              <EyeOff className="h-3.5 w-3.5 shrink-0" /> Clear Adjusted Flag
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* ── Overlay Lightbox ── */}
+      {overlayModal && (
+        <div
+          className="fixed inset-0 z-[300] bg-black/90 backdrop-blur-sm flex flex-col animate-in fade-in duration-150"
+          onClick={() => setOverlayModal(null)}
+        >
+          {/* Header */}
+          <div className="flex items-center justify-between px-6 py-4 shrink-0" onClick={e => e.stopPropagation()}>
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-white/40">AI Overlay</p>
+              <h3 className="text-lg font-bold text-white">{overlayModal.label}</h3>
+            </div>
+            <div className="flex items-center gap-2">
+              {/* Prev / Next navigation */}
+              {overlays.length > 1 && (
+                <>
+                  <button type="button"
+                    onClick={e => { e.stopPropagation(); const i = overlays.findIndex(o=>o.key===overlayModal.key); setOverlayModal(overlays[(i-1+overlays.length)%overlays.length]); }}
+                    className="h-9 w-9 flex items-center justify-center rounded-xl border border-white/10 text-white/60 hover:text-white hover:border-white/30 transition-all">
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                  <button type="button"
+                    onClick={e => { e.stopPropagation(); const i = overlays.findIndex(o=>o.key===overlayModal.key); setOverlayModal(overlays[(i+1)%overlays.length]); }}
+                    className="h-9 w-9 flex items-center justify-center rounded-xl border border-white/10 text-white/60 hover:text-white hover:border-white/30 transition-all">
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </>
+              )}
+              <a
+                href={overlayModal.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={e => e.stopPropagation()}
+                className="h-9 w-9 flex items-center justify-center rounded-xl border border-white/10 text-white/60 hover:text-white hover:border-white/30 transition-all"
+                title="Open full resolution in new tab"
+              >
+                <ExternalLink className="h-4 w-4" />
+              </a>
+              <button type="button" onClick={() => setOverlayModal(null)}
+                className="h-9 w-9 flex items-center justify-center rounded-xl border border-white/10 text-white/60 hover:text-white hover:border-white/30 transition-all">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* Image */}
+          <div className="flex-1 flex items-center justify-center p-6 overflow-hidden" onClick={e => e.stopPropagation()}>
+            <img
+              src={overlayModal.url}
+              alt={overlayModal.label}
+              className="max-h-full max-w-full rounded-2xl object-contain shadow-2xl"
+            />
+          </div>
+
+          {/* Thumbnail strip */}
+          {overlays.length > 1 && (
+            <div className="flex items-center justify-center gap-2 pb-5 shrink-0" onClick={e => e.stopPropagation()}>
+              {overlays.map(ov => (
+                <button
+                  key={ov.key}
+                  type="button"
+                  onClick={() => setOverlayModal(ov)}
+                  className={cn(
+                    "h-12 w-20 overflow-hidden rounded-xl border-2 transition-all",
+                    ov.key === overlayModal.key ? "border-primary" : "border-transparent opacity-50 hover:opacity-80"
+                  )}
+                >
+                  <img src={ov.url} alt={ov.label} className="h-full w-full object-cover" />
+                </button>
+              ))}
+            </div>
           )}
         </div>
       )}
@@ -1046,6 +1325,7 @@ function LandmarkChip({ landmark:lm, selected, hovered, color, onClick }: {
     <button
       type="button"
       onClick={onClick}
+      title={`${lm.name} — ${Math.round(lm.confidence*100)}% confidence`}
       className={cn(
         "flex items-center justify-between gap-1 p-2 rounded-xl border transition-all text-left",
         selected ? "border-primary/40 bg-primary/10 ring-2 ring-primary/10"
@@ -1083,26 +1363,30 @@ interface CephCanvasProps {
   calibPts: Point[]; setCalibPts: (pts:Point[])=>void;
   locked: boolean;
   pixPerMm: number|null;
+  distMm: string;
   rulerPts: Point[];   setRulerPts: (pts:Point[])=>void;
   anglePts: Point[];   setAnglePts: (pts:Point[])=>void;
   alwaysLabels: boolean;
   flipH: boolean;
   centerTarget: Point|null;
   onCenterConsumed: ()=>void;
-  onAddMeasurement: (m:Omit<SavedMeasurement,"id"|"at">)=>void;
+  onAddMeasurement: (m:Omit<SavedMeasurement,"id"|"at"|"label">)=>void;
+  measurements: SavedMeasurement[];
   onContextMenu: (code:string,x:number,y:number)=>void;
   onFullscreen: ()=>void;
   fullscreen: boolean;
+  fitSignal: number;
 }
 
 function CephCanvas({
   svgRef, imageUrl, landmarks, setLandmarks, pushUndo,
   selectedCode, hoveredCode, tool, setTool,
   onSelect, onHover, layers, planeVis, filters,
-  calibPts, setCalibPts, locked, pixPerMm,
+  calibPts, setCalibPts, locked, pixPerMm, distMm,
   rulerPts, setRulerPts, anglePts, setAnglePts,
   alwaysLabels, flipH, centerTarget, onCenterConsumed,
-  onAddMeasurement, onContextMenu, onFullscreen, fullscreen,
+  onAddMeasurement, measurements, onContextMenu,
+  onFullscreen, fullscreen, fitSignal,
 }: CephCanvasProps) {
   const [zoom, setZoom]         = useState(1);
   const [pan, setPan]           = useState<Point>({x:0,y:0});
@@ -1116,28 +1400,43 @@ function CephCanvas({
   const [liveRuler, setLiveRuler] = useState<Point|null>(null);
   const [liveAngle, setLiveAngle] = useState<Point|null>(null);
 
-  // Center view when requested
+  // Pinch-to-zoom tracking
+  const lastPinchDist = useRef<number|null>(null);
+
+  // ── Zoom-to-fit: triggered by F key or when image loads ──
+  const fitToView = useCallback(() => {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+  }, []);
+
+  useEffect(() => {
+    if (fitSignal > 0) fitToView();
+  }, [fitSignal, fitToView]);
+
+  // Auto-fit when image URL changes
+  useEffect(() => {
+    if (imageUrl) fitToView();
+  }, [imageUrl]);
+
+  // ── Center view on landmark ──
   useEffect(() => {
     if (!centerTarget) return;
-    setPan({ x: 500 - centerTarget.x * zoom, y: 360 - centerTarget.y * zoom });
-    if (zoom < 2) {
-      const nz = 2.5;
-      setPan({ x: 500 - centerTarget.x * nz, y: 360 - centerTarget.y * nz });
-      setZoom(nz);
-    }
+    const targetZoom = Math.max(zoom, 2.5);
+    // Center the target point in the viewport (SVG viewBox 1000x720 → center is 500,360)
+    setPan({ x: 500 - centerTarget.x * targetZoom, y: 360 - centerTarget.y * targetZoom });
+    setZoom(targetZoom);
     onCenterConsumed();
   }, [centerTarget]);
 
+  // ── SVG coordinate transform ──
   function svgPt(e: React.PointerEvent | React.WheelEvent): Point {
     const svg = svgRef.current; if (!svg) return {x:0,y:0};
     const r = svg.getBoundingClientRect();
     const cx = ('clientX' in e ? e.clientX : 0), cy = ('clientY' in e ? e.clientY : 0);
     const vx = ((cx - r.left) / r.width) * 1000;
     const vy = ((cy - r.top) / r.height) * 720;
-    return {
-      x: Math.max(0,Math.min(1000,(vx-pan.x)/zoom)),
-      y: Math.max(0,Math.min(720,(vy-pan.y)/zoom)),
-    };
+    // No clamping — allow coordinates outside image for tool operations
+    return { x: (vx - pan.x) / zoom, y: (vy - pan.y) / zoom };
   }
 
   function vpPt(e: React.PointerEvent | React.WheelEvent): Point {
@@ -1157,27 +1456,37 @@ function CephCanvas({
     return best;
   }
 
-  function handleWheel(e: React.WheelEvent) {
-    e.preventDefault();
-    const vp = vpPt(e);
-    const factor = e.deltaY < 0 ? 1.15 : 1/1.15;
-    const nz = Math.max(1, Math.min(8, zoom * factor));
-    setPan({ x: vp.x-(vp.x-pan.x)*nz/zoom, y: vp.y-(vp.y-pan.y)*nz/zoom });
+  // ── Zoom ──
+  function applyZoom(factor: number, pivotVp: Point) {
+    const nz = Math.max(0.5, Math.min(12, zoom * factor));
+    setPan({ x: pivotVp.x - (pivotVp.x - pan.x) * nz / zoom, y: pivotVp.y - (pivotVp.y - pan.y) * nz / zoom });
     setZoom(nz);
   }
 
+  function handleWheel(e: React.WheelEvent) {
+    e.preventDefault();
+    applyZoom(e.deltaY < 0 ? 1.12 : 1/1.12, vpPt(e));
+  }
+
+  // ── Pointer events ──
   function handlePointerDown(e: React.PointerEvent) {
     const activePan = tool==="pan" || e.altKey || e.button===1;
-    if (activePan) { setIsPanning(true); setLastPanPt({x:e.clientX,y:e.clientY}); return; }
+    if (activePan) {
+      (e.currentTarget as Element).setPointerCapture(e.pointerId);
+      setIsPanning(true);
+      setLastPanPt({x:e.clientX,y:e.clientY});
+      return;
+    }
     if (locked && tool==="select") return;
 
-    const raw = svgPt(e);
-    const snap = nearestLandmark(raw, 20/zoom);
-    const pt = snap ? {x:snap.x, y:snap.y} : raw;
+    const raw  = svgPt(e);
+    const snap = nearestLandmark(raw, 22/zoom);
+    const pt   = snap ? {x:snap.x, y:snap.y} : raw;
 
     if (tool === "calibrate") {
       setCalibPts(calibPts.length >= 2 ? [pt] : [...calibPts, pt]);
-      if (calibPts.length === 1) toast.info("Two reference points set. Enter distance and save.");
+      if (calibPts.length === 1)
+        toast.info("Two reference points set. Enter distance and save calibration.");
       return;
     }
     if (tool === "ruler") {
@@ -1187,6 +1496,7 @@ function CephCanvas({
         const d = dist(next[0], next[1]);
         const mm = pixPerMm ? d/pixPerMm : null;
         onAddMeasurement({ kind:"distance", value:mm??d, unit:mm?"mm":"px", pts:next });
+        toast.success(mm ? `${mm.toFixed(2)} mm` : `${d.toFixed(0)} px`, { description:"Saved to Measures tab" });
       }
       return;
     }
@@ -1196,6 +1506,7 @@ function CephCanvas({
       if (next.length === 3) {
         const deg = angleDeg(next[1], next[0], next[2]);
         onAddMeasurement({ kind:"angle", value:deg, unit:"°", pts:next });
+        toast.success(`${deg.toFixed(2)}°`, { description:"Angle saved to Measures tab" });
       }
       return;
     }
@@ -1206,8 +1517,8 @@ function CephCanvas({
     const raw = svgPt(e);
     setCursorPt(raw);
 
-    // Snap detection
-    const snap = nearestLandmark(raw, 20/zoom);
+    // Snap detection for measurement tools
+    const snap = nearestLandmark(raw, 22/zoom);
     setSnapCode(snap?.code ?? null);
 
     if (isPanning && lastPanPt) {
@@ -1220,16 +1531,17 @@ function CephCanvas({
       return;
     }
 
-    // Drag calibration point
     if (draggingCalibIdx !== null) {
       const updated = calibPts.map((p,i) => i===draggingCalibIdx ? raw : p);
       setCalibPts(updated);
       return;
     }
 
-    // Drag landmark — immediate, no modal
     if (draggingCode && !locked) {
-      setLandmarks(landmarks.map(l => l.code===draggingCode ? {...l, x:raw.x, y:raw.y, adjusted:true} : l));
+      setLandmarks(landmarks.map(l => l.code===draggingCode
+        ? {...l, x:raw.x, y:raw.y, adjusted:true}
+        : l
+      ));
       return;
     }
 
@@ -1238,16 +1550,52 @@ function CephCanvas({
   }
 
   function handlePointerUp(e: React.PointerEvent) {
+    try { (e.currentTarget as Element).releasePointerCapture(e.pointerId); } catch {}
+
     if (draggingCode && dragOrigin) {
       const lm = landmarks.find(l => l.code===draggingCode);
       if (lm && dist(dragOrigin, {x:lm.x, y:lm.y}) > 2) {
-        toast.success(`${draggingCode} adjusted`, { description:"Position updated · Ctrl+Z to undo" });
+        toast.success(`${draggingCode} adjusted`, { description:"Ctrl+Z to undo · Right-click to reset" });
       }
     }
     setDraggingCode(null); setDragOrigin(null);
     setDraggingCalibIdx(null);
     setIsPanning(false); setLastPanPt(null);
   }
+
+  // ── Double-click to zoom in/out ──
+  function handleDoubleClick(e: React.MouseEvent) {
+    const vp = vpPt(e as unknown as React.PointerEvent);
+    if (zoom >= 4) {
+      setZoom(1); setPan({x:0,y:0});
+    } else {
+      applyZoom(2, vp);
+    }
+  }
+
+  // ── Touch pinch-to-zoom ──
+  function handleTouchMove(e: React.TouchEvent) {
+    if (e.touches.length === 2) {
+      e.preventDefault();
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const d  = Math.sqrt(dx*dx + dy*dy);
+      if (lastPinchDist.current !== null) {
+        const factor = d / lastPinchDist.current;
+        const svg = svgRef.current; if (!svg) return;
+        const r = svg.getBoundingClientRect();
+        const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        const cy = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+        const pivotVp = {
+          x: ((cx - r.left) / r.width) * 1000,
+          y: ((cy - r.top) / r.height) * 720,
+        };
+        applyZoom(factor, pivotVp);
+      }
+      lastPinchDist.current = d;
+    }
+  }
+  function handleTouchEnd() { lastPinchDist.current = null; }
 
   const byCode = useMemo(() => Object.fromEntries(landmarks.map(l=>[l.code,l])), [landmarks]);
 
@@ -1265,11 +1613,20 @@ function CephCanvas({
 
   const activeTool = TOOLS.find(t=>t.mode===tool);
 
+  // ── Cursor style ──
+  const cursorClass =
+    isPanning || tool==="pan"       ? "cursor-grab" :
+    draggingCode                    ? "cursor-grabbing" :
+    tool==="select"  && !locked     ? "cursor-crosshair" :
+    tool==="calibrate"              ? "cursor-cell" :
+    tool==="ruler" || tool==="angle"? "cursor-crosshair" :
+    "cursor-default";
+
   return (
     <div className="relative">
       <Card noPadding className="relative overflow-hidden bg-[#07070e] border-border/20 shadow-2xl group/viewer">
 
-        {/* ── Defs for SVG filters ── */}
+        {/* ── SVG filter defs ── */}
         <svg width="0" height="0" className="absolute">
           <defs>
             <filter id="ceph-gamma">
@@ -1293,7 +1650,7 @@ function CephCanvas({
           </defs>
         </svg>
 
-        {/* ── Tool Palette ── */}
+        {/* ── Tool palette ── */}
         <div className="absolute left-3 top-1/2 -translate-y-1/2 z-20 flex flex-col">
           <div className="flex flex-col rounded-2xl border border-white/10 bg-black/88 backdrop-blur-md p-1.5 shadow-2xl gap-0.5">
             {TOOLS.map(t => (
@@ -1310,40 +1667,50 @@ function CephCanvas({
                 )}
               >
                 <t.icon className="h-3.5 w-3.5" />
-                <span className="text-[7px] font-bold opacity-60">{t.shortcut}</span>
+                <span className="text-[7px] font-bold opacity-70">{t.shortcut}</span>
               </button>
             ))}
             <div className="h-px bg-white/10 my-0.5 mx-1" />
+            {/* Fit to view */}
             <button
               type="button"
-              onClick={() => { setZoom(1); setPan({x:0,y:0}); }}
-              title="Fit (F)"
+              onClick={fitToView}
+              title="Fit to view (F)"
               className="flex h-8 w-10 items-center justify-center text-[8px] font-bold text-white/25 hover:text-white hover:bg-white/10 rounded-xl transition-all"
             >FIT</button>
           </div>
         </div>
 
-        {/* ── Top bar ── */}
+        {/* ── Top overlay bar ── */}
         <div className="absolute top-0 inset-x-0 z-10 flex items-center justify-between px-4 py-2 bg-gradient-to-b from-black/85 to-transparent pointer-events-none">
           <div className="flex items-center gap-2 pointer-events-auto">
+            {/* Active tool indicator */}
             <div className={cn(
               "flex items-center gap-2 px-3 py-1.5 rounded-full backdrop-blur border shadow-lg text-[9px] font-bold uppercase tracking-widest",
               tool==="calibrate" ? "bg-warning/25 border-warning/50 text-warning"
               : tool==="ruler"||tool==="angle" ? "bg-primary/25 border-primary/50 text-primary"
               : "bg-black/60 border-white/10 text-white/80"
             )}>
-              <div className={cn("h-1.5 w-1.5 rounded-full",
+              <div className={cn("h-1.5 w-1.5 rounded-full shrink-0",
                 tool==="calibrate"?"bg-warning animate-pulse":
                 tool==="ruler"||tool==="angle"?"bg-primary animate-pulse":"bg-emerald-400"
               )} />
               {activeTool?.label}
             </div>
-            {zoom > 1 && (
+            {/* Zoom indicator */}
+            {zoom !== 1 && (
               <div className="flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-primary/20 backdrop-blur border border-primary/40 text-[9px] font-bold text-primary">
                 <ZoomIn className="h-2.5 w-2.5" />{Math.round(zoom*100)}%
               </div>
             )}
+            {/* Lock indicator */}
+            {locked && (
+              <div className="flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-destructive/20 backdrop-blur border border-destructive/40 text-[9px] font-bold text-destructive">
+                <Lock className="h-2.5 w-2.5" /> Locked
+              </div>
+            )}
           </div>
+
           <div className="flex items-center gap-2 pointer-events-auto">
             {selectedCode && (
               <div className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-black/60 border border-white/10">
@@ -1354,6 +1721,7 @@ function CephCanvas({
             <button
               type="button"
               onClick={onFullscreen}
+              title="Toggle fullscreen"
               className="flex h-8 w-8 items-center justify-center rounded-xl bg-black/60 border border-white/10 text-white/40 hover:text-white transition-colors"
             >
               {fullscreen ? <Minimize2 className="h-3.5 w-3.5"/> : <Maximize2 className="h-3.5 w-3.5"/>}
@@ -1361,26 +1729,26 @@ function CephCanvas({
           </div>
         </div>
 
-        {/* ── Main SVG ── */}
+        {/* ── Main SVG canvas ── */}
         <div className="aspect-[1000/720] min-h-[520px]">
           <svg
             ref={svgRef}
             viewBox="0 0 1000 720"
-            className={cn(
-              "h-full w-full touch-none select-none",
-              isPanning || tool==="pan" ? "cursor-grab" : "cursor-crosshair"
-            )}
+            className={cn("h-full w-full touch-none select-none", cursorClass)}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
             onPointerLeave={handlePointerUp}
             onWheel={handleWheel}
+            onDoubleClick={handleDoubleClick}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
           >
             <rect width="1000" height="720" fill="#070710" />
 
             <g transform={`translate(${pan.x},${pan.y}) scale(${zoom})`}>
 
-              {/* Image */}
+              {/* ── X-ray Image ── */}
               {imageUrl ? (
                 <g filter={
                   filters.sharpen && filters.gamma!==1 ? "url(#ceph-sharpen-gamma)" :
@@ -1396,71 +1764,116 @@ function CephCanvas({
                 </g>
               ) : (
                 <g>
-                  <rect x="150" y="200" width="700" height="320" rx="24"
-                    fill="rgba(255,255,255,0.015)" stroke="rgba(255,255,255,0.06)" strokeDasharray="14 8" />
-                  <text x="500" y="350" fill="rgba(255,255,255,0.22)" fontSize="20"
+                  <rect x="80" y="120" width="840" height="480" rx="32"
+                    fill="rgba(255,255,255,0.012)" stroke="rgba(255,255,255,0.05)" strokeDasharray="14 8" />
+                  <ImageOff x="455" y="285" width="90" height="90"
+                    color="rgba(255,255,255,0.07)" />
+                  <text x="500" y="410" fill="rgba(255,255,255,0.18)" fontSize="18"
                     fontWeight="bold" textAnchor="middle" fontFamily="system-ui">Cephalometric Image</text>
-                  <text x="500" y="385" fill="rgba(255,255,255,0.1)" fontSize="13"
+                  <text x="500" y="440" fill="rgba(255,255,255,0.08)" fontSize="12"
                     textAnchor="middle" fontFamily="system-ui">Upload X-ray · Run AI · View results</text>
                 </g>
               )}
 
-              {/* Grid */}
+              {/* ── Reference Grid ── */}
               {layers.grid && (
-                <g opacity="0.09">
+                <g opacity="0.08">
                   {Array.from({length:11}).map((_,i) => (
-                    <line key={`v${i}`} x1={i*100} y1="0" x2={i*100} y2="720" stroke="#60a5fa" strokeWidth="0.5"/>
+                    <line key={`v${i}`} x1={i*100} y1="0" x2={i*100} y2="720" stroke="#60a5fa" strokeWidth="0.6"/>
                   ))}
                   {Array.from({length:8}).map((_,i) => (
-                    <line key={`h${i}`} x1="0" y1={(i+1)*90} x2="1000" y2={(i+1)*90} stroke="#60a5fa" strokeWidth="0.5"/>
+                    <line key={`h${i}`} x1="0" y1={(i+1)*90} x2="1000" y2={(i+1)*90} stroke="#60a5fa" strokeWidth="0.6"/>
                   ))}
-                  <text x="6" y="12" fill="rgba(96,165,250,0.3)" fontSize="7" fontFamily="system-ui">100 px grid</text>
+                  <text x="7" y="13" fill="rgba(96,165,250,0.35)" fontSize="7" fontFamily="system-ui">100 px</text>
                 </g>
               )}
 
-              {/* Tracing Planes */}
+              {/* ── Tracing Planes ── */}
               {activePlanes.map(plane => {
                 const p1=byCode[plane.from], p2=byCode[plane.to];
                 if (!p1||!p2) return null;
                 const [e1,e2] = extendedLine(p1, p2, 70);
                 const midX=(e1.x+e2.x)/2, midY=(e1.y+e2.y)/2-14;
-                const lw = plane.label.length*6+8;
+                const lw = plane.label.length*6+12;
                 return (
                   <g key={plane.key} className="animate-in fade-in duration-500">
                     <line x1={e1.x} y1={e1.y} x2={e2.x} y2={e2.y}
-                      stroke={plane.color} strokeOpacity="0.08" strokeWidth="10"/>
+                      stroke={plane.color} strokeOpacity="0.07" strokeWidth="12"/>
                     <line x1={e1.x} y1={e1.y} x2={e2.x} y2={e2.y}
-                      stroke={plane.color} strokeOpacity="0.65" strokeWidth="1.5"
+                      stroke={plane.color} strokeOpacity="0.7" strokeWidth="1.5"
                       strokeDasharray={plane.dashed?"8 5":undefined}/>
                     <g transform={`translate(${midX},${midY})`}>
-                      <rect x="-2" y="-9" width={lw} height="13" rx="4" fill="rgba(0,0,0,0.75)"/>
-                      <text x={lw/2-2} y="1" fill={plane.color} fontSize="9" fontWeight="bold"
+                      <rect x="-2" y="-9" width={lw} height="14" rx="4" fill="rgba(0,0,0,0.80)"/>
+                      <text x={lw/2-2} y="2" fill={plane.color} fontSize="9" fontWeight="bold"
                         textAnchor="middle" fontFamily="system-ui">{plane.label}</text>
                     </g>
                   </g>
                 );
               })}
 
-              {/* Soft tissue profile */}
-              {layers.softTissue && byCode.N_st && byCode.Prn && byCode.Ls && byCode.Li && byCode.Pog_st && (
+              {/* ── Soft tissue profile ── */}
+              {layers.softTissue &&
+                byCode.N_st && byCode.Prn && byCode.Ls && byCode.Li && byCode.Pog_st && (
                 <path
                   d={`M ${byCode.N_st.x} ${byCode.N_st.y}
-                      C ${byCode.Prn.x+50} ${byCode.N_st.y+70}, ${byCode.Prn.x+35} ${byCode.Prn.y-25}, ${byCode.Prn.x} ${byCode.Prn.y}
-                      C ${byCode.Prn.x-12} ${byCode.Prn.y+35}, ${byCode.Ls.x+25} ${byCode.Ls.y-20}, ${byCode.Ls.x} ${byCode.Ls.y}
-                      C ${byCode.Ls.x-10} ${byCode.Ls.y+20}, ${byCode.Li.x+10} ${byCode.Li.y-15}, ${byCode.Li.x} ${byCode.Li.y}
-                      C ${byCode.Li.x-10} ${byCode.Li.y+25}, ${byCode.Pog_st.x+20} ${byCode.Pog_st.y-25}, ${byCode.Pog_st.x} ${byCode.Pog_st.y}`}
-                  fill="none" stroke="#fb7185" strokeOpacity="0.5" strokeWidth="2.5" strokeLinecap="round"/>
+                    C ${byCode.Prn.x+50} ${byCode.N_st.y+70}, ${byCode.Prn.x+35} ${byCode.Prn.y-25}, ${byCode.Prn.x} ${byCode.Prn.y}
+                    C ${byCode.Prn.x-12} ${byCode.Prn.y+35}, ${byCode.Ls.x+25} ${byCode.Ls.y-20}, ${byCode.Ls.x} ${byCode.Ls.y}
+                    C ${byCode.Ls.x-10} ${byCode.Ls.y+20}, ${byCode.Li.x+10} ${byCode.Li.y-15}, ${byCode.Li.x} ${byCode.Li.y}
+                    C ${byCode.Li.x-10} ${byCode.Li.y+25}, ${byCode.Pog_st.x+20} ${byCode.Pog_st.y-25}, ${byCode.Pog_st.x} ${byCode.Pog_st.y}`}
+                  fill="none" stroke="#fb7185" strokeOpacity="0.55" strokeWidth="2.5" strokeLinecap="round"/>
               )}
 
-              {/* Landmarks */}
+              {/* ── Saved Measurements overlay on canvas ── */}
+              {layers.measurements && measurements.map(m => {
+                if (m.kind === "distance" && m.pts.length >= 2) {
+                  const [p1, p2] = m.pts;
+                  const midX = (p1.x+p2.x)/2, midY = (p1.y+p2.y)/2;
+                  const lw = m.label.length * 5.5 + 14;
+                  return (
+                    <g key={m.id} opacity="0.75">
+                      <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y}
+                        stroke="#60a5fa" strokeOpacity="0.5" strokeWidth="1.2" strokeDasharray="6 3"/>
+                      <circle cx={p1.x} cy={p1.y} r="3" fill="#60a5fa" stroke="#000" strokeWidth="1"/>
+                      <circle cx={p2.x} cy={p2.y} r="3" fill="#60a5fa" stroke="#000" strokeWidth="1"/>
+                      <g transform={`translate(${midX+4},${midY-22})`}>
+                        <rect x="-2" y="-9" width={lw} height="13" rx="4" fill="rgba(0,0,0,0.85)"/>
+                        <text x={lw/2-2} y="1" fill="#60a5fa" fontSize="8" fontWeight="bold"
+                          textAnchor="middle" fontFamily="system-ui">{m.label}</text>
+                      </g>
+                    </g>
+                  );
+                }
+                if (m.kind === "angle" && m.pts.length === 3) {
+                  const [p1, p2, p3] = m.pts;
+                  return (
+                    <g key={m.id} opacity="0.70">
+                      <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#a78bfa" strokeWidth="1.2" strokeOpacity="0.5"/>
+                      <line x1={p2.x} y1={p2.y} x2={p3.x} y2={p3.y} stroke="#a78bfa" strokeWidth="1.2" strokeOpacity="0.5"/>
+                      <path d={arcPath(p2,p1,p3,24)}
+                        fill="rgba(167,139,250,0.08)" stroke="#a78bfa" strokeWidth="1.2" strokeOpacity="0.6"/>
+                      {[p1,p2,p3].map((pt,i) => (
+                        <circle key={i} cx={pt.x} cy={pt.y} r="2.5" fill="#a78bfa" stroke="#000" strokeWidth="1"/>
+                      ))}
+                      <g transform={`translate(${p2.x+28},${p2.y-14})`}>
+                        <rect x="-2" y="-8" width="46" height="12" rx="3" fill="rgba(0,0,0,0.85)"/>
+                        <text x="21" y="1" fill="#a78bfa" fontSize="8" fontWeight="bold"
+                          textAnchor="middle" fontFamily="system-ui">{m.label}</text>
+                      </g>
+                    </g>
+                  );
+                }
+                return null;
+              })}
+
+              {/* ── Landmarks ── */}
               {layers.landmarks && landmarks.map(lm => {
-                const sel = lm.code===selectedCode;
-                const hov = lm.code===hoveredCode;
+                const sel  = lm.code===selectedCode;
+                const hov  = lm.code===hoveredCode;
                 const snap = lm.code===snapCode;
-                const gc = getGroupColor(lm.code);
-                const cc = lm.confidence>=0.85?"#4ade80":lm.confidence>=0.7?"#60a5fa":"#f59e0b";
-                const dc = sel ? gc : cc;
-                const r  = sel ? 6 : hov ? 5 : 4;
+                const gc   = getGroupColor(lm.code);
+                const cc   = lm.confidence>=0.85?"#4ade80":lm.confidence>=0.7?"#60a5fa":"#f59e0b";
+                const dc   = sel ? gc : cc;
+                const r    = sel ? 6 : hov ? 5 : 4;
 
                 return (
                   <g
@@ -1468,6 +1881,7 @@ function CephCanvas({
                     onPointerDown={e => {
                       e.stopPropagation();
                       if (tool==="select" && !locked) {
+                        (e.currentTarget as Element).setPointerCapture(e.pointerId);
                         pushUndo();
                         setDraggingCode(lm.code);
                         setDragOrigin({x:lm.x, y:lm.y});
@@ -1476,18 +1890,21 @@ function CephCanvas({
                     }}
                     onPointerEnter={() => onHover(lm.code)}
                     onPointerLeave={() => onHover(null)}
-                    onContextMenu={e => { e.preventDefault(); e.stopPropagation(); onContextMenu(lm.code, e.clientX, e.clientY); }}
-                    className={tool==="select"&&!locked?"cursor-move":"cursor-pointer"}
+                    onContextMenu={e => {
+                      e.preventDefault(); e.stopPropagation();
+                      onContextMenu(lm.code, e.clientX, e.clientY);
+                    }}
+                    className={tool==="select"&&!locked ? "cursor-move" : "cursor-pointer"}
                   >
-                    {/* Snap indicator */}
+                    {/* Snap ring */}
                     {snap && !sel && (
-                      <circle cx={lm.x} cy={lm.y} r="18" fill="none"
-                        stroke="#fff" strokeOpacity="0.5" strokeWidth="1.5"
+                      <circle cx={lm.x} cy={lm.y} r="20" fill="none"
+                        stroke="#fff" strokeOpacity="0.55" strokeWidth="1.5"
                         strokeDasharray="4 3" className="animate-pulse"/>
                     )}
                     {/* Selection rings */}
                     {sel && <>
-                      <circle cx={lm.x} cy={lm.y} r="32" fill="none"
+                      <circle cx={lm.x} cy={lm.y} r="34" fill="none"
                         stroke={gc} strokeOpacity="0.1" strokeWidth="1.5" className="animate-pulse"/>
                       <circle cx={lm.x} cy={lm.y} r="22" fill="none"
                         stroke={gc} strokeOpacity="0.35" strokeWidth="1.5" strokeDasharray="5 3"/>
@@ -1497,13 +1914,13 @@ function CephCanvas({
                       <circle cx={lm.x} cy={lm.y} r="16" fill="none"
                         stroke={dc} strokeOpacity="0.3" strokeWidth="1"/>
                     )}
-                    {/* Crosshair */}
+                    {/* Crosshair arms */}
                     {[[-14,0,-4,0],[4,0,14,0],[0,-14,0,-4],[0,4,0,14]].map(([x1,y1,x2,y2],i) => (
                       <line key={i}
                         x1={lm.x+x1} y1={lm.y+y1} x2={lm.x+x2} y2={lm.y+y2}
                         stroke={dc} strokeWidth={sel?2.5:hov?2:1.8} strokeLinecap="round"/>
                     ))}
-                    {/* Center */}
+                    {/* Center dot — diamond for low confidence */}
                     {lm.confidence < 0.7 ? (
                       <polygon
                         points={`${lm.x},${lm.y-r} ${lm.x+r},${lm.y} ${lm.x},${lm.y+r} ${lm.x-r},${lm.y}`}
@@ -1511,81 +1928,103 @@ function CephCanvas({
                     ) : (
                       <circle cx={lm.x} cy={lm.y} r={r} fill={dc} stroke="#000" strokeWidth="1.5"/>
                     )}
-                    {/* Adjusted dot */}
+                    {/* Adjusted indicator */}
                     {lm.adjusted && (
                       <circle cx={lm.x+8} cy={lm.y-8} r="3" fill="#60a5fa" stroke="#000" strokeWidth="1"/>
                     )}
                     {/* Label */}
-                    {(alwaysLabels || sel || hov || zoom>=2.5) && (
-                      <g transform={`translate(${lm.x+14},${lm.y-24})`}>
-                        <rect width={Math.max(28,lm.code.length*6.5+8)} height="17" rx="5"
-                          fill="rgba(0,0,0,0.9)" stroke={dc} strokeOpacity="0.5" strokeWidth="0.5"/>
-                        <text x={Math.max(14,lm.code.length*3.25+4)} y="12"
-                          fill="white" fontSize="9.5" fontWeight="bold" textAnchor="middle" fontFamily="system-ui">
-                          {lm.code}
-                        </text>
-                      </g>
-                    )}
+                    {(alwaysLabels || sel || hov || zoom>=2.5) && (() => {
+                      const lw = Math.max(28, lm.code.length*6.5+10);
+                      return (
+                        <g transform={`translate(${lm.x+14},${lm.y-26})`}>
+                          <rect width={lw} height="17" rx="5"
+                            fill="rgba(0,0,0,0.92)" stroke={dc} strokeOpacity="0.5" strokeWidth="0.5"/>
+                          <text x={lw/2} y="12"
+                            fill="white" fontSize="9.5" fontWeight="bold" textAnchor="middle" fontFamily="system-ui">
+                            {lm.code}
+                          </text>
+                        </g>
+                      );
+                    })()}
                     {/* Hover tooltip */}
-                    {hov && !sel && (
-                      <g transform={`translate(${lm.x+14},${lm.y+12})`}>
-                        <rect width={Math.max(60,lm.name.length*5.2+12)} height="28" rx="5" fill="rgba(0,0,0,0.9)"/>
-                        <text x={Math.max(30,(lm.name.length*5.2+12)/2)} y="11"
-                          fill="rgba(255,255,255,0.75)" fontSize="8.5" textAnchor="middle" fontFamily="system-ui">{lm.name}</text>
-                        <text x={Math.max(30,(lm.name.length*5.2+12)/2)} y="22"
-                          fill={cc} fontSize="8" textAnchor="middle" fontFamily="system-ui">{Math.round(lm.confidence*100)}% conf</text>
-                      </g>
-                    )}
+                    {hov && !sel && (() => {
+                      const tw = Math.max(64, lm.name.length*5+16);
+                      return (
+                        <g transform={`translate(${lm.x+14},${lm.y+14})`}>
+                          <rect width={tw} height="30" rx="6" fill="rgba(0,0,0,0.92)"/>
+                          <text x={tw/2} y="12" fill="rgba(255,255,255,0.80)" fontSize="8.5"
+                            textAnchor="middle" fontFamily="system-ui">{lm.name}</text>
+                          <text x={tw/2} y="23" fill={cc} fontSize="8"
+                            textAnchor="middle" fontFamily="system-ui">{Math.round(lm.confidence*100)}% confidence</text>
+                        </g>
+                      );
+                    })()}
                   </g>
                 );
               })}
 
-              {/* Calibration ruler */}
+              {/* ── Calibration ruler ── */}
               {calibPts.length >= 1 && (
                 <g>
                   {calibPts.map((pt, i) => (
                     <g
                       key={`cal-${i}`}
-                      onPointerDown={e => { e.stopPropagation(); setDraggingCalibIdx(i); }}
+                      onPointerDown={e => {
+                        e.stopPropagation();
+                        (e.currentTarget as Element).setPointerCapture(e.pointerId);
+                        setDraggingCalibIdx(i);
+                      }}
                       className="cursor-move"
                     >
-                      <circle cx={pt.x} cy={pt.y} r="22" fill="rgba(245,158,11,0.06)" stroke="#f59e0b" strokeWidth="0.5" strokeDasharray="3 2"/>
-                      <circle cx={pt.x} cy={pt.y} r="11" fill="rgba(245,158,11,0.2)" stroke="#f59e0b" strokeWidth="2"/>
+                      <circle cx={pt.x} cy={pt.y} r="22" fill="rgba(245,158,11,0.06)"
+                        stroke="#f59e0b" strokeWidth="0.5" strokeDasharray="3 2"/>
+                      <circle cx={pt.x} cy={pt.y} r="11" fill="rgba(245,158,11,0.2)"
+                        stroke="#f59e0b" strokeWidth="2"/>
                       <circle cx={pt.x} cy={pt.y} r="3" fill="#f59e0b"/>
                       {[[-13,0,13,0],[0,-13,0,13]].map(([x1,y1,x2,y2],ci) => (
                         <line key={ci} x1={pt.x+x1} y1={pt.y+y1} x2={pt.x+x2} y2={pt.y+y2}
                           stroke="#f59e0b" strokeWidth="1.5" strokeOpacity="0.55"/>
                       ))}
-                      <g transform={`translate(${pt.x+22},${pt.y-18})`}>
-                        <rect x="-2" y="-9" width="36" height="13" rx="4" fill="rgba(0,0,0,0.88)" stroke="#f59e0b" strokeWidth="0.5"/>
-                        <text x="16" y="1" fill="#f59e0b" fontSize="9" fontWeight="bold" textAnchor="middle" fontFamily="system-ui">REF {i+1}</text>
+                      <g transform={`translate(${pt.x+22},${pt.y-20})`}>
+                        <rect x="-2" y="-9" width="40" height="13" rx="4"
+                          fill="rgba(0,0,0,0.88)" stroke="#f59e0b" strokeWidth="0.5"/>
+                        <text x="18" y="1" fill="#f59e0b" fontSize="9" fontWeight="bold"
+                          textAnchor="middle" fontFamily="system-ui">REF {i+1}</text>
                       </g>
                     </g>
                   ))}
-                  {calibPts.length===2&&(()=>{
-                    const [p1,p2]=calibPts;
+                  {calibPts.length===2 && (()=>{
+                    const [p1,p2] = calibPts;
                     const pd = dist(p1,p2);
                     const midX=(p1.x+p2.x)/2, midY=(p1.y+p2.y)/2;
                     const t1=perpTick(p1,p2,12), t2=perpTick(p2,p1,12);
-                    const angle=Math.atan2(p2.y-p1.y,p2.x-p1.x);
-                    // Tick marks along ruler
-                    const numTicks = Math.floor(pd/30);
+                    const numTicks = Math.max(0, Math.floor(pd/30) - 1);
+                    const angle = Math.atan2(p2.y-p1.y,p2.x-p1.x) * 180 / Math.PI;
+                    const distLabel = distMm ? `${distMm} mm` : "? mm"; // FIXED: show entered distMm
                     return (
                       <g>
                         <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y}
                           stroke="#f59e0b" strokeWidth="2" strokeDasharray="10 5" strokeOpacity="0.8"/>
-                        <line x1={t1.x1} y1={t1.y1} x2={t1.x2} y2={t1.y2} stroke="#f59e0b" strokeWidth="2.5" strokeOpacity="0.9"/>
-                        <line x1={t2.x1} y1={t2.y1} x2={t2.x2} y2={t2.y2} stroke="#f59e0b" strokeWidth="2.5" strokeOpacity="0.9"/>
-                        {Array.from({length:numTicks-1}).map((_,ti) => {
-                          const frac=(ti+1)/numTicks;
+                        <line x1={t1.x1} y1={t1.y1} x2={t1.x2} y2={t1.y2}
+                          stroke="#f59e0b" strokeWidth="2.5" strokeOpacity="0.9"/>
+                        <line x1={t2.x1} y1={t2.y1} x2={t2.x2} y2={t2.y2}
+                          stroke="#f59e0b" strokeWidth="2.5" strokeOpacity="0.9"/>
+                        {Array.from({length:numTicks}).map((_,ti) => {
+                          const frac=(ti+1)/(numTicks+1);
                           const tx=p1.x+(p2.x-p1.x)*frac, ty=p1.y+(p2.y-p1.y)*frac;
                           const tp=perpTick({x:tx,y:ty},p2,5);
-                          return <line key={ti} x1={tp.x1} y1={tp.y1} x2={tp.x2} y2={tp.y2} stroke="#f59e0b" strokeWidth="1" strokeOpacity="0.5"/>;
+                          return <line key={ti} x1={tp.x1} y1={tp.y1} x2={tp.x2} y2={tp.y2}
+                            stroke="#f59e0b" strokeWidth="1" strokeOpacity="0.45"/>;
                         })}
                         <g transform={`translate(${midX},${midY})`}>
-                          <rect x="-40" y="-26" width="80" height="46" rx="9" fill="rgba(0,0,0,0.92)" stroke="#f59e0b" strokeWidth="1.2"/>
-                          <text x="0" y="-8" fill="#f59e0b" fontSize="12" fontWeight="bold" textAnchor="middle" fontFamily="system-ui">? mm</text>
-                          <text x="0" y="9" fill="rgba(245,158,11,0.55)" fontSize="9" textAnchor="middle" fontFamily="system-ui">{pd.toFixed(0)} px · {angle*(180/Math.PI) < 0 ? (180+angle*(180/Math.PI)).toFixed(0) : (angle*(180/Math.PI)).toFixed(0)}°</text>
+                          <rect x="-46" y="-28" width="92" height="50" rx="10"
+                            fill="rgba(0,0,0,0.92)" stroke="#f59e0b" strokeWidth="1.2"/>
+                          <text x="0" y="-8" fill="#f59e0b" fontSize="13" fontWeight="bold"
+                            textAnchor="middle" fontFamily="system-ui">{distLabel}</text>
+                          <text x="0" y="10" fill="rgba(245,158,11,0.55)" fontSize="8.5"
+                            textAnchor="middle" fontFamily="system-ui">
+                            {pd.toFixed(0)} px · {angle.toFixed(1)}°
+                          </text>
                         </g>
                       </g>
                     );
@@ -1593,111 +2032,142 @@ function CephCanvas({
                 </g>
               )}
 
-              {/* Ruler tool overlay */}
-              {rulerPts.length>0&&(()=>{
+              {/* ── Ruler tool ── */}
+              {rulerPts.length>0 && (()=>{
                 const p1=rulerPts[0], p2=rulerPts[1]??liveRuler;
                 if (!p2) return null;
                 const pd=dist(p1,p2), mm=pixPerMm?pd/pixPerMm:null;
                 const midX=(p1.x+p2.x)/2, midY=(p1.y+p2.y)/2;
-                const deg=Math.atan2(p2.y-p1.y,p2.x-p1.x)*(180/Math.PI);
                 const t1=perpTick(p1,p2,8), t2=perpTick(p2,p1,8);
+                const lw = mm ? 90 : 68;
                 return (
                   <g>
-                    <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#60a5fa" strokeOpacity="0.12" strokeWidth="8"/>
                     <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y}
-                      stroke="#60a5fa" strokeOpacity="0.8" strokeWidth="1.5"
+                      stroke="#60a5fa" strokeOpacity="0.10" strokeWidth="10"/>
+                    <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y}
+                      stroke="#60a5fa" strokeOpacity="0.85" strokeWidth="1.5"
                       strokeDasharray={rulerPts.length===1?"6 4":undefined}/>
-                    <line x1={t1.x1} y1={t1.y1} x2={t1.x2} y2={t1.y2} stroke="#60a5fa" strokeWidth="2" strokeOpacity="0.8"/>
-                    <line x1={t2.x1} y1={t2.y1} x2={t2.x2} y2={t2.y2} stroke="#60a5fa" strokeWidth="2" strokeOpacity="0.8"/>
+                    <line x1={t1.x1} y1={t1.y1} x2={t1.x2} y2={t1.y2}
+                      stroke="#60a5fa" strokeWidth="2" strokeOpacity="0.85"/>
+                    <line x1={t2.x1} y1={t2.y1} x2={t2.x2} y2={t2.y2}
+                      stroke="#60a5fa" strokeWidth="2" strokeOpacity="0.85"/>
                     <circle cx={p1.x} cy={p1.y} r="5" fill="#60a5fa" stroke="#000" strokeWidth="1.5"/>
-                    {rulerPts.length===2&&<circle cx={p2.x} cy={p2.y} r="5" fill="#60a5fa" stroke="#000" strokeWidth="1.5"/>}
-                    <g transform={`translate(${midX+6},${midY-32})`}>
-                      <rect x="-2" y="-12" width={mm?82:60} height="38" rx="8" fill="rgba(0,0,0,0.92)" stroke="#60a5fa" strokeWidth="1"/>
-                      <text x={(mm?39:28)} y="2" fill="#60a5fa" fontSize="11.5" fontWeight="bold" textAnchor="middle" fontFamily="system-ui">
-                        {mm?`${mm.toFixed(1)} mm`:`${pd.toFixed(0)} px`}
+                    {rulerPts.length===2 && <circle cx={p2.x} cy={p2.y} r="5" fill="#60a5fa" stroke="#000" strokeWidth="1.5"/>}
+                    <g transform={`translate(${midX+6},${midY-34})`}>
+                      <rect x="-2" y="-12" width={lw} height="40" rx="9"
+                        fill="rgba(0,0,0,0.92)" stroke="#60a5fa" strokeWidth="1"/>
+                      <text x={lw/2-2} y="4" fill="#60a5fa" fontSize="12" fontWeight="bold"
+                        textAnchor="middle" fontFamily="system-ui">
+                        {mm ? `${mm.toFixed(2)} mm` : `${pd.toFixed(0)} px`}
                       </text>
-                      <text x={(mm?39:28)} y="17" fill="rgba(96,165,250,0.5)" fontSize="8.5" textAnchor="middle" fontFamily="system-ui">
-                        {deg.toFixed(1)}° · {pd.toFixed(0)} px
+                      <text x={lw/2-2} y="19" fill="rgba(96,165,250,0.5)" fontSize="8.5"
+                        textAnchor="middle" fontFamily="system-ui">
+                        {pd.toFixed(0)} px
                       </text>
                     </g>
                   </g>
                 );
               })()}
 
-              {/* Angle tool overlay */}
-              {anglePts.length>=1&&(()=>{
+              {/* ── Angle tool ── */}
+              {anglePts.length>=1 && (()=>{
                 const p1=anglePts[0], p2=anglePts[1]??liveAngle;
                 if (!p2) return null;
-                const p3=anglePts[2]??(anglePts.length===2?liveAngle:null);
+                const p3=anglePts[2] ?? (anglePts.length===2 ? liveAngle : null);
                 return (
                   <g>
                     <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y}
-                      stroke="#a78bfa" strokeOpacity="0.8" strokeWidth="1.5" strokeDasharray={anglePts.length<2?"6 4":undefined}/>
-                    {p3&&<>
+                      stroke="#a78bfa" strokeOpacity="0.85" strokeWidth="1.5"
+                      strokeDasharray={anglePts.length<2?"6 4":undefined}/>
+                    {p3 && <>
                       <line x1={p2.x} y1={p2.y} x2={p3.x} y2={p3.y}
-                        stroke="#a78bfa" strokeOpacity="0.8" strokeWidth="1.5" strokeDasharray={anglePts.length<3?"6 4":undefined}/>
+                        stroke="#a78bfa" strokeOpacity="0.85" strokeWidth="1.5"
+                        strokeDasharray={anglePts.length<3?"6 4":undefined}/>
                       <path d={arcPath(p2,p1,p3,32)}
-                        fill="rgba(167,139,250,0.1)" stroke="#a78bfa" strokeOpacity="0.7" strokeWidth="1.5" strokeDasharray="4 3"/>
-                      <g transform={`translate(${p2.x+38},${p2.y-16})`}>
-                        <rect x="-2" y="-10" width="56" height="22" rx="7" fill="rgba(0,0,0,0.92)" stroke="#a78bfa" strokeWidth="1"/>
-                        <text x="26" y="5" fill="#a78bfa" fontSize="12" fontWeight="bold" textAnchor="middle" fontFamily="system-ui">
+                        fill="rgba(167,139,250,0.1)" stroke="#a78bfa" strokeOpacity="0.7"
+                        strokeWidth="1.5" strokeDasharray="4 3"/>
+                      <g transform={`translate(${p2.x+40},${p2.y-18})`}>
+                        <rect x="-2" y="-10" width="60" height="24" rx="7"
+                          fill="rgba(0,0,0,0.92)" stroke="#a78bfa" strokeWidth="1"/>
+                        <text x="28" y="7" fill="#a78bfa" fontSize="13" fontWeight="bold"
+                          textAnchor="middle" fontFamily="system-ui">
                           {angleDeg(p2,p1,p3).toFixed(1)}°
                         </text>
                       </g>
                     </>}
-                    {[p1,p2,...(p3?[p3]:[])].map((pt,i) => (
-                      <circle key={i} cx={pt.x} cy={pt.y} r="5" fill="#a78bfa" stroke="#000" strokeWidth="1.5"/>
+                    {[p1, p2, ...(p3?[p3]:[])].map((pt,i) => (
+                      <circle key={i} cx={pt.x} cy={pt.y} r="5"
+                        fill="#a78bfa" stroke="#000" strokeWidth="1.5"/>
                     ))}
                   </g>
                 );
               })()}
 
-            </g>{/* end transform */}
+            </g>{/* end pan/zoom transform */}
 
-            {/* Minimap */}
+            {/* ── Minimap (outside pan group) ── */}
             {zoom > 1.5 && (
-              <g transform="translate(840,558)">
-                <rect width="148" height="106" rx="9" fill="rgba(0,0,0,0.85)" stroke="rgba(255,255,255,0.1)" strokeWidth="1"/>
-                <text x="8" y="13" fill="rgba(255,255,255,0.25)" fontSize="7" fontFamily="system-ui" fontWeight="bold">MINIMAP</text>
+              <g transform="translate(838,556)">
+                <rect width="150" height="108" rx="10"
+                  fill="rgba(0,0,0,0.85)" stroke="rgba(255,255,255,0.08)" strokeWidth="1"/>
+                <text x="8" y="13" fill="rgba(255,255,255,0.22)" fontSize="7"
+                  fontFamily="system-ui" fontWeight="bold">MINIMAP</text>
+                {/* Landmark dots on minimap */}
                 {landmarks.map(lm => (
                   <circle key={lm.code}
-                    cx={8+(lm.x/1000)*132} cy={18+(lm.y/720)*80}
-                    r={lm.code===selectedCode?2.5:1.2}
-                    fill={getGroupColor(lm.code)} opacity="0.8"/>
+                    cx={9 + (lm.x/1000)*132}
+                    cy={18 + (lm.y/720)*82}
+                    r={lm.code===selectedCode ? 2.5 : 1.2}
+                    fill={getGroupColor(lm.code)} opacity="0.85"/>
                 ))}
-                <rect
-                  x={8+Math.max(0,(-pan.x/zoom/1000)*132)}
-                  y={18+Math.max(0,(-pan.y/zoom/720)*80)}
-                  width={Math.min(132,(1/zoom)*132)} height={Math.min(80,(1/zoom)*80)}
-                  fill="rgba(96,165,250,0.1)" stroke="rgba(96,165,250,0.7)" strokeWidth="1" rx="2"/>
+                {/* Viewport rectangle — corrected calculation */}
+                {(() => {
+                  // The visible area in SVG-world coordinates:
+                  // left = -pan.x/zoom, top = -pan.y/zoom
+                  // width = 1000/zoom, height = 720/zoom
+                  const vLeft   = -pan.x / zoom;
+                  const vTop    = -pan.y / zoom;
+                  const vWidth  = 1000 / zoom;
+                  const vHeight = 720  / zoom;
+                  // Map to minimap space (132 wide × 82 tall, offset 9,18)
+                  const rx = 9  + Math.max(0, vLeft  / 1000 * 132);
+                  const ry = 18 + Math.max(0, vTop   / 720  * 82 );
+                  const rw = Math.min(132 - Math.max(0, vLeft/1000*132), vWidth/1000*132);
+                  const rh = Math.min(82  - Math.max(0, vTop /720 *82 ), vHeight/720 *82 );
+                  return (
+                    <rect x={rx} y={ry} width={Math.max(4,rw)} height={Math.max(3,rh)}
+                      fill="rgba(96,165,250,0.08)" stroke="rgba(96,165,250,0.7)"
+                      strokeWidth="1" rx="2"/>
+                  );
+                })()}
               </g>
             )}
           </svg>
         </div>
 
-        {/* Zoom controls */}
-        <div className="absolute right-4 bottom-16 z-10">
-          <div className="flex flex-col rounded-xl border border-white/10 bg-black/80 backdrop-blur-md p-1 shadow-2xl">
-            <IconBtn icon={ZoomIn} label="Zoom In"
-              onClick={() => { const nz=Math.min(8,zoom*1.3); setPan(p=>({x:500-(500-p.x)*nz/zoom,y:360-(360-p.y)*nz/zoom})); setZoom(nz); }}
+        {/* ── Zoom controls ── */}
+        <div className="absolute right-4 bottom-14 z-10">
+          <div className="flex flex-col rounded-xl border border-white/10 bg-black/80 backdrop-blur-md p-1 shadow-2xl gap-0.5">
+            <IconBtn icon={ZoomIn} label="Zoom In (+)"
+              onClick={() => applyZoom(1.3, {x:500,y:360})}
               variant="ghost" size="sm" className="text-white/60 hover:text-white"/>
             <div className="h-px bg-white/5 mx-1.5"/>
-            <IconBtn icon={ZoomOut} label="Zoom Out"
+            <IconBtn icon={ZoomOut} label="Zoom Out (-)"
               onClick={() => {
-                const nz=Math.max(1,zoom/1.3);
-                if (nz===1){setZoom(1);setPan({x:0,y:0});}
-                else{setPan(p=>({x:500-(500-p.x)*nz/zoom,y:360-(360-p.y)*nz/zoom}));setZoom(nz);}
+                const nz = Math.max(0.5, zoom/1.3);
+                if (nz <= 1) { setZoom(1); setPan({x:0,y:0}); }
+                else applyZoom(1/1.3, {x:500,y:360});
               }}
               variant="ghost" size="sm" className="text-white/60 hover:text-white"/>
             <div className="h-px bg-white/5 mx-1.5"/>
-            <button type="button" onClick={()=>{setZoom(1);setPan({x:0,y:0});}}
+            <button type="button" onClick={fitToView}
               className="h-8 w-8 flex items-center justify-center text-[8px] font-bold text-white/25 hover:text-white transition-colors">
               1:1
             </button>
           </div>
         </div>
 
-        {/* Permanent status bar */}
+        {/* ── Status bar ── */}
         <div className="border-t border-white/5 bg-black/70 px-4 py-1.5 flex items-center justify-between text-[9px] font-mono text-white/30">
           <span className="flex items-center gap-4">
             {cursorPt && (
@@ -1705,40 +2175,43 @@ function CephCanvas({
                 <span>X: <span className="text-white/60">{Math.round(cursorPt.x)}</span></span>
                 <span>Y: <span className="text-white/60">{Math.round(cursorPt.y)}</span></span>
                 {pixPerMm && (
-                  <span className="text-primary/50">
+                  <span className="text-primary/60">
                     {(cursorPt.x/pixPerMm).toFixed(1)} · {(cursorPt.y/pixPerMm).toFixed(1)} mm
                   </span>
                 )}
               </>
             )}
+            {/* Tool hint */}
+            <span className="text-white/20 italic hidden lg:block">
+              {activeTool?.hint}
+            </span>
           </span>
           <span className="flex items-center gap-3">
-            {snapCode && <span className="text-yellow-400/70">⊕ snap: {snapCode}</span>}
+            {snapCode && <span className="text-yellow-400/70">⊕ {snapCode}</span>}
             {landmarks.length>0 && <span><span className="text-white/50">{landmarks.length}</span> pts</span>}
             <span>Zoom <span className="text-white/50">{Math.round(zoom*100)}%</span></span>
-            <span className="hidden lg:block">
-              <kbd className="bg-white/8 px-1 py-0.5 rounded text-[8px]">S</kbd>{" "}
-              <kbd className="bg-white/8 px-1 py-0.5 rounded text-[8px]">H</kbd>{" "}
-              <kbd className="bg-white/8 px-1 py-0.5 rounded text-[8px]">R</kbd>{" "}
-              <kbd className="bg-white/8 px-1 py-0.5 rounded text-[8px]">A</kbd>{" "}
-              <kbd className="bg-white/8 px-1 py-0.5 rounded text-[8px]">C</kbd>{" "}
-              <kbd className="bg-white/8 px-1 py-0.5 rounded text-[8px]">L</kbd>
+            <span className="hidden lg:flex items-center gap-1">
+              {["S","H","R","A","C","F","X"].map(k => (
+                <kbd key={k} className="bg-white/8 px-1 py-0.5 rounded text-[8px]">{k}</kbd>
+              ))}
             </span>
           </span>
         </div>
       </Card>
 
-      {/* Clear measurement tools */}
-      {(rulerPts.length>0||anglePts.length>0) && (
+      {/* ── Clear tool overlays ── */}
+      {(rulerPts.length>0 || anglePts.length>0) && (
         <div className="flex justify-end gap-3 mt-1">
-          {rulerPts.length>0&&(
-            <button type="button" onClick={()=>{setRulerPts([]);setLiveRuler(null);}}
+          {rulerPts.length>0 && (
+            <button type="button"
+              onClick={() => { setRulerPts([]); setLiveRuler(null); }}
               className="flex items-center gap-1 text-[10px] font-bold text-muted-foreground hover:text-foreground transition-colors">
               <X className="h-3 w-3"/> Clear ruler
             </button>
           )}
-          {anglePts.length>0&&(
-            <button type="button" onClick={()=>{setAnglePts([]);setLiveAngle(null);}}
+          {anglePts.length>0 && (
+            <button type="button"
+              onClick={() => { setAnglePts([]); setLiveAngle(null); }}
               className="flex items-center gap-1 text-[10px] font-bold text-muted-foreground hover:text-foreground transition-colors">
               <X className="h-3 w-3"/> Clear angle
             </button>
