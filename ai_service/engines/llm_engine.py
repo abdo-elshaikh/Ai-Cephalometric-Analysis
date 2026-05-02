@@ -136,7 +136,8 @@ async def _gemini_generate(prompt: str, timeout: float = 15.0, image_base64: Opt
                 image_bytes = base64.b64decode(b64_data)
                 contents.append(types.Part.from_bytes(data=image_bytes, mime_type="image/jpeg"))
             except Exception as e:
-                logger.warning(f"Failed to decode image for Gemini: {e}")
+                logger.error(f"Failed to decode image for Gemini generation: {e}")
+                # We continue with text only rather than crashing the fallback path
         
         contents.append(prompt)
         

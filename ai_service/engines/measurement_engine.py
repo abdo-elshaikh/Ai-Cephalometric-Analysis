@@ -191,7 +191,10 @@ def _ratio(num_p1: str, num_p2: str, den_p1: str, den_p2: str) -> CalcFunc:
     def calc(lms: dict, ps: Optional[float]) -> Optional[float]:
         num = euclidean_distance(lms[num_p1], lms[num_p2])
         den = euclidean_distance(lms[den_p1], lms[den_p2])
-        return (num / den * 100) if den > 0 else 0.0
+        if den < 1e-6:
+            logger.warning(f"Zero denominator in {num_p1}-{num_p2} ratio calculation.")
+            return None
+        return (num / den * 100)
     return calc
 
 

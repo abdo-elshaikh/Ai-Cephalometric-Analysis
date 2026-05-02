@@ -21,6 +21,7 @@ from PIL import Image
 import cv2
 from typing import Dict, Optional
 
+import os
 from torchvision import transforms
 
 from schemas.schemas import LandmarkPoint
@@ -171,6 +172,21 @@ _NAME_MAP: Dict[str, str] = {
     "HY":       "Hy",
     "EPI":      "Epi",
     "CER":      "Cer",
+    "SELLA TURCICA": "S",
+    "NASION": "N",
+    "BASION": "Ba",
+    "ORBITALE": "Or",
+    "PORION": "Po",
+    "ARTICULARE": "Ar",
+    "MENTON": "Me",
+    "GNATHION": "Gn",
+    "POGONION": "Pog",
+    "GONION": "Go",
+    "ANTERIOR NASAL SPINE": "ANS",
+    "POSTERIOR NASAL SPINE": "PNS",
+    "SOFT TISSUE NASION": "SoftN",
+    "POINT SOFT POGONION": "SoftPog",
+    "SOFT TISSUE MENTON": "SoftGn",
 }
 
 
@@ -183,17 +199,35 @@ def load_model(model_dir: str, device: str) -> None:
     _ensemble = []
 
     for i in range(settings.ensemble_size):
-        model = HRNet_W32(in_channels=1, out_channels=settings.num_landmarks)
-        model_path = f"{model_dir}/hrnet_w32_fold{i}.pth"
+        # Determine model type and landmarks based on weights file
+        model_path = model_dir
+        if not os.path.isfile(model_path):
+             model_path = os.path.join(model_dir, f"hrnet_w32_fold{i}.pth")
+        
         try:
             state = torch.load(model_path, map_location=_device)
+            # Detect architecture by inspecting keys
+            is_unet = any(k.startswith("inc.") for k in state.keys())
+            
+            if is_unet:
+                from engines.net import UNet
+                # Count classes from the output layer
+                out_weight = state.get("outc.conv.weight", state.get("outc.weight"))
+                n_classes = out_weight.shape[0] if out_weight is not None else settings.num_landmarks
+                model = UNet(n_channels=1, n_classes=n_classes)
+                logger.info(f"Detected legacy UNet architecture with {n_classes} landmarks")
+            else:
+                model = HRNet_W32(in_channels=1, out_channels=settings.num_landmarks)
+            
             model.load_state_dict(state)
             logger.info(f"Loaded ensemble model {i} from {model_path}")
-        except (FileNotFoundError, RuntimeError) as e:
+        except (FileNotFoundError, RuntimeError, Exception) as e:
             logger.warning(
-                f"Ensemble model {i} weights not found at {model_path} ({e}). "
+                f"Ensemble model {i} weights not found or incompatible at {model_path} ({e}). "
                 "Running with random weights — predictions are uncalibrated placeholders."
             )
+            model = HRNet_W32(in_channels=1, out_channels=settings.num_landmarks)
+
         model.to(_device)
         model.eval()
         _ensemble.append(model)
@@ -266,7 +300,15 @@ def _decode_outputs(
     scale_x = orig_w / W
     result: Dict[str, LandmarkPoint] = {}
 
-    for i, name in enumerate(LANDMARK_NAMES):
+    num_detected = y_np.shape[0]
+    if num_detected != len(LANDMARK_NAMES):
+        logger.warning(
+            f"Landmark count mismatch: model output {num_detected}, "
+            f"expected {len(LANDMARK_NAMES)}. Using intersection mapping."
+        )
+    
+    for i in range(min(len(LANDMARK_NAMES), num_detected)):
+        name = LANDMARK_NAMES[i]
         canonical = _NAME_MAP.get(str(name).upper(), name)
         px_y = (float(y_np[i]) + 1.0) / 2.0 * (H - 1) * scale_y
         px_x = (float(x_np[i]) + 1.0) / 2.0 * (W - 1) * scale_x
@@ -297,7 +339,8 @@ def _apply_variance_penalty(
     landmarks: Dict[str, LandmarkPoint], var_out: torch.Tensor
 ) -> None:
     """Modulate confidence downward for landmarks with high epistemic variance (in-place)."""
-    var_np = var_out[0].mean(dim=(-1, -2)).cpu().numpy()   # [C] — mean spatial variance per channel
+    # Mean over spatial dims (H, W) for the first item in batch
+    var_np = var_out[0].mean(dim=(-2, -1)).cpu().numpy()   # [C]
     var_max = float(var_np.max()) + 1e-8
     for i, name in enumerate(LANDMARK_NAMES):
         canonical = _NAME_MAP.get(str(name).upper(), name)
@@ -490,13 +533,16 @@ class ScientificRefiner:
         if "Gn" in landmarks and "Go" in landmarks:
             if "Me" not in landmarks or (landmarks["Me"].confidence or 0) < 0.8:
                 gn, go = landmarks["Gn"], landmarks["Go"]
-                dx = gn.x - go.x; dy = gn.y - go.y
+                dx = go.x - gn.x; dy = go.y - gn.y   # Vector pointing from Gn back towards Go
                 length = math.hypot(dx, dy) or 1.0
                 ux, uy = dx / length, dy / length
+                
+                # Me is the lowest point, usually slightly posterior and inferior to Gn
+                # We move back towards Go and slightly down (perpendicular to FH or jaw)
                 offset_px = (6.0 * px_per_mm) if has_scale else length * 0.12
                 landmarks["Me"] = LandmarkPoint(
-                    x=gn.x + ux * offset_px * 0.3,
-                    y=gn.y + uy * offset_px,
+                    x=gn.x + ux * offset_px * 0.4,
+                    y=gn.y + abs(uy) * offset_px * 0.6 + (offset_px * 0.5), # Ensure it moves down
                     confidence=0.87, provenance="derived",
                     derived_from=["Gn", "Go"], expected_error_mm=2.5,
                 )

@@ -116,6 +116,23 @@ app.add_exception_handler(Exception, global_exception_handler)
 app.add_exception_handler(HTTPException, http_exception_handler)
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
 
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    """
+    Enforce X-Service-Key authentication for all AI routes.
+    Exempts health checks, documentation, and specific metadata endpoints.
+    """
+    public_paths = {"/health", "/docs", "/openapi.json", "/ai/overlay-types"}
+    if request.url.path not in public_paths and request.url.path.startswith("/ai"):
+        key = request.headers.get("X-Service-Key")
+        if not verify_service_key(key):
+            from fastapi.responses import JSONResponse
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "Invalid or missing X-Service-Key"}
+            )
+    return await call_next(request)
+
 # Register routers
 app.include_router(landmark.router,    prefix="/ai", tags=["Landmark Detection"])
 app.include_router(measurement.router, prefix="/ai", tags=["Measurements"])

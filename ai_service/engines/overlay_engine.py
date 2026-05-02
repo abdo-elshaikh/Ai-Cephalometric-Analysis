@@ -95,34 +95,35 @@ STATUS_ICON = {
 }
 
 # Abbreviated landmark labels (used on tracing views)
+# Map canonical short key -> human readable abbreviation
 _LM_ABBR: dict[str, str] = {
-    "Sella Turcica":                    "S",
-    "Nasion":                           "N",
-    "Point A":                          "A",
-    "Point B":                          "B",
-    "Menton":                           "Me",
-    "Gnathion":                         "Gn",
-    "Pogonion":                         "Pog",
-    "Basion":                           "Ba",
-    "Articulare":                       "Ar",
-    "Porion":                           "Po",
-    "Orbitale":                         "Or",
-    "Anterior Nasal Spine":             "ANS",
-    "Posterior Nasal Spine":            "PNS",
-    "Constructed Gonion (tangent)":     "Go",
-    "Incisal edge of upper incisor":    "UI",
-    "Incisal edge of lower incisor":    "LI",
-    "Apex of upper incisor":            "UIA",
-    "Apex of lower incisor":            "LIA",
-    "Cusp of upper first molar":        "U6",
-    "Cusp of lower first molar":        "L6",
-    "Soft tissue Nasion":               "N'",
-    "Pronasale":                        "Pn",
-    "Subnasale":                        "Sn",
-    "Labrale Superior":                 "Ls",
-    "Labrale Inferior":                 "Li",
-    "Point Soft Pogonion":              "Pog'",
-    "Soft tissue Menton":               "Me'",
+    "S":    "S",
+    "N":    "N",
+    "A":    "A",
+    "B":    "B",
+    "Me":   "Me",
+    "Gn":   "Gn",
+    "Pog":  "Pog",
+    "Ba":   "Ba",
+    "Ar":   "Ar",
+    "Po":   "Po",
+    "Or":   "Or",
+    "ANS":  "ANS",
+    "PNS":  "PNS",
+    "Go":   "Go",
+    "U1":   "UI",
+    "L1":   "LI",
+    "U1_c": "UIA",
+    "L1_c": "LIA",
+    "U6":   "U6",
+    "L6":   "L6",
+    "SoftN": "N'",
+    "Prn":   "Pn",
+    "Sn":    "Sn",
+    "Ls":    "Ls",
+    "Li":    "Li",
+    "SoftPog": "Pog'",
+    "SoftGn":  "Me'",
 }
 
 
@@ -371,10 +372,8 @@ def _draw_clinical_watermark(draw, canvas_w, canvas_h):
 #  Confidence-aware landmark dots  (v2)
 # ─────────────────────────────────────────────
 _KEY_LMS = {
-    "Sella Turcica", "Nasion", "Point A", "Point B", "Menton",
-    "Porion", "Orbitale", "Basion", "Articulare", "Gonion",
-    "Pogonion", "Anterior Nasal Spine", "Posterior Nasal Spine",
-    "Constructed Gonion (tangent)",
+    "S", "N", "A", "B", "Me", "Po", "Or", "Ba", "Ar", "Go",
+    "Pog", "ANS", "PNS",
 }
 
 
@@ -609,19 +608,19 @@ def _draw_steiner_lines(draw, lms, sx, sy, alpha=200):
         for i in range(len(pts)-1):
             draw.line([pts[i], pts[i+1]], fill=color, width=width)
 
-    sella  = pt("Sella Turcica")
-    nasion = pt("Nasion")
-    ptA    = pt("Point A")
-    ptB    = pt("Point B")
-    menton = pt("Menton")
-    go_p   = pt("Constructed Gonion (tangent)", "tGo-abo")
-    ar_p   = pt("Articulare")
-    pog    = pt("Pogonion")
-    por    = pt("Porion")
-    orb    = pt("Orbitale")
-    ui_tip = pt("Incisal edge of upper incisor", "Upper incisor tip")
-    li_tip = pt("Incisal edge of lower incisor", "Lower incisor tip")
-    molar  = pt("Cusp of upper first molar", "Second point on upper molar")
+    sella  = pt("S")
+    nasion = pt("N")
+    ptA    = pt("A")
+    ptB    = pt("B")
+    menton = pt("Me")
+    go_p   = pt("Go")
+    ar_p   = pt("Ar")
+    pog    = pt("Pog")
+    por    = pt("Po")
+    orb    = pt("Or")
+    ui_tip = pt("U1")
+    li_tip = pt("L1")
+    molar  = pt("U6")
 
     # SN extended
     if sella and nasion:
@@ -632,9 +631,9 @@ def _draw_steiner_lines(draw, lms, sx, sy, alpha=200):
             (nasion[0]+dx/ln*450, nasion[1]+dy/ln*450),
         ], fill=PUR, width=W)
 
-    pline("Nasion", "Point A")
-    pline("Nasion", "Point B")
-    pline("Nasion", "Pogonion")
+    pline("N", "A")
+    pline("N", "B")
+    pline("N", "Pog")
 
     # FH plane
     if por and orb:
@@ -652,8 +651,8 @@ def _draw_steiner_lines(draw, lms, sx, sy, alpha=200):
         draw.line([go_p, (menton[0]+dx/ln*220, menton[1]+dy/ln*220)],
                   fill=PUR, width=W)
 
-    pline("Articulare", "Constructed Gonion (tangent)")
-    pline("Sella Turcica", "Menton")
+    pline("Ar", "Go")
+    pline("S", "Me")
 
     # Draw Dolphin-style angle arcs on the main overlay image
     # Note: _draw_steiner_lines receives 'draw' which is an ImageDraw attached to 'img'
@@ -682,8 +681,8 @@ def _draw_steiner_lines(draw, lms, sx, sy, alpha=200):
         draw.line([go_p, pog], fill=PUR, width=W)
 
     # Holdaway H-Angle reference
-    nb = pt("Nasion"), pt("Point B")
-    hl = pt("Point Soft Pogonion"), pt("Labrale Superior")
+    nb = pt("N"), pt("B")
+    hl = pt("SoftPog"), pt("Ls")
     if nb[0] and nb[1]:
         draw.line([nb[0], nb[1]], fill=(*C_BLUE, 150), width=1)
     if hl[0] and hl[1]:
@@ -698,8 +697,8 @@ def _draw_mcnamara_lines(draw, lms, sx, sy):
         lm = _lm(lms, name, *aliases)
         return _scale(lm, sx, sy) if lm else None
 
-    po, orb_p, n = pt("Porion"), pt("Orbitale"), pt("Nasion")
-    a, gn, co    = pt("Point A"), pt("Gnathion"), pt("Articulare")
+    po, orb_p, n = pt("Po"), pt("Or"), pt("N")
+    a, gn, co    = pt("A"), pt("Gn"), pt("Ar")
 
     if po and orb_p and n:
         dx, dy = orb_p[0]-po[0], orb_p[1]-po[1]
@@ -722,8 +721,8 @@ def _draw_tweed_lines(draw, lms, sx, sy):
         lm = _lm(lms, name, *aliases)
         return _scale(lm, sx, sy) if lm else None
 
-    go, me = pt("Constructed Gonion (tangent)"), pt("Menton")
-    li, lir = pt("LI"), pt("LIR")
+    go, me = pt("Go"), pt("Me")
+    li, lir = pt("L1"), pt("L1_c")
 
     if go and me:
         draw.line([go, me], fill=ORANGE, width=W)
@@ -751,7 +750,7 @@ def _draw_soft_tissue(draw, lms, sx, sy, alpha=200, color=None):
         return _scale(lm, sx, sy) if lm else None
 
     # Orange dashed facial profile line (Rickett's E-Plane)
-    pron, spog = pt("Pronasale"), pt("Point Soft Pogonion")
+    pron, spog = pt("Prn"), pt("SoftPog")
     if pron and spog:
         # Extend the line slightly
         dx, dy = spog[0] - pron[0], spog[1] - pron[1]
