@@ -14,11 +14,16 @@ import {
   CheckCircle2,
   CircleDot,
   ScanLine,
+  Upload,
+  BarChart3,
+  Microscope,
+  type LucideIcon,
 } from "lucide-react";
 import {
   Card,
   Pill,
   PrimaryBtn,
+  SecondaryBtn,
   IconBtn,
   PageHeader,
   SearchInput,
@@ -50,6 +55,15 @@ function pipelineSteps(c: CaseRecord) {
     { key: "ai",      done: c.aiStatus === "completed",                                        icon: BrainCircuit },
     { key: "review",  done: ["Reviewing","Reviewed","Report ready"].includes(c.status),        icon: CheckCircle2 },
   ];
+}
+
+function getSmartAction(c: CaseRecord): { label: string; href: string; icon: LucideIcon; tone: "primary" | "secondary" } {
+  if (!c.imageName) return { label: "Upload Image", href: "/analysis", icon: Upload, tone: "primary" };
+  if (!c.calibrated) return { label: "Calibrate", href: "/viewer", icon: Ruler, tone: "primary" };
+  if (c.aiStatus !== "completed") return { label: "Run AI Analysis", href: "/analysis", icon: BrainCircuit, tone: "primary" };
+  if (["AI completed", "Reviewing"].includes(c.status)) return { label: "Open Viewer", href: "/viewer", icon: ScanLine, tone: "primary" };
+  if (["Reviewed", "Report ready"].includes(c.status)) return { label: "View Results", href: "/results", icon: BarChart3, tone: "primary" };
+  return { label: "Open Workflow", href: "/analysis", icon: Target, tone: "secondary" };
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -152,6 +166,8 @@ export default function CasesPage({
               const isActive = activeCaseId === c.id;
               const ai = aiStatusDisplay(c.aiStatus);
               const steps = pipelineSteps(c);
+              const smartAction = getSmartAction(c);
+              const SmartIcon = smartAction.icon;
 
               return (
                 <Card
@@ -233,18 +249,35 @@ export default function CasesPage({
                     </div>
                   </div>
 
-                  {/* CTA */}
-                  <PrimaryBtn
-                    onClick={(e: React.MouseEvent) => {
-                      e.stopPropagation();
-                      setActiveCaseId(c.id);
-                      navigate("/analysis");
-                    }}
-                    icon={Target}
-                    className="w-full h-9 text-xs justify-center"
-                  >
-                    Open Workflow
-                  </PrimaryBtn>
+                  {/* Smart actions */}
+                  <div className="flex gap-2">
+                    <PrimaryBtn
+                      onClick={(e: React.MouseEvent) => {
+                        e.stopPropagation();
+                        setActiveCaseId(c.id);
+                        navigate(smartAction.href);
+                      }}
+                      icon={SmartIcon}
+                      className="flex-1 h-9 text-xs justify-center"
+                    >
+                      {smartAction.label}
+                    </PrimaryBtn>
+                    {/* Secondary: quick access to analysis intake */}
+                    {smartAction.href !== "/analysis" && (
+                      <button
+                        type="button"
+                        onClick={(e: React.MouseEvent) => {
+                          e.stopPropagation();
+                          setActiveCaseId(c.id);
+                          navigate("/analysis");
+                        }}
+                        title="Analysis intake"
+                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border/60 bg-muted/20 text-muted-foreground hover:border-primary/30 hover:text-primary hover:bg-primary/5 transition-all"
+                      >
+                        <Microscope className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
                 </Card>
               );
             })}
@@ -255,7 +288,7 @@ export default function CasesPage({
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-border/40 bg-muted/10 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-                  {["Study Title", "Patient", "Type", "Status", "Pipeline", "Completion", ""].map(h => (
+                  {["Study Title", "Patient", "Type", "Status", "Pipeline", "Completion", "Next Step", ""].map(h => (
                     <th key={h} className="px-5 py-3.5">{h}</th>
                   ))}
                 </tr>
@@ -265,6 +298,8 @@ export default function CasesPage({
                   const p = patients.find(x => x.id === c.patientId);
                   const isActive = activeCaseId === c.id;
                   const steps = pipelineSteps(c);
+                  const smartAction = getSmartAction(c);
+                  const SmartIcon = smartAction.icon;
                   return (
                     <tr
                       key={c.id}
@@ -317,6 +352,16 @@ export default function CasesPage({
                             {completionForCase(c)}%
                           </span>
                         </div>
+                      </td>
+                      <td className="px-5 py-3.5">
+                        <button
+                          type="button"
+                          onClick={e => { e.stopPropagation(); setActiveCaseId(c.id); navigate(smartAction.href); }}
+                          className="flex items-center gap-1.5 h-7 px-2.5 rounded-lg border border-border/60 bg-muted/20 text-[10px] font-bold uppercase tracking-wider text-muted-foreground hover:border-primary/30 hover:text-primary hover:bg-primary/5 transition-all"
+                        >
+                          <SmartIcon className="h-3 w-3" />
+                          {smartAction.label}
+                        </button>
                       </td>
                       <td className="px-5 py-3.5">
                         <IconBtn

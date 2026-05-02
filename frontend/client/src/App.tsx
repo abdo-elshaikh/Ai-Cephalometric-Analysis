@@ -132,7 +132,7 @@ interface AppRoutesProps {
   deletePatient: (id: string) => void;
   openCaseCreate: () => void;
   uploadImage: (caseId: string, file: File) => void | Promise<void>;
-  runAi: (caseId: string, isCbct: boolean) => void | Promise<void>;
+  runAi: (caseId: string, isCbct: boolean, analysisType?: string) => void | Promise<void>;
   calibrateActiveCase: (pts: Point[], mm: number) => void | Promise<void>;
   saveAndSend: () => void | Promise<void>;
   refreshOverlays: () => void | Promise<void>;
@@ -192,7 +192,7 @@ function AppRoutes({
       </Route>
       <Route path="/results">
         <ProtectedRoute authUser={authUser}>
-          <ResultsPage activeCase={activeCase} reports={reports} artifacts={clinicalArtifacts} onRequestReport={requestReport} />
+          <ResultsPage activeCase={activeCase} reports={reports} artifacts={clinicalArtifacts} overlays={overlayArtifacts} onRequestReport={requestReport} />
         </ProtectedRoute>
       </Route>
       <Route path="/history">
@@ -412,11 +412,11 @@ export default function App() {
     toast.success("Image uploaded");
   }
 
-  async function runAi(caseId: string, isCbct = false) {
+  async function runAi(caseId: string, isCbct = false, analysisType = "Steiner") {
     const c = cases.find(x => x.id === caseId);
     if (!c?.imageName || !c.calibrated || apiMode !== "live" || !isGuid(c.imageId)) { toast.error("Ready analysis required."); return; }
     patchCase(caseId, { aiStatus: "processing" });
-    const res = await cephApi.fullPipeline(c.imageId!, "Steiner", isCbct);
+    const res = await cephApi.fullPipeline(c.imageId!, analysisType, isCbct);
     if (!res.ok) { patchCase(caseId, { aiStatus: "not_started" }); toast.error(`AI failed: ${res.error}`); return; }
     patchCase(caseId, { status: "AI completed", aiStatus: "completed", sessionId: res.data.session.id, imageUrl: res.data.session.resultImageUrl ?? c.imageUrl });
     setLandmarks(mergePipelineIntoLandmarks(res.data)); setClinicalArtifacts(mapPipelineArtifacts(res.data));

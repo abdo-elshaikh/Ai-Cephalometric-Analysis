@@ -9,7 +9,6 @@ import {
   CheckCircle2,
   CircleDot,
   Target,
-  Database,
   UserPlus,
   Users,
   Activity,
@@ -18,6 +17,8 @@ import {
   Stethoscope,
   ImageIcon,
   Loader2,
+  ChevronRight,
+  ZoomIn,
 } from "lucide-react";
 import {
   Card,
@@ -35,39 +36,190 @@ import { statusTone } from "@/lib/clinical-utils";
 import { type CaseRecord, type Patient, type ApiMode } from "@/lib/mappers";
 import { cn } from "@/lib/utils";
 
+// ─── Analysis Protocol Definitions ────────────────────────────────────────────
+
+const ANALYSIS_PROTOCOLS: {
+  id: string;
+  name: string;
+  fullName: string;
+  params: string;
+  focus: string;
+  tier: "standard" | "advanced" | "supplemental";
+}[] = [
+  {
+    id: "Steiner",
+    name: "Steiner",
+    fullName: "Steiner Analysis",
+    params: "SNA · SNB · ANB · U1-NA · L1-NB",
+    focus: "Skeletal & dental baseline",
+    tier: "standard",
+  },
+  {
+    id: "Ricketts",
+    name: "Ricketts",
+    fullName: "Ricketts Analysis",
+    params: "Facial Depth · Axis · Convexity · Lower Lip",
+    focus: "Growth prediction & aesthetics",
+    tier: "standard",
+  },
+  {
+    id: "McNamara",
+    name: "McNamara",
+    fullName: "McNamara Analysis",
+    params: "NaPerp-A · NaPerp-Pog · CoA · CoGn",
+    focus: "Jaw length & airway",
+    tier: "standard",
+  },
+  {
+    id: "Tweed",
+    name: "Tweed",
+    fullName: "Tweed Triangle",
+    params: "FMIA · FMA · IMPA",
+    focus: "Lower incisor position",
+    tier: "advanced",
+  },
+  {
+    id: "Jarabak",
+    name: "Jarabak",
+    fullName: "Björk-Jarabak",
+    params: "PFH/AFH · S-Ar-Go · Gonion angle",
+    focus: "Vertical growth pattern",
+    tier: "advanced",
+  },
+  {
+    id: "Wits",
+    name: "Wits",
+    fullName: "Wits Appraisal",
+    params: "AO–BO perpendicular to occlusal plane",
+    focus: "ANB correction on occlusal plane",
+    tier: "advanced",
+  },
+  {
+    id: "Bolton",
+    name: "Bolton",
+    fullName: "Bolton Analysis",
+    params: "Overall ratio · Anterior ratio",
+    focus: "Mesiodistal tooth size discrepancy",
+    tier: "supplemental",
+  },
+  {
+    id: "Broadbent",
+    name: "Broadbent",
+    fullName: "Broadbent–Bolton",
+    params: "R-point · Bolton plane · Facial growth",
+    focus: "Serial growth prediction",
+    tier: "supplemental",
+  },
+];
+
+const TIER_LABELS: Record<string, { label: string; tone: "success" | "accent" | "neutral" }> = {
+  standard: { label: "Standard", tone: "success" },
+  advanced: { label: "Advanced", tone: "accent" },
+  supplemental: { label: "Supplemental", tone: "neutral" },
+};
+
 // ─── Pipeline stage definitions ───────────────────────────────────────────────
 
 const PIPELINE_STAGES = [
-  {
-    key: "landmarks",
-    label: "Landmark Detection",
-    sub: "HRNet-W32 · 80 points",
-    icon: Crosshair,
-  },
-  {
-    key: "measurements",
-    label: "Clinical Measurements",
-    sub: "75 morphometric params",
-    icon: Activity,
-  },
-  {
-    key: "diagnosis",
-    label: "Skeletal Diagnosis",
-    sub: "GMM probabilistic class",
-    icon: FlaskConical,
-  },
-  {
-    key: "treatment",
-    label: "Treatment Plan",
-    sub: "20 evidence-based rules",
-    icon: Stethoscope,
-  },
+  { key: "landmarks",    label: "Landmark Detection",    sub: "HRNet-W32 · 80 points", icon: Crosshair  },
+  { key: "measurements", label: "Clinical Measurements", sub: "75 morphometric params", icon: Activity   },
+  { key: "diagnosis",    label: "Skeletal Diagnosis",    sub: "GMM probabilistic class", icon: FlaskConical },
+  { key: "treatment",    label: "Treatment Plan",        sub: "20 evidence-based rules", icon: Stethoscope },
 ] as const;
 
 function pipelineStageState(aiStatus: CaseRecord["aiStatus"], idx: number) {
   if (aiStatus === "completed") return "done";
   if (aiStatus === "processing") return idx === 0 ? "active" : "pending";
   return "pending";
+}
+
+// ─── Analysis Protocol Selector ───────────────────────────────────────────────
+
+function AnalysisProtocolSelector({
+  selected,
+  onChange,
+}: {
+  selected: string[];
+  onChange: (types: string[]) => void;
+}) {
+  function toggle(id: string) {
+    if (selected.includes(id)) {
+      if (selected.length === 1) return; // keep at least one
+      onChange(selected.filter(t => t !== id));
+    } else {
+      onChange([...selected, id]);
+    }
+  }
+
+  const primary = selected[0];
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">
+            Analysis Protocols
+          </p>
+          <p className="text-[10px] text-muted-foreground/60 mt-0.5">
+            Primary: <span className="text-primary font-bold">{primary}</span>
+            {selected.length > 1 && ` + ${selected.length - 1} supplemental`}
+          </p>
+        </div>
+        <Pill tone="neutral" size="xs">{selected.length} selected</Pill>
+      </div>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {ANALYSIS_PROTOCOLS.map(protocol => {
+          const isSelected = selected.includes(protocol.id);
+          const isPrimary = primary === protocol.id;
+          const tier = TIER_LABELS[protocol.tier];
+          return (
+            <button
+              key={protocol.id}
+              type="button"
+              onClick={() => toggle(protocol.id)}
+              className={cn(
+                "relative flex flex-col gap-1.5 rounded-xl border p-3 text-left transition-all duration-200 hover:shadow-sm",
+                isSelected
+                  ? isPrimary
+                    ? "border-primary/50 bg-primary/10 shadow-sm ring-1 ring-primary/20"
+                    : "border-success/30 bg-success/8"
+                  : "border-border/40 bg-muted/10 hover:border-border/70 hover:bg-muted/20 opacity-70 hover:opacity-100"
+              )}
+            >
+              {isPrimary && (
+                <span className="absolute -top-2 -right-2 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[8px] font-bold text-primary-foreground">
+                  1
+                </span>
+              )}
+              <div className="flex items-center justify-between">
+                <span className={cn(
+                  "text-xs font-bold",
+                  isSelected ? isPrimary ? "text-primary" : "text-success-foreground" : "text-muted-foreground"
+                )}>
+                  {protocol.name}
+                </span>
+                {isSelected
+                  ? <CheckCircle2 className={cn("h-3.5 w-3.5 shrink-0", isPrimary ? "text-primary" : "text-success")} />
+                  : <CircleDot className="h-3.5 w-3.5 shrink-0 text-muted-foreground/30" />
+                }
+              </div>
+              <p className="text-[9px] text-muted-foreground leading-relaxed line-clamp-2">
+                {protocol.focus}
+              </p>
+              <Pill tone={tier.tone} size="xs" className="self-start text-[8px] px-1.5 py-0.5">
+                {tier.label}
+              </Pill>
+            </button>
+          );
+        })}
+      </div>
+      {selected.length > 1 && (
+        <p className="mt-2 text-[10px] text-muted-foreground/60 italic">
+          * Only the primary protocol ({primary}) is sent to the AI. Additional protocols shown as reference groups in Results.
+        </p>
+      )}
+    </div>
+  );
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -83,7 +235,7 @@ interface AnalysisPageProps {
   onCreatePatient: () => void;
   onCreateCase: () => void;
   onUpload: (caseId: string, file: File) => void | Promise<void>;
-  onRunAi: (caseId: string, isCbctDerived: boolean) => void | Promise<void>;
+  onRunAi: (caseId: string, isCbctDerived: boolean, analysisType: string) => void | Promise<void>;
 }
 
 export default function AnalysisPage({
@@ -101,6 +253,7 @@ export default function AnalysisPage({
 }: AnalysisPageProps) {
   const [, navigate] = useLocation();
   const [isCbct, setIsCbct] = useState(false);
+  const [selectedTypes, setSelectedTypes] = useState<string[]>(["Steiner"]);
 
   const activeCase = cases.find(c => c.id === activeCaseId);
   const activePatient = patients.find(p => p.id === activePatientId);
@@ -110,21 +263,25 @@ export default function AnalysisPage({
       label: "Patient Record",
       detail: activePatient ? `${activePatient.firstName} ${activePatient.lastName}` : "Select a patient",
       done: Boolean(activePatient),
+      step: 1,
     },
     {
       label: "Study Shell",
       detail: activeCase ? activeCase.title : "Create a clinical case",
       done: Boolean(activeCase),
+      step: 2,
     },
     {
       label: "X-Ray Image",
       detail: activeCase?.imageName || "Upload cephalometric image",
       done: Boolean(activeCase?.imageName),
+      step: 3,
     },
     {
       label: "Calibration",
       detail: activeCase?.calibrated ? "2-point calibration saved" : "Required in viewer",
       done: Boolean(activeCase?.calibrated),
+      step: 4,
     },
   ];
 
@@ -137,7 +294,7 @@ export default function AnalysisPage({
       <PageHeader
         eyebrow="Clinical Workspace"
         title="Diagnostic Intake"
-        description="Configure the clinical case, upload radiographs, and initiate the AI-driven cephalometric analysis pipeline."
+        description="Configure the clinical case, upload radiographs, select analysis protocols, and initiate the AI-driven cephalometric pipeline."
         actions={
           <>
             <SecondaryBtn onClick={onCreateCase} icon={Plus}>Add case</SecondaryBtn>
@@ -152,7 +309,7 @@ export default function AnalysisPage({
           <div>
             <h3 className="text-lg font-bold tracking-tight">Pre-Analysis Checklist</h3>
             <p className="text-sm text-muted-foreground mt-1">
-              Ensure all requirements are met before sending to AI.
+              Complete all 4 steps before sending to AI.
             </p>
           </div>
           <div className="flex items-center gap-4">
@@ -166,7 +323,7 @@ export default function AnalysisPage({
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {readinessChecks.map((check, i) => (
+          {readinessChecks.map((check) => (
             <div
               key={check.label}
               className={cn(
@@ -184,7 +341,7 @@ export default function AnalysisPage({
               )}>
                 {check.done
                   ? <CheckCircle2 className="h-4 w-4" />
-                  : <span>{String(i + 1).padStart(2, "0")}</span>
+                  : <span>{String(check.step).padStart(2, "0")}</span>
                 }
               </div>
               <div className="min-w-0">
@@ -296,7 +453,7 @@ export default function AnalysisPage({
                     ? `2-point calibration saved · ${activeCase.calibrationDistanceMm ?? "—"} mm reference`
                     : "Two-point ruler calibration is required for accurate measurements."}
                 </p>
-                <SecondaryBtn onClick={() => navigate("/viewer")} className="mt-4 h-9 px-4 text-xs">
+                <SecondaryBtn onClick={() => navigate("/viewer")} className="mt-4 h-9 px-4 text-xs" icon={ChevronRight}>
                   {activeCase?.calibrated ? "Recalibrate in Viewer" : "Open Viewer for Calibration"}
                 </SecondaryBtn>
               </div>
@@ -338,6 +495,14 @@ export default function AnalysisPage({
                   checked={isCbct}
                   onChange={setIsCbct}
                   label="CBCT Derived"
+                />
+              </div>
+
+              {/* Protocol selector */}
+              <div className="mb-5 p-4 rounded-xl border border-border/40 bg-muted/5">
+                <AnalysisProtocolSelector
+                  selected={selectedTypes}
+                  onChange={setSelectedTypes}
                 />
               </div>
 
@@ -397,18 +562,32 @@ export default function AnalysisPage({
               <Divider className="mb-5 opacity-40" />
 
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-xs text-muted-foreground italic">
-                  * Requires image upload and 2-point calibration before analysis.
-                </p>
-                <PrimaryBtn
-                  disabled={!canRunAi || apiMode !== "live" || activeCase?.aiStatus === "processing"}
-                  loading={activeCase?.aiStatus === "processing"}
-                  onClick={() => activeCase && onRunAi(activeCase.id, isCbct)}
-                  icon={BrainCircuit}
-                  className="h-11 px-8 shrink-0"
-                >
-                  {activeCase?.aiStatus === "processing" ? "Processing…" : "Initiate AI Pipeline"}
-                </PrimaryBtn>
+                <div className="space-y-0.5">
+                  <p className="text-xs text-muted-foreground italic">
+                    * Requires image upload and 2-point calibration before analysis.
+                  </p>
+                  {activeCase?.aiStatus === "completed" && (
+                    <p className="text-xs text-success-foreground font-medium">
+                      ✓ AI analysis completed — view results in Viewer or Results tab.
+                    </p>
+                  )}
+                </div>
+                <div className="flex gap-2 items-center shrink-0">
+                  {activeCase?.aiStatus === "completed" && (
+                    <SecondaryBtn onClick={() => navigate("/results")} className="h-11 px-5" icon={Target}>
+                      View Results
+                    </SecondaryBtn>
+                  )}
+                  <PrimaryBtn
+                    disabled={!canRunAi || apiMode !== "live" || activeCase?.aiStatus === "processing"}
+                    loading={activeCase?.aiStatus === "processing"}
+                    onClick={() => activeCase && onRunAi(activeCase.id, isCbct, selectedTypes[0] || "Steiner")}
+                    icon={BrainCircuit}
+                    className="h-11 px-8"
+                  >
+                    {activeCase?.aiStatus === "processing" ? "Processing…" : "Initiate AI Pipeline"}
+                  </PrimaryBtn>
+                </div>
               </div>
             </div>
           </Card>
@@ -430,67 +609,94 @@ function UploadZone({
   const fileRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const hasImage = Boolean(activeCase?.imageName);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+  function handleFile(file: File) {
+    const local = URL.createObjectURL(file);
+    setPreviewUrl(local);
+    onUpload(file);
+  }
+
+  const displayUrl = previewUrl || activeCase?.imageUrl || null;
 
   return (
-    <div
-      onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
-      onDragLeave={() => setIsDragging(false)}
-      onDrop={e => {
-        e.preventDefault();
-        setIsDragging(false);
-        if (e.dataTransfer.files?.[0]) onUpload(e.dataTransfer.files[0]);
-      }}
-      onClick={() => fileRef.current?.click()}
-      className={cn(
-        "relative cursor-pointer rounded-2xl border-2 border-dashed p-10 text-center transition-all duration-300",
-        isDragging
-          ? "border-primary bg-primary/5 scale-[0.99] shadow-inner"
-          : hasImage
-          ? "border-success/40 bg-success/5 hover:border-success/60"
-          : "border-border/60 bg-muted/10 hover:border-primary/40 hover:bg-muted/20"
-      )}
-    >
-      <input
-        ref={fileRef}
-        type="file"
-        accept="image/*,.dcm,.dicom"
-        className="hidden"
-        onChange={e => e.target.files?.[0] && onUpload(e.target.files[0])}
-      />
+    <div>
+      <div
+        onDragOver={e => { e.preventDefault(); setIsDragging(true); }}
+        onDragLeave={() => setIsDragging(false)}
+        onDrop={e => {
+          e.preventDefault();
+          setIsDragging(false);
+          if (e.dataTransfer.files?.[0]) handleFile(e.dataTransfer.files[0]);
+        }}
+        onClick={() => fileRef.current?.click()}
+        className={cn(
+          "relative cursor-pointer rounded-2xl border-2 border-dashed p-8 text-center transition-all duration-300",
+          isDragging
+            ? "border-primary bg-primary/5 scale-[0.99] shadow-inner"
+            : hasImage
+            ? "border-success/40 bg-success/5 hover:border-success/60"
+            : "border-border/60 bg-muted/10 hover:border-primary/40 hover:bg-muted/20"
+        )}
+      >
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*,.dcm,.dicom"
+          className="hidden"
+          onChange={e => e.target.files?.[0] && handleFile(e.target.files[0])}
+        />
 
-      {hasImage ? (
-        <>
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-success/10 border border-success/30 mx-auto mb-3">
-            <CheckCircle2 className="h-7 w-7 text-success-foreground" />
+        {hasImage ? (
+          <div className="flex flex-col items-center gap-3">
+            {displayUrl ? (
+              <div className="relative group/img">
+                <img
+                  src={displayUrl}
+                  alt="X-ray preview"
+                  className="h-28 w-auto rounded-xl border border-success/30 object-contain shadow-sm"
+                  onError={() => setPreviewUrl(null)}
+                />
+                <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-black/40 opacity-0 group-hover/img:opacity-100 transition-opacity">
+                  <ZoomIn className="h-6 w-6 text-white" />
+                </div>
+              </div>
+            ) : (
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-success/10 border border-success/30 mx-auto">
+                <CheckCircle2 className="h-7 w-7 text-success-foreground" />
+              </div>
+            )}
+            <div>
+              <p className="text-base font-bold text-foreground">Image attached</p>
+              <p className="mt-1 text-sm text-muted-foreground truncate max-w-xs mx-auto">
+                {activeCase?.imageName}
+              </p>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Click or drag to <span className="text-primary font-bold">replace</span>
+              </p>
+            </div>
           </div>
-          <p className="text-base font-bold text-foreground">Image attached</p>
-          <p className="mt-1 text-sm text-muted-foreground truncate max-w-xs mx-auto">
-            {activeCase?.imageName}
-          </p>
-          <p className="mt-3 text-xs text-muted-foreground">
-            Click or drag to <span className="text-primary font-bold">replace</span>
-          </p>
-        </>
-      ) : (
-        <>
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted/40 mx-auto mb-3 text-muted-foreground">
-            {activeCase ? <Upload className="h-7 w-7" /> : <ImageIcon className="h-7 w-7" />}
-          </div>
-          <p className="text-base font-bold text-foreground">
-            {activeCase ? `Attach radiograph to "${activeCase.title}"` : "Select a case first"}
-          </p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {activeCase
-              ? <>Drag and drop, or <span className="text-primary font-bold">browse files</span></>
-              : "Choose a case above, then upload the cephalometric image"}
-          </p>
-          <div className="mt-5 flex justify-center gap-2">
-            <Pill tone="neutral" size="xs">JPEG / PNG</Pill>
-            <Pill tone="neutral" size="xs">DICOM (DCM)</Pill>
-            <Pill tone="neutral" size="xs">TIFF / BMP</Pill>
-          </div>
-        </>
-      )}
+        ) : (
+          <>
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted/40 mx-auto mb-3 text-muted-foreground">
+              {activeCase ? <Upload className="h-7 w-7" /> : <ImageIcon className="h-7 w-7" />}
+            </div>
+            <p className="text-base font-bold text-foreground">
+              {activeCase ? `Attach radiograph to "${activeCase.title}"` : "Select a case first"}
+            </p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {activeCase
+                ? <>Drag and drop, or <span className="text-primary font-bold">browse files</span></>
+                : "Choose a case above, then upload the cephalometric image"}
+            </p>
+            <div className="mt-5 flex justify-center gap-2">
+              <Pill tone="neutral" size="xs">JPEG / PNG</Pill>
+              <Pill tone="neutral" size="xs">DICOM (DCM)</Pill>
+              <Pill tone="neutral" size="xs">TIFF / BMP</Pill>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }

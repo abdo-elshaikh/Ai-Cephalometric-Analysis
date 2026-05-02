@@ -12,17 +12,24 @@ import {
   Mail,
   Activity,
   FolderKanban,
+  BrainCircuit,
+  ScanLine,
+  ChevronDown,
+  Microscope,
 } from "lucide-react";
 import {
   Card,
   Pill,
   PrimaryBtn,
+  SecondaryBtn,
   IconBtn,
   PageHeader,
   SearchInput,
   Divider,
 } from "@/components/_core/ClinicalComponents";
 import { type Patient, type CaseRecord } from "@/lib/mappers";
+import { statusTone } from "@/lib/clinical-utils";
+import { useLocation } from "wouter";
 import { cn } from "@/lib/utils";
 
 // ─── Avatar color helper ───────────────────────────────────────────────────────
@@ -57,6 +64,101 @@ function patientStatusTone(status: string): "success" | "warning" | "neutral" {
   return "neutral";
 }
 
+// ─── Patient Cases Panel ──────────────────────────────────────────────────────
+
+function PatientCasesPanel({
+  patient,
+  cases,
+  onNavigate,
+}: {
+  patient: Patient;
+  cases: CaseRecord[];
+  onNavigate: (href: string) => void;
+}) {
+  const patientCases = cases.filter(c => c.patientId === patient.id);
+
+  return (
+    <div className="mt-4 border-t border-border/40 pt-4 space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
+      {/* Contact row */}
+      <div className="grid grid-cols-2 gap-3 text-xs">
+        {patient.email && (
+          <div className="flex items-center gap-1.5 text-muted-foreground">
+            <Mail className="h-3 w-3 shrink-0" />
+            <span className="truncate">{patient.email}</span>
+          </div>
+        )}
+        {patient.phone && (
+          <div className="flex items-center gap-1.5 text-muted-foreground">
+            <Phone className="h-3 w-3 shrink-0" />
+            <span>{patient.phone}</span>
+          </div>
+        )}
+        <div className="flex items-center gap-1.5 text-muted-foreground col-span-2">
+          <CalendarDays className="h-3 w-3 shrink-0" />
+          <span>DOB / Last visit: {patient.lastVisit || "—"}</span>
+        </div>
+      </div>
+
+      {/* Cases */}
+      {patientCases.length > 0 ? (
+        <div className="space-y-1.5">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Studies</p>
+          {patientCases.slice(0, 3).map(c => (
+            <div
+              key={c.id}
+              className="flex items-center justify-between gap-2 p-2 rounded-lg border border-border/30 bg-muted/10 hover:bg-muted/20 transition-colors"
+            >
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-bold truncate">{c.title}</p>
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  <Pill tone={statusTone(c.status)} size="xs">{c.status}</Pill>
+                  <span className="text-[10px] text-muted-foreground">{c.type}</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-1 shrink-0">
+                {c.aiStatus === "completed" && (
+                  <button
+                    type="button"
+                    onClick={() => onNavigate("/results")}
+                    className="flex h-6 w-6 items-center justify-center rounded-lg border border-success/30 bg-success/10 text-success hover:bg-success/20 transition-colors"
+                    title="View Results"
+                  >
+                    <BrainCircuit className="h-3 w-3" />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => onNavigate("/viewer")}
+                  className="flex h-6 w-6 items-center justify-center rounded-lg border border-border/40 bg-muted/20 text-muted-foreground hover:border-primary/30 hover:text-primary hover:bg-primary/5 transition-colors"
+                  title="Open Viewer"
+                >
+                  <ScanLine className="h-3 w-3" />
+                </button>
+              </div>
+            </div>
+          ))}
+          {patientCases.length > 3 && (
+            <p className="text-[10px] text-muted-foreground/60 italic pl-2">
+              +{patientCases.length - 3} more studies
+            </p>
+          )}
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground/60 italic">No studies yet for this patient.</p>
+      )}
+
+      {/* Quick action */}
+      <PrimaryBtn
+        onClick={() => onNavigate("/analysis")}
+        icon={Microscope}
+        className="w-full h-8 text-xs justify-center"
+      >
+        New Analysis
+      </PrimaryBtn>
+    </div>
+  );
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 interface PatientsPageProps {
@@ -78,14 +180,21 @@ export default function PatientsPage({
   onDelete,
   setActivePatientId,
 }: PatientsPageProps) {
+  const [, navigate] = useLocation();
   const [query, setQuery] = useState("");
   const [view, setView] = useState<"grid" | "list">("grid");
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const filtered = patients.filter(p =>
     `${p.firstName} ${p.lastName} ${p.mrn} ${p.email} ${p.phone}`
       .toLowerCase()
       .includes(query.toLowerCase())
   );
+
+  function handlePatientClick(patientId: string) {
+    setActivePatientId(patientId);
+    setExpandedId(prev => prev === patientId ? null : patientId);
+  }
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
@@ -139,6 +248,7 @@ export default function PatientsPage({
             {filtered.map(p => {
               const patientCases = cases.filter(c => c.patientId === p.id);
               const isActive = activePatientId === p.id;
+              const isExpanded = expandedId === p.id;
               const palette = avatarPalette(`${p.firstName}${p.lastName}`);
               const lastCase = patientCases.sort(
                 (a, b) => (b.updatedAt ?? b.date) > (a.updatedAt ?? a.date) ? 1 : -1
@@ -153,7 +263,7 @@ export default function PatientsPage({
                       ? "border-primary bg-primary/[0.03] ring-1 ring-primary/20 shadow-md"
                       : "hover:border-primary/40 hover:shadow-md"
                   )}
-                  onClick={() => setActivePatientId(p.id)}
+                  onClick={() => handlePatientClick(p.id)}
                 >
                   {/* Header row */}
                   <div className="flex items-start justify-between mb-4">
@@ -223,25 +333,30 @@ export default function PatientsPage({
                     )}
                   </div>
 
-                  {/* Contact */}
-                  {(p.email || p.phone) && (
-                    <div className="mt-3 space-y-1">
-                      {p.email && (
-                        <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/70">
-                          <Mail className="h-3 w-3" />
-                          <span className="truncate">{p.email}</span>
-                        </div>
-                      )}
-                      {p.phone && (
-                        <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/70">
-                          <Phone className="h-3 w-3" />
-                          <span>{p.phone}</span>
-                        </div>
-                      )}
-                    </div>
+                  {/* Expandable detail */}
+                  {isExpanded && (
+                    <PatientCasesPanel
+                      patient={p}
+                      cases={cases}
+                      onNavigate={href => {
+                        setActivePatientId(p.id);
+                        navigate(href);
+                      }}
+                    />
                   )}
 
-                  <ChevronRight className="absolute bottom-4 right-4 h-4 w-4 text-muted-foreground/30 group-hover:text-primary group-hover:translate-x-1 transition-all" />
+                  {/* Expand indicator */}
+                  <div className="flex items-center justify-center mt-3">
+                    <div className={cn(
+                      "flex items-center gap-1 text-[10px] text-muted-foreground/50 transition-all",
+                      isExpanded ? "text-primary/60" : ""
+                    )}>
+                      {isExpanded
+                        ? <ChevronDown className="h-3 w-3" />
+                        : <ChevronRight className="h-3 w-3" />
+                      }
+                    </div>
+                  </div>
                 </Card>
               );
             })}
@@ -252,7 +367,7 @@ export default function PatientsPage({
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-border/40 bg-muted/10">
-                  {["Patient", "MRN", "Age / Gender", "Contact", "Status", "Cases", "Last Visit", ""].map(h => (
+                  {["Patient", "MRN", "Age / Gender", "Contact", "Status", "Cases", "Last Visit", "Actions"].map(h => (
                     <th key={h} className="px-5 py-3.5 font-bold uppercase tracking-widest text-[10px] text-muted-foreground">
                       {h}
                     </th>
@@ -263,6 +378,7 @@ export default function PatientsPage({
                 {filtered.map(p => {
                   const isActive = activePatientId === p.id;
                   const palette = avatarPalette(`${p.firstName}${p.lastName}`);
+                  const patientCases = cases.filter(c => c.patientId === p.id);
                   return (
                     <tr
                       key={p.id}
@@ -292,11 +408,20 @@ export default function PatientsPage({
                         <Pill tone={patientStatusTone(p.status)} size="xs">{p.status}</Pill>
                       </td>
                       <td className="px-5 py-3.5">
-                        <span className="text-xs font-bold">{cases.filter(c => c.patientId === p.id).length}</span>
+                        <span className="text-xs font-bold">{patientCases.length}</span>
                       </td>
                       <td className="px-5 py-3.5 text-xs text-muted-foreground">{p.lastVisit || "—"}</td>
                       <td className="px-5 py-3.5 text-right">
                         <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            type="button"
+                            onClick={e => { e.stopPropagation(); setActivePatientId(p.id); navigate("/analysis"); }}
+                            className="flex h-7 items-center gap-1.5 px-2.5 rounded-lg border border-border/60 bg-muted/20 text-[10px] font-bold uppercase tracking-wider text-muted-foreground hover:border-primary/30 hover:text-primary hover:bg-primary/5 transition-all"
+                            title="New Analysis"
+                          >
+                            <Microscope className="h-3 w-3" />
+                            Analyze
+                          </button>
                           <IconBtn
                             icon={Edit3}
                             label="Edit"

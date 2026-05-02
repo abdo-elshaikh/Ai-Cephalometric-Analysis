@@ -24,6 +24,9 @@ import {
   Info,
   Layers3,
   Calendar,
+  X,
+  ImageIcon,
+  Maximize2,
 } from "lucide-react";
 import {
   Card,
@@ -45,17 +48,19 @@ import {
   type ReportFormat,
   type Measurement,
   type TreatmentOption,
+  type OverlayArtifact,
 } from "@/lib/mappers";
 import { cn } from "@/lib/utils";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type ResultsTab = "overview" | "measurements" | "treatment" | "growth" | "reports";
+type ResultsTab = "overview" | "measurements" | "treatment" | "overlays" | "growth" | "reports";
 
 interface ResultsPageProps {
   activeCase?: CaseRecord;
   reports: Report[];
   artifacts: ClinicalArtifacts;
+  overlays?: OverlayArtifact[];
   onRequestReport: (f: ReportFormat) => void | Promise<void>;
 }
 
@@ -382,7 +387,7 @@ function GrowthPanel({ activeCase }: { activeCase?: CaseRecord }) {
           <Pill tone="accent" size="xs">Cervical Vertebral Maturation</Pill>
         </SectionHeader>
         <div className="grid gap-3">
-          {stages.map((s, i) => (
+          {stages.map((s) => (
             <div key={s.cs} className="flex items-start gap-4 p-4 rounded-xl border border-border/40 bg-muted/10">
               <div className={cn("mt-0.5 h-3 w-3 rounded-full shrink-0", s.color)} />
               <div className="flex-1 min-w-0">
@@ -431,12 +436,104 @@ function GrowthPanel({ activeCase }: { activeCase?: CaseRecord }) {
   );
 }
 
+// ─── Overlay Grid ─────────────────────────────────────────────────────────────
+
+function OverlayGrid({
+  overlays,
+}: {
+  overlays: OverlayArtifact[];
+}) {
+  const [lightbox, setLightbox] = useState<OverlayArtifact | null>(null);
+
+  if (!overlays.length) {
+    return (
+      <Card className="py-16 text-center border-dashed">
+        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted/30 mx-auto mb-4">
+          <ImageIcon className="h-7 w-7 text-muted-foreground/30" />
+        </div>
+        <p className="text-sm font-medium text-muted-foreground">No overlay images available</p>
+        <p className="text-xs text-muted-foreground/60 mt-1">
+          Run AI analysis and finalize landmarks to generate tracing overlays.
+        </p>
+      </Card>
+    );
+  }
+
+  return (
+    <>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {overlays.map(overlay => (
+          <div
+            key={overlay.key}
+            className="group relative overflow-hidden rounded-2xl border border-border/40 bg-muted/10 cursor-pointer hover:border-primary/30 hover:shadow-md transition-all"
+            onClick={() => setLightbox(overlay)}
+          >
+            <div className="aspect-video relative overflow-hidden bg-black/40">
+              <img
+                src={overlay.url}
+                alt={overlay.label}
+                className="w-full h-full object-contain transition-transform duration-300 group-hover:scale-105"
+                onError={e => {
+                  (e.target as HTMLImageElement).style.display = "none";
+                }}
+              />
+              <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/20 backdrop-blur-sm">
+                  <Maximize2 className="h-5 w-5 text-white" />
+                </div>
+              </div>
+            </div>
+            <div className="p-3">
+              <p className="text-xs font-bold text-foreground">{overlay.label}</p>
+              {overlay.width > 0 && (
+                <p className="text-[10px] text-muted-foreground mt-0.5">
+                  {overlay.width} × {overlay.height} px
+                </p>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Lightbox */}
+      {lightbox && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-sm animate-in fade-in duration-200"
+          onClick={() => setLightbox(null)}
+        >
+          <button
+            type="button"
+            onClick={() => setLightbox(null)}
+            className="absolute top-4 right-4 flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 hover:bg-white/20 transition-colors text-white"
+          >
+            <X className="h-5 w-5" />
+          </button>
+          <div className="max-w-5xl max-h-[90vh] p-4" onClick={e => e.stopPropagation()}>
+            <img
+              src={lightbox.url}
+              alt={lightbox.label}
+              className="max-w-full max-h-[80vh] object-contain rounded-xl shadow-2xl"
+            />
+            <div className="mt-3 text-center">
+              <p className="text-sm font-bold text-white">{lightbox.label}</p>
+              {lightbox.width > 0 && (
+                <p className="text-xs text-white/60 mt-0.5">{lightbox.width} × {lightbox.height} px</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function ResultsPage({
   activeCase,
   reports,
   artifacts,
+  overlays = [],
   onRequestReport,
 }: ResultsPageProps) {
   const { diagnosis, measurements, treatments } = artifacts;
@@ -459,6 +556,7 @@ export default function ResultsPage({
     { id: "overview", label: "Overview", icon: Brain },
     { id: "measurements", label: "Measurements", icon: BarChart3, badge: abnormalCount > 0 ? `${abnormalCount} flagged` : measurements.length },
     { id: "treatment", label: "Treatment", icon: Stethoscope, badge: treatments.length },
+    { id: "overlays", label: "Overlays", icon: Layers3, badge: overlays.length || undefined },
     { id: "growth", label: "Growth", icon: TrendingUp },
     { id: "reports", label: "Reports", icon: FileText, badge: caseReports.length || undefined },
   ];
@@ -468,7 +566,7 @@ export default function ResultsPage({
       <PageHeader
         eyebrow="Diagnostic Output"
         title="Analysis Results"
-        description="AI-generated skeletal classification, cephalometric measurements with deviation analysis, and evidence-based treatment planning."
+        description="AI-generated skeletal classification, cephalometric measurements with deviation analysis, overlay tracings, and evidence-based treatment planning."
         actions={
           <div className="flex gap-2">
             <PrimaryBtn onClick={() => onRequestReport("PDF")} icon={FileText}>Export PDF</PrimaryBtn>
@@ -507,6 +605,29 @@ export default function ResultsPage({
                     </div>
                   </div>
                 </div>
+              </Card>
+            )}
+            {overlays.length > 0 && (
+              <Card className="border-border/40">
+                <SectionHeader label="Overlay Preview">
+                  <Pill tone="neutral" size="xs">{overlays.length} images</Pill>
+                </SectionHeader>
+                <div className="grid grid-cols-2 gap-2">
+                  {overlays.slice(0, 4).map(o => (
+                    <div key={o.key} className="aspect-video rounded-xl overflow-hidden bg-black/30">
+                      <img src={o.url} alt={o.label} className="w-full h-full object-contain" />
+                    </div>
+                  ))}
+                </div>
+                {overlays.length > 4 && (
+                  <button
+                    type="button"
+                    onClick={() => setTab("overlays")}
+                    className="mt-3 text-xs text-primary font-bold hover:underline"
+                  >
+                    View all {overlays.length} overlays →
+                  </button>
+                )}
               </Card>
             )}
           </div>
@@ -556,7 +677,6 @@ export default function ResultsPage({
             );
           })}
 
-          {/* Ungrouped */}
           {(() => {
             const knownCodes = MEASUREMENT_GROUPS.flatMap(g => g.codes);
             const ungrouped = filteredMeasurements.filter(m => !knownCodes.includes(m.code));
@@ -592,6 +712,22 @@ export default function ResultsPage({
               {treatments.map((t, i) => <TreatmentCard key={t.title} treatment={t} rank={i} />)}
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── Overlays ── */}
+      {tab === "overlays" && (
+        <div className="space-y-5 animate-in fade-in duration-300">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <h2 className="text-lg font-bold">Cephalometric Tracing Overlays</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                AI-generated landmark tracings, skeletal outlines, and diagnostic overlays — click any image to enlarge
+              </p>
+            </div>
+            {overlays.length > 0 && <Pill tone="neutral" size="sm">{overlays.length} overlay images</Pill>}
+          </div>
+          <OverlayGrid overlays={overlays} />
         </div>
       )}
 
