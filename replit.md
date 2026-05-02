@@ -20,9 +20,11 @@ frontend/              React + Vite (TSX) frontend
     src/
       pages/           DashboardPage, PatientsPage, CasesPage,
                        AnalysisPage, ViewerPage, ResultsPage,
-                       HistoryPage, ReportsPage, AuthPage
+                       HistoryPage, ReportsPage, AuthPage,
+                       SettingsPage, GuidePage
       components/      AppShell, ClinicalDialogs, Sidebar, etc.
-      lib/             ceph-api.ts, mappers.ts, clinical-utils.ts
+      lib/             ceph-api.ts, mappers.ts, clinical-utils.ts,
+                       firebase.ts, settings.ts
       contexts/        ThemeContext
   server/              Minimal tRPC router stub
   shared/              Shared constants
@@ -228,6 +230,32 @@ Five tabs:
 | **Treatment** | Expandable treatment option cards with evidence level, retention recommendation, duration, complexity |
 | **Growth** | CVM staging guide (Baccetti 2002 CS1–CS6) + Proffit/Petrovic growth prediction timeline |
 | **Reports** | PDF/Word export buttons + generated report list with preview/download |
+
+## Auth Page Redesign + Google Sign-In (v2.3)
+
+### AuthPage (`/auth`)
+- **Split layout**: Dark branded left panel (52%) + clean form right panel — stacks vertically on mobile
+- **Left panel**: CephAI logo, headline with violet accent, 3 feature callouts (AI, Multi-Protocol, HIPAA), live Infrastructure Status with refresh button
+- **Right panel**: "Continue with Google" button at top with real Google logo SVG, OR divider, Sign in / Register tab switcher, email + password fields with icons + show/hide toggle, Sign in to workspace CTA, TLS/HIPAA trust line at bottom
+- **Authenticated state** (right panel): Profile avatar (Google photo or initials), name + email, backend connection status, Go to Dashboard + Sign Out buttons, HIPAA notice card
+- **Google Sign-In** uses Firebase popup (`signInWithPopup`). On success, creates a `BackendAuthUser` from the Google profile and stores it in `localStorage` under `cephai_user`. Falls back gracefully if Firebase is not configured — button shows "not configured" label and is visually dimmed.
+- Password field has show/hide eye toggle; `autoComplete` attributes set correctly to suppress browser warnings
+
+### Firebase configuration
+Three secrets required (requested via Replit Secrets panel):
+- `VITE_FIREBASE_PROJECT_ID`
+- `VITE_FIREBASE_API_KEY`
+- `VITE_FIREBASE_APP_ID`
+
+Setup steps (Firebase Console):
+1. Create project → Add Web app
+2. Authentication → Enable Google sign-in method
+3. Authentication → Settings → Authorized domains → add Replit dev domain (and `.replit.app` after deploy)
+4. Project Settings → SDK config → copy `projectId`, `apiKey`, `appId`
+
+### New files
+- `src/lib/firebase.ts` — `initializeApp`, `signInWithGoogle()` (popup), `firebaseLogout()`, `isFirebaseConfigured()` guard
+- `ceph-api.ts` extended with `loginWithGoogle(googleUser)` — builds `BackendAuthUser` from Firebase user, saves to localStorage
 
 ## Settings Page (`/settings`)
 
