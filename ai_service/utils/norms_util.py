@@ -285,11 +285,94 @@ class AnalysisNormsProvider:
         if not population:
             return 0.0, 0.0
         t = measurement_code.strip().upper()
-        # Population offsets vs Caucasian adult norms (approximate, from literature)
+        # Population offsets vs Caucasian adult norms (additive to min and max).
+        # Sources:
+        #   Fonseca & Klein, AJO 1978 (African-American)
+        #   Chang, EJO 1987 (Chinese/East Asian)
+        #   Interlandi & Sato, Am J Orthod 1991 (Brazilian)
+        #   Miyajima et al., AJO-DO 1996 (Japanese)
+        #   Kaur & Singh, J Orthod Sci 2013 (Indian/South Asian)
         POPULATION_OFFSETS: dict[str, dict[str, tuple[float, float]]] = {
-            "chinese":          {"SNA": (+1.5, +1.5), "SNB": (+1.5, +1.5), "ANB": (0, 0)},
-            "african_american": {"SNA": (+2.5, +2.5), "SNB": (+1.5, +1.5), "ANB": (+1.0, +1.0), "FMA": (+2.0, +2.0)},
-            "hispanic":         {"SNA": (+1.0, +1.0), "SNB": (+0.5, +0.5)},
+            "chinese": {
+                "SNA":        (+1.5, +1.5),
+                "SNB":        (+1.5, +1.5),
+                "ANB":        ( 0.0,  0.0),
+                "SN-GOGN":    (+1.0, +1.0),
+                "FMA":        (+1.0, +1.0),
+                "MIDFACELEN": (-2.0, -2.0),
+                "MANDLENGTH": (-3.0, -3.0),
+                "UI-NA_DEG":  (+2.0, +2.0),
+                "LI-NB_DEG":  (+1.5, +1.5),
+            },
+            "east_asian": {
+                "SNA":        (+1.5, +1.5),
+                "SNB":        (+1.5, +1.5),
+                "ANB":        ( 0.0,  0.0),
+                "SN-GOGN":    (+1.0, +1.0),
+                "FMA":        (+1.0, +1.0),
+                "MIDFACELEN": (-2.0, -2.0),
+                "MANDLENGTH": (-3.0, -3.0),
+                "UI-NA_DEG":  (+2.0, +2.0),
+                "LI-NB_DEG":  (+1.5, +1.5),
+            },
+            "japanese": {
+                "SNA":        (+1.0, +1.0),
+                "SNB":        (+1.5, +1.5),
+                "ANB":        (-0.5, -0.5),
+                "FMA":        (+1.5, +1.5),
+                "SN-GOGN":    (+1.5, +1.5),
+                "MIDFACELEN": (-2.5, -2.5),
+                "MANDLENGTH": (-3.5, -3.5),
+                "UI-NA_DEG":  (+3.0, +3.0),
+                "LI-NB_DEG":  (+2.0, +2.0),
+            },
+            "african_american": {
+                "SNA":        (+2.5, +2.5),
+                "SNB":        (+1.5, +1.5),
+                "ANB":        (+1.0, +1.0),
+                "FMA":        (+2.0, +2.0),
+                "SN-GOGN":    (+1.5, +1.5),
+                "UI-NA_DEG":  (+3.0, +3.0),
+                "LI-NB_DEG":  (+2.5, +2.5),
+                "IMPA":       (+3.0, +3.0),
+                "MANDLENGTH": (+2.0, +2.0),
+            },
+            "hispanic": {
+                "SNA":        (+1.0, +1.0),
+                "SNB":        (+0.5, +0.5),
+                "ANB":        (+0.5, +0.5),
+                "FMA":        (+1.0, +1.0),
+                "UI-NA_DEG":  (+1.5, +1.5),
+                "LI-NB_DEG":  (+1.5, +1.5),
+            },
+            "indian": {
+                "SNA":        (+1.0, +1.0),
+                "SNB":        (+0.5, +0.5),
+                "ANB":        (+0.5, +0.5),
+                "FMA":        (+1.5, +1.5),
+                "SN-GOGN":    (+1.0, +1.0),
+                "UI-NA_DEG":  (+2.0, +2.0),
+                "LI-NB_DEG":  (+2.0, +2.0),
+                "IMPA":       (+2.0, +2.0),
+            },
+            "south_asian": {
+                "SNA":        (+1.0, +1.0),
+                "SNB":        (+0.5, +0.5),
+                "ANB":        (+0.5, +0.5),
+                "FMA":        (+1.5, +1.5),
+                "SN-GOGN":    (+1.0, +1.0),
+                "UI-NA_DEG":  (+2.0, +2.0),
+                "LI-NB_DEG":  (+2.0, +2.0),
+                "IMPA":       (+2.0, +2.0),
+            },
+            "brazilian": {
+                "SNA":        (+1.5, +1.5),
+                "SNB":        (+1.0, +1.0),
+                "ANB":        (+0.5, +0.5),
+                "FMA":        (+1.0, +1.0),
+                "UI-NA_DEG":  (+2.5, +2.5),
+                "LI-NB_DEG":  (+2.0, +2.0),
+            },
         }
         pop_key = population.lower().replace("-", "_").replace(" ", "_")
         offsets = POPULATION_OFFSETS.get(pop_key, {})

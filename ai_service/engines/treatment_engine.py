@@ -245,6 +245,32 @@ TREATMENT_RULES: list[dict] = [
         "duration": 48, "confidence": 0.90,
     },
 
+    # ── Pediatric RPE ─────────────────────────────────────────────────────────
+    {
+        "id": "rpe-pediatric",
+        "name": "Rapid Palate Expansion (Pediatric RPE)",
+        "type": "Appliance",
+        "conditions": {"min_age": 7, "max_age": 13},
+        "description": "Tooth-borne rapid palate expander (Hyrax or bonded type) to correct posterior crossbite and gain arch length in actively growing patients. Mid-palatal suture is fully patent, allowing rapid skeletal expansion.",
+        "rationale_template": "Indicated for transverse maxillary deficiency with posterior crossbite or arch-length discrepancy in growing patients. Skeletal expansion during this window avoids surgical intervention later.",
+        "evidence_level": "RCT",
+        "retention_recommendation": "Passive retention with expander in place for equal duration of active expansion; followed by fixed palatal retainer.",
+        "risks": "Relapse if retained <3-4 months; diastema formation (typically self-closes); transient mucosal irritation.",
+        "duration": 6, "confidence": 0.93,
+    },
+    {
+        "id": "c2-aligner-tad",
+        "name": "Clear Aligner + TAD Anchorage (Moderate Class II Non-Grower)",
+        "type": "Removable",
+        "conditions": {"skeletal_class": "ClassII", "min_age": 16, "vertical_pattern": "Normal"},
+        "description": "Clear aligner series combined with inter-radicular miniscrew TADs for absolute maxillary anchorage during Class II correction in non-growing patients with mild-to-moderate ANB (4-7°). TADs prevent unwanted mesial molar drift during aligner-driven incisor retraction.",
+        "rationale_template": "Suitable for moderate Class II non-growers who prefer esthetic treatment. TADs provide the anchorage control that standard aligner mechanics lack for significant molar-to-canine relationship correction.",
+        "evidence_level": "Cohort",
+        "retention_recommendation": "Vivera or equivalent clear retainer nightly; bonded lower 3-3; monitor molar anchorage at 3-month intervals.",
+        "risks": "TAD failure 10-15%; requires 22h/day aligner wear compliance; limited torque control for severe rotations; longer overall treatment than fixed appliances.",
+        "duration": 22, "confidence": 0.81,
+    },
+
     # ── Comprehensive Dentition ───────────────────────────────────────────────
     {
         "id": "gen-braces-align",
@@ -366,26 +392,56 @@ def predict_treatment_outcome(
     predicted = measurements.copy()
     age = patient_age or 20.0
 
+    # Severity scalars derived from Wits and APDI for nuanced outcome sizing
+    # Wits: normal ~0mm; each +1mm above norm → slightly larger functional effect
+    wits     = measurements.get("Wits", 0.0)
+    apdi     = measurements.get("APDI")
+    odi      = measurements.get("ODI")
+
+    # Class II functional appliances: scale SNB gain by Wits severity (min 1.5, max 2.8)
+    # Greater mandibular retrusion (high Wits) → more skeletal response expected
+    c2_severity = min(2.8, max(1.5, 1.8 + wits * 0.08)) if wits and wits > 0 else 1.8
+
+    # APDI correction factor: if APDI confirms Class II, increase confidence in response
+    if apdi is not None and apdi < 79:
+        c2_severity = min(2.8, c2_severity + 0.3)
+
     if treatment_id in ("c2-functional-twin", "c2-functional-herbst"):
         if age <= 16:
             predicted.setdefault("SNB", 80.0)
-            predicted["SNB"]   += 2.0
+            predicted["SNB"]   += c2_severity
             predicted["ANB"]    = predicted.get("SNA", 82.0) - predicted["SNB"]
             if "Ls-Eline" in predicted:
                 predicted["Ls-Eline"] = predicted["Ls-Eline"] - 2.0
             if "Li-Eline" in predicted:
                 predicted["Li-Eline"] = predicted["Li-Eline"] - 1.5
+            if "Wits" in predicted:
+                predicted["Wits"] = max(-1.0, predicted["Wits"] - c2_severity * 0.9)
 
     elif treatment_id == "c2-forsus":
         if age <= 16:
+            forsus_gain = min(2.3, max(1.2, c2_severity * 0.85))
             predicted.setdefault("SNB", 80.0)
-            predicted["SNB"]  += 1.5
+            predicted["SNB"]  += forsus_gain
             predicted["ANB"]   = predicted.get("SNA", 82.0) - predicted["SNB"]
+            if "Wits" in predicted:
+                predicted["Wits"] = max(-1.0, predicted["Wits"] - forsus_gain * 0.9)
 
     elif treatment_id == "c2-carriere":
         predicted.setdefault("SNB", 80.0)
         predicted["SNB"]  += 1.0
         predicted["ANB"]   = predicted.get("SNA", 82.0) - predicted["SNB"]
+        if "Wits" in predicted:
+            predicted["Wits"] = max(-1.0, predicted["Wits"] - 0.9)
+
+    elif treatment_id == "c2-aligner-tad":
+        predicted.setdefault("SNA", 82.0)
+        predicted["SNA"]  -= 1.2
+        predicted["ANB"]   = predicted["SNA"] - predicted.get("SNB", 80.0)
+        predicted.setdefault("UI-NA_DEG", 22.0)
+        predicted["UI-NA_DEG"] -= 3.5
+        if "Ls-Eline" in predicted:
+            predicted["Ls-Eline"] -= 2.0
 
     elif treatment_id == "c2-distalization-tad":
         predicted.setdefault("SNA", 82.0)
@@ -397,6 +453,12 @@ def predict_treatment_outcome(
         predicted["UI-NA_DEG"] -= 5.0
         if "Ls-Eline" in predicted:
             predicted["Ls-Eline"] -= 3.0
+
+    elif treatment_id == "rpe-pediatric":
+        if "PalatLen" in predicted:
+            predicted["PalatLen"] += 4.0
+        if "SN-GoGn" in predicted:
+            predicted["SN-GoGn"] += 0.5
 
     elif treatment_id == "c3-facemask":
         if age <= 11:

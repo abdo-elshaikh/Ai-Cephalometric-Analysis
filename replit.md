@@ -36,15 +36,28 @@ backend/               ASP.NET Core Clean Architecture solution
 ai_service/            Python FastAPI AI microservice (CephAI v2)
   engines/
     hrnet.py           Full 4-stage HRNet-W32 (Bottleneck stem + HR modules, out=80ch)
-    landmark_engine.py 80-landmark detection, TTA, ensemble variance, 22-edge refiner
-    measurement_engine.py 75 measurements: Steiner, Tweed, McNamara, Jarabak, Down's,
-                         Ricketts, Burstone soft-tissue, Airway, CVM proxies, Bolton proxy
+    landmark_engine.py 80-landmark detection, TTA, ensemble variance, 26-edge refiner
+                       (removed duplicate PFH edge; added S-Ba, Co-Go, Pog-Gn,
+                        UI/LI crown-root edges; 5 belief-propagation iterations)
+    measurement_engine.py 90+ measurements: Steiner, Tweed, McNamara, Jarabak, Down's,
+                         Ricketts, Burstone soft-tissue, Airway, CVM proxies, Bolton proxy,
+                         APDI/ODI (Kim's composite indices, standalone),
+                         Pog-NB_MM (Holdaway), ST-ChinThick (soft tissue chin thickness),
+                         SN-PP now uses signed_angle_line_to_ref for clinical sign accuracy
     diagnosis_engine.py  Probabilistic skeletal class (GMM+ANB+Wits), CVM staging
-                         (Baccetti 2002), Bolton discrepancy, airway risk, facial convexity
-    treatment_engine.py  20 evidence-based rules (Twin Block, Herbst, Forsus FRD,
-                         Carrière, Pendulum, MEAW, SARPE, MSE, BSSO, Le Fort I,
-                         bimaxillary, clear aligners, TADs), Proffit/Petrovic growth
-                         prediction (+2yr/+5yr/end-of-growth projections)
+                         (Baccetti 2002), Bolton discrepancy, airway risk, facial convexity;
+                         compute_confidence() now penalises score when avg critical-landmark
+                         confidence <0.80; Wits/ANB direction conflict detection added;
+                         expanded plausibility ranges (IMPA, FMIA, SN-GoGn, Interincisal, NSBa)
+    treatment_engine.py  22 evidence-based rules (added pediatric RPE + clear aligner+TAD
+                         for moderate Class II non-growers); predict_treatment_outcome()
+                         now scales Class II functional effects by Wits severity and APDI;
+                         Proffit/Petrovic growth prediction (+2yr/+5yr/end-of-growth)
+  utils/
+    norms_util.py      Population offsets expanded from 3 to 8 populations:
+                       Caucasian (default), Chinese, East Asian, Japanese, African-American,
+                       Hispanic, Indian/South Asian, Brazilian — with per-measurement deltas
+                       for SNA/SNB/ANB/FMA/SN-GoGn/IMPA/UI-NA/LI-NB/MandLength/MidfaceLen
   routers/             API endpoints (landmark, measurement, diagnosis, treatment, overlay)
   config/settings.py   num_landmarks=80, input_size=512×512, ensemble_size=3, TTA=True
   schemas/schemas.py   DiagnosisResponse updated: CVM, airway, Bolton, convexity fields

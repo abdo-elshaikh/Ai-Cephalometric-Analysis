@@ -777,7 +777,7 @@ MEASUREMENT_DEFS: list[dict] = [
     {"category": "Advanced","code": "SN-PP",       "name": "SN to Palatal Plane (ANS-PNS)",
      "type": "Angle",    "unit": "Degrees",     "min": 6,   "max": 10,
      "refs": ["S", "N", "ANS", "PNS"],
-     "calc": _line_angle("S", "N", "ANS", "PNS")},
+     "calc": _signed_line_angle("ANS", "PNS", "S", "N")},
 
     {"category": "Advanced","code": "FH-AB",       "name": "Frankfort to AB Angle",
      "type": "Angle",    "unit": "Degrees",     "min": 75,  "max": 85,
@@ -804,9 +804,41 @@ MEASUREMENT_DEFS: list[dict] = [
      "refs": ["N", "B", "SoftPog", "Ls"],
      "calc": _line_angle("N", "B", "SoftPog", "Ls")},
 
+    {"category": "Advanced","code": "Pog-NB_MM",  "name": "Pogonion to NB Line (Holdaway)",
+     "type": "Distance", "unit": "Millimeters", "min": 0,   "max": 4,
+     "refs": ["Pog", "N", "B"],
+     "calc": lambda lms, ps: (
+         signed_perpendicular_distance(lms["Pog"], lms["N"], lms["B"]) * ps if ps else None
+     ), "requires_calibration": True},
+
+    {"category": "Advanced","code": "ST-ChinThick","name": "Soft Tissue Chin Thickness (Pog-SoftPog)",
+     "type": "Distance", "unit": "Millimeters", "min": 10,  "max": 18,
+     "refs": ["Pog", "SoftPog"],
+     "calc": _dist_pts("Pog", "SoftPog"),
+     "requires_calibration": True},
+
     {"category": "Advanced","code": "NSBa",        "name": "Cranial Base Flexure (N-S-Ba)",
      "type": "Angle",    "unit": "Degrees",     "min": 125, "max": 138,
      "refs": ["N", "S", "Ba"],                  "calc": _nsba_angle()},
+
+    # ── KIM'S COMPOSITE INDICES (standalone) ─────────────────────────────────
+    # APDI = FH-AB + PP-FH  (norm 81.4 ± 3.5°; Kim 1978 AJO-DO)
+    # ODI  = AB-MP + PP-MP  (norm 74.5 ± 4.0°; Kim 1974 AJO-DO)
+    {"category": "Advanced","code": "APDI",        "name": "Anteroposterior Dysplasia Indicator (Kim)",
+     "type": "Angle",    "unit": "Degrees",     "min": 77.9,"max": 84.9,
+     "refs": ["Or", "Po", "A", "B", "ANS", "PNS"],
+     "calc": lambda lms, ps: (
+         line_to_line_angle(lms["Or"], lms["Po"], lms["A"], lms["B"]) +
+         signed_angle_line_to_ref(lms["ANS"], lms["PNS"], lms["Or"], lms["Po"])
+     ) if all(k in lms for k in ["Or", "Po", "A", "B", "ANS", "PNS"]) else None},
+
+    {"category": "Advanced","code": "ODI",         "name": "Overbite Depth Indicator (Kim)",
+     "type": "Angle",    "unit": "Degrees",     "min": 70.5,"max": 78.5,
+     "refs": ["A", "B", "Go", "Me", "ANS", "PNS"],
+     "calc": lambda lms, ps: (
+         line_to_line_angle(lms["A"], lms["B"], lms["Go"], lms["Me"]) +
+         line_to_line_angle(lms["ANS"], lms["PNS"], lms["Go"], lms["Me"])
+     ) if all(k in lms for k in ["A", "B", "Go", "Me", "ANS", "PNS"]) else None},
 
     # ══════════════════════════════════════════════════════════════════════════
     # HARVOLD VERTICAL PROPORTIONS

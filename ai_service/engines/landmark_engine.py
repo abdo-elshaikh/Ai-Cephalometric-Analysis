@@ -413,17 +413,25 @@ from utils.norms_util import norms_provider
 
 class ScientificRefiner:
     """
-    Iterative Anatomical Constraint Graph with 22 edges (was 7 in v1).
+    Iterative Anatomical Constraint Graph with 26 edges (was 22 in v2.0, 7 in v1).
 
     Each edge encodes a published distance norm between two landmarks.
-    Belief propagation (3 iterations) resolves violations by moving lower-confidence
+    Belief propagation (5 iterations) resolves violations by moving lower-confidence
     landmarks more than higher-confidence ones.
+
+    New edges added in v2.1:
+      - Co-Go ramus length (Ricketts corpus length proxy)
+      - S-Ba cranial base length
+      - N-B anterior cranial reference
+      - Pog-Gn chin symphysis depth (Holdaway)
+    Duplicate PFH edge removed.
     """
 
     _EDGES = [
         # ── Cranial base & skull ──────────────────────────────────────────────
         ("S",   "N",   "S-N_Length",      63.0,  80.0),
         ("Ba",  "N",   "Ba-N_Length",     98.0, 115.0),
+        ("S",   "Ba",  "S-Ba_Length",     32.0,  48.0),
         ("S",   "Ar",  "S-Ar_Length",     28.0,  40.0),
         ("Po",  "Or",  "FH_Length",       40.0,  70.0),
         # ── Maxilla ───────────────────────────────────────────────────────────
@@ -434,17 +442,20 @@ class ScientificRefiner:
         ("Go",  "Gn",  "Mand_Body",       55.0,  82.0),
         ("Go",  "Me",  "Mand_Body_Me",    53.0,  80.0),
         ("Ar",  "Go",  "Ramus_Height",    40.0,  60.0),
+        ("Co",  "Go",  "Ramus_Co_Go",     52.0,  72.0),
         ("Co",  "Gn",  "MandLength",     100.0, 130.0),
         ("Pog", "Me",  "Chin_Height",      8.0,  18.0),
+        ("Pog", "Gn",  "Chin_Depth",       3.0,  10.0),
         # ── Facial heights ────────────────────────────────────────────────────
         ("N",   "Me",  "TFH",            105.0, 140.0),
         ("S",   "Go",  "PFH",             70.0,  85.0),
         ("ANS", "Me",  "LAFH",            60.0,  70.0),
-        # ── Posterior cranial ─────────────────────────────────────────────────
-        ("S",   "Go",  "PFH",             70.0,  85.0),
         # ── Dental ────────────────────────────────────────────────────────────
         ("U1",  "L1",  "Incisal_Gap",      0.5,   4.0),
         ("U6",  "L6",  "Molar_Gap",        0.5,   4.0),
+        # ── Incisor-apex distances (crown-root axis length proxies) ───────────
+        ("U1",  "U1_c","UI_CrownRoot",    10.0,  16.0),
+        ("L1",  "L1_c","LI_CrownRoot",    10.0,  16.0),
         # ── Airway / Hyoid ────────────────────────────────────────────────────
         ("Hy",  "Me",  "MP_H_Dist",        8.0,  20.0),
         # ── Soft tissue ───────────────────────────────────────────────────────
@@ -491,9 +502,9 @@ class ScientificRefiner:
                     )
                     landmarks = {k: _update_confidence(lm, 0.90) for k, lm in landmarks.items()}
 
-        # 3. Iterative Belief Propagation (3 passes)
+        # 3. Iterative Belief Propagation (5 passes — increased from 3 for tighter convergence)
         if has_scale:
-            for _iter in range(3):
+            for _iter in range(5):
                 for node_a, node_b, norm_code, fb_min, fb_max in cls._EDGES:
                     if node_a not in landmarks or node_b not in landmarks:
                         continue
@@ -789,6 +800,8 @@ def infer(
         landmarks = ScientificRefiner.refine(
             landmarks, orig_W, orig_H,
             pixel_spacing_mm=pixel_spacing_mm,
+            patient_age=None,
+            patient_sex=None,
         )
 
         return conformal_annotator.annotate(landmarks)

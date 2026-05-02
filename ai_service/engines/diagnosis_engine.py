@@ -406,26 +406,56 @@ def classify_facial_convexity(convexity_angle: float | None) -> str:
 
 # ── Confidence Score ──────────────────────────────────────────────────────────
 
-def compute_confidence(measurements: dict[str, float]) -> float:
+def compute_confidence(
+    measurements: dict[str, float],
+    landmark_confidences: dict[str, float] | None = None,
+) -> float:
+    """
+    Diagnosis confidence score (0-1).
+
+    Base score = presence of primary/secondary measurements (unchanged).
+    Quality penalty = weighted-average landmark confidence below 0.80 reduces
+    the score proportionally, capped at a 0.15 reduction.
+
+    landmark_confidences: dict mapping landmark code → network confidence (0–1).
+    Critical landmarks for common measurements that drive penalty weighting:
+      S, N, A, B, Go, Me, Or, Po, ANS, PNS, U1, L1.
+    """
     primary   = ["SNA", "SNB", "FMA", "UI-NA_DEG", "LI-NB_DEG"]
     secondary = ["Wits", "JRatio", "Ls-Eline", "Li-Eline", "H-Angle",
                  "FacialAngle", "Convexity", "YAxis", "APDI", "ODI"]
     primary_score   = sum(0.14 for m in primary   if m in measurements)
     secondary_bonus = sum(0.02 for m in secondary if m in measurements)
-    return round(min(1.0, 0.20 + primary_score + secondary_bonus), 3)
+    base = round(min(1.0, 0.20 + primary_score + secondary_bonus), 3)
+
+    if landmark_confidences:
+        CRITICAL = ["S", "N", "A", "B", "Go", "Me", "Or", "Po", "ANS", "PNS", "U1", "L1"]
+        present = [landmark_confidences[k] for k in CRITICAL if k in landmark_confidences]
+        if present:
+            avg_conf = sum(present) / len(present)
+            if avg_conf < 0.80:
+                penalty = min(0.15, (0.80 - avg_conf) * 0.75)
+                base = round(max(0.0, base - penalty), 3)
+
+    return base
 
 
 # ── Input Validation ──────────────────────────────────────────────────────────
 
 def _validate_measurements(measurements: dict[str, float]) -> list[str]:
     plausible: dict[str, tuple[float, float]] = {
-        "SNA":        (60.0, 100.0),
-        "SNB":        (58.0,  98.0),
-        "ANB":        (-10.0, 15.0),
-        "FMA":        (10.0,  50.0),
-        "Wits":       (-15.0, 15.0),
-        "FacialAngle":(75.0, 100.0),
-        "Convexity":  (-20.0,  25.0),
+        "SNA":         (60.0,  100.0),
+        "SNB":         (58.0,   98.0),
+        "ANB":         (-12.0,  18.0),
+        "FMA":         (8.0,    52.0),
+        "Wits":        (-18.0,  18.0),
+        "FacialAngle": (70.0,  102.0),
+        "Convexity":   (-20.0,  28.0),
+        "IMPA":        (70.0,  115.0),
+        "FMIA":        (45.0,   85.0),
+        "SN-GoGn":     (18.0,   50.0),
+        "Interincisal":( 95.0,  165.0),
+        "NSBa":        (115.0,  148.0),
     }
     warnings = []
     for key, (lo, hi) in plausible.items():
@@ -502,6 +532,7 @@ def classify_diagnosis(
     measurements: dict[str, float],
     sex: str | None = None,
     age: float | None = None,
+    landmark_confidences: dict[str, float] | None = None,
 ) -> dict:
     """Full evidence-based diagnosis using all available measurements."""
 
@@ -580,12 +611,23 @@ def classify_diagnosis(
             )
             skeletal_result = {**skeletal_result, "type": "Conflicting"}
 
-    confidence = compute_confidence(measurements)
+    confidence = compute_confidence(measurements, landmark_confidences)
     if confidence < 0.6:
         warnings.append(
             f"Low diagnosis confidence ({confidence:.2f}) — "
             "fewer measurements than optimal. Interpret with caution."
         )
+
+    # Wits / ANB direction conflict detection
+    wits_val = measurements.get("Wits")
+    if wits_val is not None and abs(wits_val) > 2.0:
+        wits_implies = "ClassII" if wits_val > 2.0 else "ClassIII"
+        if wits_implies != skeletal_result["label"] and skeletal_result["label"] != "ClassI":
+            warnings.append(
+                f"Wits ({wits_val:+.1f} mm) implies {wits_implies} but "
+                f"corrected ANB ({skeletal_result['corrected_anb']:.1f}°) implies "
+                f"{skeletal_result['label']}. Verify landmark positions."
+            )
 
     summary = generate_summary(
         skeletal_result, vertical_pattern, upper_incisor, lower_incisor,
