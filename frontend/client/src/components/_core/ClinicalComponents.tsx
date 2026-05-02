@@ -633,6 +633,104 @@ export function SectionHeader({
   );
 }
 
+/** Boolean toggle switch */
+export function Switch({
+  checked,
+  onChange,
+  label,
+  disabled,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  label?: string;
+  disabled?: boolean;
+}) {
+  return (
+    <label className={cn("flex cursor-pointer items-center gap-2.5", disabled && "cursor-not-allowed opacity-50")}>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        onClick={() => !disabled && onChange(!checked)}
+        className={cn(
+          "relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none",
+          checked ? "bg-primary shadow-inner shadow-primary/30" : "bg-muted/60"
+        )}
+      >
+        <span
+          className={cn(
+            "pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow-sm ring-0 transition-transform duration-200",
+            checked ? "translate-x-4" : "translate-x-0"
+          )}
+        />
+      </button>
+      {label && (
+        <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+          {label}
+        </span>
+      )}
+    </label>
+  );
+}
+
+/** Circular progress ring */
+export function ProgressRing({
+  value,
+  size = 80,
+  strokeWidth = 6,
+  tone = "accent",
+  children,
+}: {
+  value: number;
+  size?: number;
+  strokeWidth?: number;
+  tone?: "success" | "accent" | "warning" | "danger" | "info" | "neutral";
+  children?: ReactNode;
+}) {
+  const r = (size - strokeWidth) / 2;
+  const circ = 2 * Math.PI * r;
+  const offset = circ * (1 - Math.max(0, Math.min(100, value)) / 100);
+  const colorVar: Record<string, string> = {
+    success: "oklch(var(--color-success))",
+    accent: "oklch(var(--color-primary))",
+    warning: "oklch(var(--color-warning))",
+    danger: "oklch(var(--color-destructive))",
+    info: "oklch(var(--color-info))",
+    neutral: "currentColor",
+  };
+  return (
+    <div
+      className="relative inline-flex items-center justify-center"
+      style={{ width: size, height: size }}
+    >
+      <svg width={size} height={size} className="-rotate-90 absolute inset-0">
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={strokeWidth}
+          className="text-muted/30"
+        />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          fill="none"
+          stroke={colorVar[tone] ?? colorVar.accent}
+          strokeWidth={strokeWidth}
+          strokeDasharray={circ}
+          strokeDashoffset={offset}
+          strokeLinecap="round"
+          className="transition-all duration-700"
+        />
+      </svg>
+      <div className="relative z-10">{children}</div>
+    </div>
+  );
+}
+
 /** Theme toggle switch */
 export function ThemeToggle() {
   const { theme, toggleTheme } = useTheme();
