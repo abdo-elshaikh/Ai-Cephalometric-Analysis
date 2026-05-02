@@ -36,14 +36,33 @@ backend/               ASP.NET Core Clean Architecture solution
 ai_service/            Python FastAPI AI microservice (CephAI v2)
   engines/
     hrnet.py           Full 4-stage HRNet-W32 (Bottleneck stem + HR modules, out=80ch)
-    landmark_engine.py 80-landmark detection, TTA, ensemble variance, 26-edge refiner
-                       (removed duplicate PFH edge; added S-Ba, Co-Go, Pog-Gn,
-                        UI/LI crown-root edges; 5 belief-propagation iterations)
+    landmark_engine.py 80-landmark detection, multi-axis TTA, ensemble variance,
+                       26-edge belief-propagation refiner (5 iterations).
+                       v2.2 improvements:
+                       • Entropy-blended confidence (70% Shannon entropy + 30%
+                         temperature-scaled logit) — principled heatmap sharpness
+                         measure replacing raw sigmoid(max_logit)
+                       • DSNT spatial variance decoder — per-landmark positional
+                         sigma (pixels) from Var[X]=E[X²]-E[X]² on softmax dist
+                       • Gamma-contrast TTA (γ=0.8 and γ=1.2) — two extra
+                         inference passes over the radiographic exposure axis;
+                         merged with existing flip TTA (3 TTA passes total)
+                       • Adaptive conformal radius refinement using heatmap sigma:
+                         sharp detections ↓ up to 40%; diffuse detections ↑ up to
+                         100% of class-level conformal radius (Angelopoulos 2022)
     measurement_engine.py 90+ measurements: Steiner, Tweed, McNamara, Jarabak, Down's,
                          Ricketts, Burstone soft-tissue, Airway, CVM proxies, Bolton proxy,
-                         APDI/ODI (Kim's composite indices, standalone),
-                         Pog-NB_MM (Holdaway), ST-ChinThick (soft tissue chin thickness),
-                         SN-PP now uses signed_angle_line_to_ref for clinical sign accuracy
+                         APDI/ODI (Kim's composite indices), Pog-NB_MM (Holdaway),
+                         ST-ChinThick, SN-PP signed-angle fix.
+                         v2.2 improvements:
+                         • propagate_measurement_uncertainty() — first-order Taylor
+                           expansion via central finite differences: numerically
+                           differentiates every measurement formula w.r.t. each
+                           landmark coordinate, propagates expected_error_mm through
+                           to a ±σ_M in native units (Bevington & Robinson 2003)
+                         • compute_all_measurements() now accepts landmark_uncertainties
+                           dict and returns measurement_uncertainty (1-sigma) and
+                           ci_95 [lo, hi] fields on every result when provided
     diagnosis_engine.py  Probabilistic skeletal class (GMM+ANB+Wits), CVM staging
                          (Baccetti 2002), Bolton discrepancy, airway risk, facial convexity;
                          compute_confidence() now penalises score when avg critical-landmark

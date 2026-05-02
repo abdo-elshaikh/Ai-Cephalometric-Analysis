@@ -966,7 +966,86 @@ MEASUREMENT_DEFS: list[dict] = [
 ]
 
 
-# ── Main Computation Function ─────────────────────────────────────────────────
+# ── Measurement Uncertainty Propagation & Main Computation ───────────────────
+
+def propagate_measurement_uncertainty(
+    item: dict,
+    landmarks: Dict[str, tuple[float, float]],
+    pixel_spacing: Optional[float],
+    landmark_uncertainties: dict[str, float],
+    epsilon_px: float = 1.0,
+) -> Optional[float]:
+    """
+    First-order Taylor expansion (linear error propagation) for cephalometric
+    measurements.
+
+    For a measurement M that is a function of landmark positions
+    M(x_1, y_1, ..., x_n, y_n), the propagated 1-sigma uncertainty is:
+
+        σ_M = sqrt( Σ_i [ (∂M/∂x_i)² · σ_xi² + (∂M/∂y_i)² · σ_yi² ] )
+
+    All partial derivatives are evaluated numerically via central finite
+    differences with step ε_px = 1 pixel:
+
+        ∂M/∂x_i ≈ [ M(x_i + ε) − M(x_i − ε) ] / (2ε)
+
+    Per-landmark positional uncertainty σ_i (in mm from conformal prediction)
+    is converted to pixels using pixel_spacing before differentiation; the
+    final σ_M is returned in the measurement's native unit (mm or degrees).
+
+    Only landmarks that directly appear in the measurement formula are
+    differentiated. Landmarks not in `landmark_uncertainties` use a
+    conservative default of 2.0 mm.
+
+    Returns:
+        σ_M (float) in native units, or None if propagation is not possible.
+
+    References:
+        Bevington PR & Robinson DK (2003). Data Reduction and Error Analysis
+        for the Physical Sciences, 3rd ed. McGraw-Hill. Ch. 3 (error propagation).
+
+        Shahidi S et al. (2013). Validity of cephalometric measurements on
+        a low-cost CBCT system. Dentomaxillofac Radiol 42(1):20120295.
+        (Landmark localization error → measurement error in clinical context.)
+    """
+    calc = item.get("calc")
+    if calc is None:
+        return None
+
+    refs = [r for r in item.get("refs", []) if r in landmarks]
+    if not refs:
+        return None
+
+    variance = 0.0
+
+    for name in refs:
+        sigma_mm = landmark_uncertainties.get(name, 2.0)
+        sigma_px = (sigma_mm / pixel_spacing) if (pixel_spacing and pixel_spacing > 0) else epsilon_px
+
+        cx, cy = landmarks[name]
+
+        # ∂M/∂x — central difference
+        try:
+            vx_p = calc({**landmarks, name: (cx + epsilon_px, cy)}, pixel_spacing)
+            vx_m = calc({**landmarks, name: (cx - epsilon_px, cy)}, pixel_spacing)
+            if vx_p is not None and vx_m is not None:
+                dM_dx = (vx_p - vx_m) / (2.0 * epsilon_px)
+                variance += (dM_dx * sigma_px) ** 2
+        except Exception:
+            pass
+
+        # ∂M/∂y — central difference
+        try:
+            vy_p = calc({**landmarks, name: (cx, cy + epsilon_px)}, pixel_spacing)
+            vy_m = calc({**landmarks, name: (cx, cy - epsilon_px)}, pixel_spacing)
+            if vy_p is not None and vy_m is not None:
+                dM_dy = (vy_p - vy_m) / (2.0 * epsilon_px)
+                variance += (dM_dy * sigma_px) ** 2
+        except Exception:
+            pass
+
+    return round(math.sqrt(variance), 3) if variance > 0 else None
+
 
 def compute_all_measurements(
     landmarks: Dict[str, tuple[float, float]],
@@ -977,10 +1056,17 @@ def compute_all_measurements(
     dentition_stage: Optional[str] = None,
     landmark_provenance: Optional[dict[str, str]] = None,
     is_cbct_derived: Optional[bool] = False,
+    landmark_uncertainties: Optional[dict[str, float]] = None,
 ) -> List[Dict[str, Any]]:
     """
     Compute all applicable cephalometric measurements.
+
     Skips measurements with absent landmarks or missing calibration.
+
+    If `landmark_uncertainties` (landmark_code → expected_error_mm) is
+    provided, each measurement result will include a `measurement_uncertainty`
+    field (1-sigma, in native units) computed by first-order Taylor expansion
+    error propagation, plus a `ci_95` tuple (value ± 1.96 · σ_M).
     """
     results: List[Dict[str, Any]] = []
 
@@ -1015,22 +1101,37 @@ def compute_all_measurements(
                 item["refs"], landmark_provenance
             )
 
-            results.append({
-                "code":              item["code"],
-                "name":              item["name"],
-                "category":          item["category"],
-                "measurement_type":  item["type"],
-                "value":             round(value, 4),
-                "unit":              item["unit"],
-                "normal_min":        nmin,
-                "normal_max":        nmax,
-                "status":            classify_status(value, nmin, nmax),
-                "deviation":         compute_deviation(value, nmin, nmax),
-                "landmark_refs":     item["refs"],
-                "quality_status":    quality_status,
-                "review_reasons":    review_reasons,
-                "landmark_provenance": used_provenance,
-            })
+            # ── Uncertainty propagation ──────────────────────────────────────
+            uncertainty: Optional[float] = None
+            ci_95: Optional[tuple[float, float]] = None
+            if landmark_uncertainties:
+                uncertainty = propagate_measurement_uncertainty(
+                    item, landmarks, pixel_spacing, landmark_uncertainties,
+                )
+                if uncertainty is not None:
+                    half = round(1.96 * uncertainty, 3)
+                    ci_95 = (round(value - half, 3), round(value + half, 3))
+
+            row: Dict[str, Any] = {
+                "code":                    item["code"],
+                "name":                    item["name"],
+                "category":                item["category"],
+                "measurement_type":        item["type"],
+                "value":                   round(value, 4),
+                "unit":                    item["unit"],
+                "normal_min":              nmin,
+                "normal_max":              nmax,
+                "status":                  classify_status(value, nmin, nmax),
+                "deviation":               compute_deviation(value, nmin, nmax),
+                "landmark_refs":           item["refs"],
+                "quality_status":          quality_status,
+                "review_reasons":          review_reasons,
+                "landmark_provenance":     used_provenance,
+                "measurement_uncertainty": uncertainty,
+                "ci_95":                   list(ci_95) if ci_95 else None,
+            }
+            results.append(row)
+
         except Exception as e:
             logger.warning(f"Measurement '{item['code']}' skipped: {e}")
 
