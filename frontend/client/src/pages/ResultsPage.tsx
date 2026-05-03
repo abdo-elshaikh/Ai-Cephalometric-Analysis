@@ -61,6 +61,72 @@ import {
 } from "@/lib/mappers";
 import { cn } from "@/lib/utils";
 
+// ─── Population Norm Offsets (mirrors ai_service/utils/norms_util.py) ─────────
+
+type PopulationKey = "caucasian" | "asian" | "african" | "mixed";
+
+const POPULATION_LABELS: Record<PopulationKey, string> = {
+  caucasian: "Caucasian",
+  asian:     "Asian",
+  african:   "African",
+  mixed:     "Mixed",
+};
+
+/** Additive offsets (delta_min, delta_max) applied on top of Caucasian norms. */
+const POPULATION_OFFSETS: Record<PopulationKey, Record<string, [number, number]>> = {
+  caucasian: {},
+  asian: {
+    SNA:         [+1.5, +1.5],
+    SNB:         [+1.5, +1.5],
+    ANB:         [ 0.0,  0.0],
+    "SN-GOGN":   [+1.0, +1.0],
+    FMA:         [+1.0, +1.0],
+    MIDFACELEN:  [-2.0, -2.0],
+    MANDLENGTH:  [-3.0, -3.0],
+    "UI-NA_DEG": [+2.0, +2.0],
+    U1_NA_ANG:   [+2.0, +2.0],
+    "LI-NB_DEG": [+1.5, +1.5],
+    L1_NB_ANG:   [+1.5, +1.5],
+  },
+  african: {
+    SNA:         [+2.5, +2.5],
+    SNB:         [+1.5, +1.5],
+    ANB:         [+1.0, +1.0],
+    FMA:         [+2.0, +2.0],
+    "SN-GOGN":   [+1.5, +1.5],
+    "UI-NA_DEG": [+3.0, +3.0],
+    U1_NA_ANG:   [+3.0, +3.0],
+    "LI-NB_DEG": [+2.5, +2.5],
+    L1_NB_ANG:   [+2.5, +2.5],
+    IMPA:        [+3.0, +3.0],
+    MANDLENGTH:  [+2.0, +2.0],
+  },
+  mixed: {}, // no systematic offset — uses Caucasian baseline
+};
+
+/** Parse "78.0–88.0" or "78.0-88.0" → [78, 88]. Returns null if unparseable. */
+function parseNormalRange(normal: string): [number, number] | null {
+  const m = normal.replace("–", "-").match(/^(-?[\d.]+)-(-?[\d.]+)$/);
+  if (!m) return null;
+  return [parseFloat(m[1]), parseFloat(m[2])];
+}
+
+/** Given a patient value and an adjusted [min, max] range, return status. */
+function deriveStatus(value: number, min: number, max: number): "Normal" | "Increased" | "Decreased" {
+  if (value < min) return "Decreased";
+  if (value > max) return "Increased";
+  return "Normal";
+}
+
+/** Return the population-adjusted [min, max] for a given code + base normal string. */
+function adjustedRange(code: string, normal: string, pop: PopulationKey): [number, number] | null {
+  const base = parseNormalRange(normal);
+  if (!base) return null;
+  const offsets = POPULATION_OFFSETS[pop];
+  const [dMin, dMax] = offsets[code.toUpperCase()] ?? offsets[code] ?? [0, 0];
+  return [base[0] + dMin, base[1] + dMax];
+}
+
 // ─── CSV Export Helper ────────────────────────────────────────────────────────
 
 function exportMeasurementsCSV(measurements: Measurement[], caseTitle?: string) {
@@ -537,19 +603,17 @@ function NormativeComparisonPanel({ measurements, selectedPopulation, onPopulati
   const populations = ["Caucasian", "Asian", "African", "Mixed"];
   
   const stats = {
-    mild: abnormal.filter(m => m.severity === "Mild").length,
+    mild:     abnormal.filter(m => m.severity === "Mild").length,
     moderate: abnormal.filter(m => m.severity === "Moderate").length,
-    severe: abnormal.filter(m => m.severity === "Severe").length,
+    severe:   abnormal.filter(m => m.severity === "Severe").length,
   };
   
   return (
     <Card className="border-border/40 bg-muted/5">
       <div className="space-y-4">
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-2">
-            <BarChart3 className="h-4 w-4 text-muted-foreground" />
-            <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Deviation Summary</span>
-          </div>
+        <div className="flex items-center gap-2">
+          <BarChart3 className="h-4 w-4 text-muted-foreground" />
+          <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Deviation Summary</span>
         </div>
         <div className="space-y-2">
           <p className="text-xs font-semibold text-foreground mb-2">Population Reference:</p>
@@ -573,13 +637,13 @@ function NormativeComparisonPanel({ measurements, selectedPopulation, onPopulati
         </div>
         <div className="grid grid-cols-3 gap-2">
           {[
-            { label: "Mild", count: stats.mild, tone: "warning" },
+            { label: "Mild",     count: stats.mild,     tone: "warning" },
             { label: "Moderate", count: stats.moderate, tone: "warning" },
-            { label: "Severe", count: stats.severe, tone: "danger" },
+            { label: "Severe",   count: stats.severe,   tone: "danger"  },
           ].map(stat => (
             <div key={stat.label} className="p-3 rounded-lg border border-border/40 bg-muted/10">
               <p className="text-[9px] font-bold text-muted-foreground uppercase">{stat.label}</p>
-              <p className={cn("text-lg font-bold mt-1", 
+              <p className={cn("text-lg font-bold mt-1",
                 stat.tone === "danger" ? "text-destructive" : "text-warning"
               )}>
                 {stat.count}
@@ -592,6 +656,161 @@ function NormativeComparisonPanel({ measurements, selectedPopulation, onPopulati
         </p>
       </div>
     </Card>
+  );
+}
+
+// ─── Population Norm Comparison Table ────────────────────────────────────────
+
+const COMPARE_POPS: PopulationKey[] = ["caucasian", "asian", "african", "mixed"];
+
+function statusToneClass(status: "Normal" | "Increased" | "Decreased") {
+  if (status === "Normal") return "text-success";
+  if (status === "Increased") return "text-warning";
+  return "text-blue-400";
+}
+
+function statusDot(status: "Normal" | "Increased" | "Decreased") {
+  if (status === "Normal")    return "bg-success";
+  if (status === "Increased") return "bg-warning";
+  return "bg-blue-400";
+}
+
+function PopulationNormCompareTable({ measurements }: { measurements: Measurement[] }) {
+  // Only show rows where at least one population has a non-zero offset for this code (i.e. it's interesting),
+  // OR where the patient value is non-null. Skip calibration-required rows.
+  const rows = measurements.filter(m => m.value != null && !m.calibrationRequired);
+
+  if (!rows.length) {
+    return (
+      <Card>
+        <p className="text-sm text-muted-foreground text-center py-8">No numeric measurements available for comparison.</p>
+      </Card>
+    );
+  }
+
+  // Track how many population reclassifications exist per row
+  const reclassCount = rows.filter(m => {
+    const caucStatus = deriveStatus(m.value!, ...(() => { const r = adjustedRange(m.code, m.normal, "caucasian"); return r ?? [0, 0]; })());
+    return COMPARE_POPS.some(pop => {
+      if (pop === "caucasian") return false;
+      const r = adjustedRange(m.code, m.normal, pop);
+      if (!r) return false;
+      return deriveStatus(m.value!, r[0], r[1]) !== caucStatus;
+    });
+  }).length;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <p className="text-sm font-bold">Population Norm Comparison</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            How this patient's values classify across four population reference sets simultaneously
+          </p>
+        </div>
+        {reclassCount > 0 && (
+          <Pill tone="warning" size="xs">{reclassCount} reclassification{reclassCount !== 1 ? "s" : ""} vs. Caucasian</Pill>
+        )}
+      </div>
+
+      <Card noPadding className="overflow-hidden">
+        {/* Legend */}
+        <div className="flex items-center gap-4 px-5 py-3 border-b border-border/40 bg-muted/10 flex-wrap">
+          {[
+            { label: "Normal",    cls: "bg-success"    },
+            { label: "Increased", cls: "bg-warning"    },
+            { label: "Decreased", cls: "bg-blue-400"   },
+            { label: "Reclassified vs. Caucasian", cls: "bg-primary/30 border border-primary/40", isRect: true },
+          ].map(l => (
+            <div key={l.label} className="flex items-center gap-1.5">
+              {l.isRect ? (
+                <div className={cn("h-3 w-5 rounded-sm", l.cls)} />
+              ) : (
+                <div className={cn("h-2 w-2 rounded-full shrink-0", l.cls)} />
+              )}
+              <span className="text-[10px] text-muted-foreground">{l.label}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Column header */}
+        <div className="grid grid-cols-[64px_1fr_64px_repeat(4,_1fr)] items-center gap-x-2 px-5 py-2.5 border-b border-border/20 bg-muted/5">
+          <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Code</span>
+          <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Measurement</span>
+          <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest text-right">Value</span>
+          {COMPARE_POPS.map(pop => (
+            <span key={pop} className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest text-center">
+              {POPULATION_LABELS[pop]}
+            </span>
+          ))}
+        </div>
+
+        {/* Data rows */}
+        <div className="divide-y divide-border/10">
+          {rows.map(m => {
+            const unitLabel = m.unit === "deg" ? "°" : m.unit === "mm" ? " mm" : "%";
+            // Compute status per population
+            const popResults = COMPARE_POPS.map(pop => {
+              const range = adjustedRange(m.code, m.normal, pop);
+              if (!range) return { status: null as null, range: null };
+              const status = deriveStatus(m.value!, range[0], range[1]);
+              return { status, range };
+            });
+            const caucStatus = popResults[0].status;
+
+            return (
+              <div
+                key={m.code}
+                className="grid grid-cols-[64px_1fr_64px_repeat(4,_1fr)] items-center gap-x-2 px-5 py-3 hover:bg-muted/10 transition-colors"
+              >
+                <span className="text-[11px] font-bold text-primary truncate">{m.code}</span>
+                <span className="text-xs text-foreground/80 truncate pr-2">{m.name}</span>
+                <span className="font-mono text-xs font-bold text-foreground text-right">
+                  {m.value?.toFixed(1)}{unitLabel}
+                </span>
+                {popResults.map((res, idx) => {
+                  const pop = COMPARE_POPS[idx];
+                  if (!res.status || !res.range) {
+                    return (
+                      <div key={pop} className="flex flex-col items-center gap-0.5 px-1">
+                        <span className="text-[9px] text-muted-foreground/40">—</span>
+                      </div>
+                    );
+                  }
+                  const isReclassified = pop !== "caucasian" && caucStatus !== null && res.status !== caucStatus;
+                  return (
+                    <div
+                      key={pop}
+                      className={cn(
+                        "flex flex-col items-center gap-0.5 px-1 py-1 rounded-md transition-colors",
+                        isReclassified && "bg-primary/10 border border-primary/20"
+                      )}
+                    >
+                      <div className="flex items-center gap-1">
+                        <div className={cn("h-1.5 w-1.5 rounded-full shrink-0", statusDot(res.status))} />
+                        <span className={cn("text-[10px] font-bold", statusToneClass(res.status))}>
+                          {res.status}
+                        </span>
+                      </div>
+                      <span className="text-[9px] text-muted-foreground/60 leading-none">
+                        {res.range[0].toFixed(1)}–{res.range[1].toFixed(1)}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="px-5 py-3 border-t border-border/20 bg-muted/5">
+          <p className="text-[10px] text-muted-foreground leading-relaxed">
+            Norm ranges sourced from: Fonseca &amp; Klein (AJO 1978), Chang (EJO 1987), Interlandi &amp; Sato (Am J Orthod 1991), Miyajima et al. (AJO-DO 1996).
+            Highlighted cells indicate reclassification relative to the Caucasian reference set.
+          </p>
+        </div>
+      </Card>
+    </div>
   );
 }
 
@@ -1351,74 +1570,107 @@ export default function ResultsPage({
               </button>
               <button
                 type="button"
-                onClick={() => setFilterAbnormal(o => !o)}
+                onClick={() => setCompareMode(o => !o)}
                 className={cn(
                   "flex items-center gap-2 h-10 px-4 rounded-xl border text-xs font-bold transition-all",
-                  filterAbnormal
-                    ? "border-warning/40 bg-warning/10 text-warning"
+                  compareMode
+                    ? "border-primary/40 bg-primary/10 text-primary"
                     : "border-border/60 bg-muted/20 text-muted-foreground hover:bg-muted/30"
                 )}
+                title="Compare measurements across population norm sets"
               >
-                <Filter className="h-3.5 w-3.5" />
-                {filterAbnormal ? "Showing flagged" : "Show flagged only"}
+                <BarChart3 className="h-3.5 w-3.5" />
+                {compareMode ? "Close comparison" : "Compare populations"}
               </button>
-              <div className="flex items-center gap-2">
-                {["all", "mild", "moderate", "severe"].map(sev => (
+              {!compareMode && (
+                <>
                   <button
-                    key={sev}
                     type="button"
-                    onClick={() => setSeverityFilter(sev as any)}
+                    onClick={() => setFilterAbnormal(o => !o)}
                     className={cn(
-                      "h-10 px-3 rounded-lg border text-xs font-bold transition-all capitalize",
-                      severityFilter === sev
-                        ? sev === "severe" ? "border-destructive/40 bg-destructive/10 text-destructive"
-                          : sev === "moderate" ? "border-warning/40 bg-warning/10 text-warning"
-                          : sev === "mild" ? "border-orange-500/40 bg-orange-500/10 text-orange-600"
-                          : "border-primary/40 bg-primary/10 text-primary"
+                      "flex items-center gap-2 h-10 px-4 rounded-xl border text-xs font-bold transition-all",
+                      filterAbnormal
+                        ? "border-warning/40 bg-warning/10 text-warning"
                         : "border-border/60 bg-muted/20 text-muted-foreground hover:bg-muted/30"
                     )}
                   >
-                    {sev === "all" ? "All" : sev}
+                    <Filter className="h-3.5 w-3.5" />
+                    {filterAbnormal ? "Showing flagged" : "Show flagged only"}
                   </button>
-                ))}
-              </div>
+                  <div className="flex items-center gap-2">
+                    {["all", "mild", "moderate", "severe"].map(sev => (
+                      <button
+                        key={sev}
+                        type="button"
+                        onClick={() => setSeverityFilter(sev as any)}
+                        className={cn(
+                          "h-10 px-3 rounded-lg border text-xs font-bold transition-all capitalize",
+                          severityFilter === sev
+                            ? sev === "severe" ? "border-destructive/40 bg-destructive/10 text-destructive"
+                              : sev === "moderate" ? "border-warning/40 bg-warning/10 text-warning"
+                              : sev === "mild" ? "border-orange-500/40 bg-orange-500/10 text-orange-600"
+                              : "border-primary/40 bg-primary/10 text-primary"
+                            : "border-border/60 bg-muted/20 text-muted-foreground hover:bg-muted/30"
+                        )}
+                      >
+                        {sev === "all" ? "All" : sev}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
               <Pill tone="neutral" size="sm">{filteredMeasurements.length} parameters</Pill>
               {abnormalCount > 0 && <Pill tone="warning" size="sm">{abnormalCount} outside normal range</Pill>}
             </div>
-            <div className="text-xs text-muted-foreground leading-relaxed p-3 rounded-lg border border-border/40 bg-muted/10">
-              <p className="font-semibold text-foreground mb-1">💡 Filtering Tip:</p>
-              <p>Use search to find specific measurements by code or name. Toggle "Show flagged only" to review abnormal findings. Click measurement groups to expand/collapse categories.</p>
-            </div>
+
+            {compareMode ? (
+              <div className="p-3 rounded-lg border border-primary/20 bg-primary/5">
+                <p className="text-xs text-primary/80 leading-relaxed">
+                  <span className="font-bold">Population comparison mode:</span> Each cell shows how this patient's values classify under Caucasian, Asian, African, and Mixed reference norms. Highlighted cells indicate a reclassification vs. the Caucasian baseline.
+                </p>
+              </div>
+            ) : (
+              <div className="text-xs text-muted-foreground leading-relaxed p-3 rounded-lg border border-border/40 bg-muted/10">
+                <p className="font-semibold text-foreground mb-1">Filtering Tip:</p>
+                <p>Use search to find specific measurements by code or name. Toggle "Show flagged only" to review abnormal findings. Click measurement groups to expand/collapse categories.</p>
+              </div>
+            )}
           </div>
 
-          {MEASUREMENT_GROUPS.map(group => {
-            const groupMs = filteredMeasurements.filter(m => group.codes.includes(m.code));
-            if (!groupMs.length && search) return null;
-            const allMs = search || filterAbnormal
-              ? groupMs
-              : filteredMeasurements.filter(m => group.codes.includes(m.code));
-            return (
-              <MeasurementGroupSection
-                key={group.label}
-                label={group.label}
-                icon={group.icon}
-                measurements={allMs}
-              />
-            );
-          })}
+          {compareMode ? (
+            <PopulationNormCompareTable measurements={measurements} />
+          ) : (
+            <>
+              {MEASUREMENT_GROUPS.map(group => {
+                const groupMs = filteredMeasurements.filter(m => group.codes.includes(m.code));
+                if (!groupMs.length && search) return null;
+                const allMs = search || filterAbnormal
+                  ? groupMs
+                  : filteredMeasurements.filter(m => group.codes.includes(m.code));
+                return (
+                  <MeasurementGroupSection
+                    key={group.label}
+                    label={group.label}
+                    icon={group.icon}
+                    measurements={allMs}
+                  />
+                );
+              })}
 
-          {(() => {
-            const knownCodes = MEASUREMENT_GROUPS.flatMap(g => g.codes);
-            const ungrouped = filteredMeasurements.filter(m => !knownCodes.includes(m.code));
-            if (!ungrouped.length) return null;
-            return (
-              <MeasurementGroupSection
-                label="Other Parameters"
-                icon={Activity}
-                measurements={ungrouped}
-              />
-            );
-          })()}
+              {(() => {
+                const knownCodes = MEASUREMENT_GROUPS.flatMap(g => g.codes);
+                const ungrouped = filteredMeasurements.filter(m => !knownCodes.includes(m.code));
+                if (!ungrouped.length) return null;
+                return (
+                  <MeasurementGroupSection
+                    label="Other Parameters"
+                    icon={Activity}
+                    measurements={ungrouped}
+                  />
+                );
+              })()}
+            </>
+          )}
         </div>
       )}
 
