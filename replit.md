@@ -116,6 +116,91 @@ Only the **frontend** is configured as a workflow (port 5000). The backend and A
 - Build: `cd frontend && pnpm run build`
 - Public dir: `frontend/dist`
 
+## Frontend Clinical UI — Results Page (v2.3 P1–P2 Improvements)
+
+### New Components
+- **DiagnosisCard** — AI disclaimer banner, skeletal consensus 4-metric voting (ANB/Wits/Beta/W), airway 0–10 gauge, CVM staging display, dental-skeletal differential bars
+- **CVMStageCard** — Cervical vertebral maturation (Baccetti CS 1–6) with growth status badges, colour-coded indicators
+- **DentalSkeletalDifferentialPanel** — skeletal vs dental evidence % distribution, clinical interpretation text
+- **LandmarkQualitySummary** — flags low-confidence landmarks, lists review reasons (up to 3), success badge if all optimal
+- **RiskFactorSummary** — airway risk (High/Moderate/Low), clinical flags count, visual risk assessment cards
+- **NormativeComparisonPanel** — deviation severity histogram (Mild/Moderate/Severe counts), population norm summary
+
+### Measurement Visualization (v2.3)
+- **MeasurementRow** — left-border colour coding (green=Normal, amber=Mild/Moderate, red=Severe), quality status badges, review reason tooltips
+- **MeasurementGroupSection** — collapsible measurement categories (Steiner/McNamara/Vertical/Dental/Airway) with abnormal count badges
+- **KeyMeasurementsCard** — highlights 8 priority measurements (SNA/SNB/ANB/FMA/U1-NA/L1-NB/Jarabak/Nasolabial)
+
+### Overview Tab Layout (v2.3)
+Two-column responsive grid (xl:grid-cols-[1fr_1fr]):
+- **Left**: DiagnosisCard (with consensus, airway, CVM, differential panels)
+- **Right**: KeyMeasurements + NormativeComparison + LandmarkQuality + RiskFactors + TopTreatment + OverlayPreview
+
+## AI Service Backend — v2.3 P0–P1 Clinical Metrics
+
+### New Measurements (P0–P1 scope)
+- **Beta angle** (Baik & Jee 2004) — A-to-Xi-Pm true AP jaw relation for Class II assessment
+- **W angle** (Bhad 2013) — M-perpendicular sagittal jaw relation for transverse skeletal assessment
+- **Upper Gonial angle** (N-Go-Ar) — condylar component of vertical growth pattern
+- **Lower Gonial angle** (N-Go-Me) — ramal component affecting total gonial angle
+- **Corpus Length** (Ricketts Xi-PM) — mandibular body dimension proxy for skeletal dimension
+
+### Enhanced Diagnosis Engine (v2.3)
+- **compute_multi_metric_consensus()** — 4-metric weighted voting (ANB 30% + Wits 25% + Beta 25% + W 20%) across Class I/II/III with:
+  - Probability distribution: Pr(Class I), Pr(Class II), Pr(Class III)
+  - Consensus class + type (Definitive/Borderline/Conflicting)
+  - Per-metric votes list with weight transparency
+  - Agreement score (0–100%) reflecting metric alignment
+  - Conflict details list when >1 metric disagrees
+- **classify_airway()** — enhanced 0–10 numeric risk score based on:
+  - MP-H distance (airway space)
+  - PAS (pharyngeal airway space)
+  - SPP (soft palate position)
+  - Tongue/tonsil flags
+  - Risk factor contributions list
+- **classify_diagnosis()** — now outputs:
+  - `skeletal_consensus` (dict with 4-metric voting)
+  - `airway_risk_score` (0–10 numeric)
+  - `dental_skeletal_differential` (skeletal % vs dental %, markers, interpretation)
+  - `cvm_staging` (stage, classification, description, growth_status)
+  - `ai_disclaimer` (mandatory clinical use statement)
+
+## Session Summary — P0–P2 Delivery (May 3, 2026)
+
+### Scope Delivered
+- **P0 scope**: 5 new cephalometric measurements (Beta, W, Upper/Lower Gonial, Corpus Length)
+- **P1 scope**: Multi-metric consensus engine, enhanced airway scoring, CVM staging support
+- **P2 scope**: 6 new React components for results visualization, landmark quality warnings, risk factor summary, normative comparisons
+
+### Files Modified
+1. **Backend Python** (measurement & diagnosis engines):
+   - `ai_service/engines/measurement_engine.py` — new measurement CalcFunc + MEASUREMENT_DEFS entries
+   - `ai_service/engines/diagnosis_engine.py` — consensus voting, airway risk scoring, CVM output
+   - `ai_service/schemas/schemas.py` — DiagnosisResponse extended with new fields
+
+2. **Frontend TypeScript/React**:
+   - `frontend/client/src/lib/mappers.ts` — new types (CVMStaging), mapDiagnosis updated for CVM data
+   - `frontend/client/src/pages/ResultsPage.tsx` — 6 new components (CVM, Differential, Quality, Risk, Normative), overview redesigned
+   - `frontend/client/src/index.css` — fixed Tailwind v4 compatibility (removed @apply on custom classes)
+
+3. **Documentation**:
+   - `replit.md` — comprehensive v2.3 P0–P2 feature documentation
+
+### Build Status
+✅ Vite dev server running clean (no CSS errors, no TypeScript errors)
+✅ HMR updates working for all components
+✅ No LSP diagnostics
+✅ App preview accessible on port 5000
+
+### Recommended Next Steps (P3+)
+- Advanced measurement filtering (severity, category, population)
+- Treatment outcome prediction visualization
+- Growth projection interactive charts
+- Landmark confidence heatmaps
+- Clinical summary export (PDF/Word enhancements)
+- Historical case comparison panels
+- Population-specific norms selector
+
 ## Frontend Design System (v3.1)
 
 ### Design Language

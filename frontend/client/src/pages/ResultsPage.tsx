@@ -68,6 +68,97 @@ interface ResultsPageProps {
   onRequestReport: (f: ReportFormat) => void | Promise<void>;
 }
 
+// ─── Landmark Quality Summary ─────────────────────────────────────────────────
+
+function LandmarkQualitySummary({ measurements }: { measurements: Measurement[] }) {
+  const flagged = measurements.filter(m => m.reviewReasons?.length);
+  
+  if (!flagged.length) {
+    return (
+      <Card className="border-success/20 bg-success/5">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-success/20 text-success">
+            <CheckCircle2 className="h-5 w-5" />
+          </div>
+          <div>
+            <p className="text-sm font-bold">All Landmarks Optimal</p>
+            <p className="text-xs text-muted-foreground mt-0.5">{measurements.length} measurements with high confidence</p>
+          </div>
+        </div>
+      </Card>
+    );
+  }
+  
+  return (
+    <Card className="border-warning/20 bg-warning/5">
+      <div className="flex items-start gap-3 mb-3">
+        <AlertTriangle className="h-4 w-4 text-warning shrink-0 mt-0.5" />
+        <div>
+          <p className="text-sm font-bold">Landmark Quality Flags</p>
+          <p className="text-xs text-muted-foreground mt-0.5">{flagged.length} measurement(s) need review</p>
+        </div>
+      </div>
+      <div className="space-y-1">
+        {flagged.slice(0, 3).map(m => (
+          <div key={m.code} className="flex items-center gap-2 text-xs text-warning-foreground/80">
+            <span className="font-semibold">{m.code}</span>
+            <span className="text-[11px] text-warning-foreground/60">•</span>
+            <span>{m.reviewReasons?.[0] || "Review recommended"}</span>
+          </div>
+        ))}
+      </div>
+      {flagged.length > 3 && (
+        <p className="text-xs text-warning-foreground/60 mt-2">+{flagged.length - 3} more</p>
+      )}
+    </Card>
+  );
+}
+
+// ─── Risk Factor Summary ───────────────────────────────────────────────────────
+
+function RiskFactorSummary({ diagnosis }: { diagnosis: DiagnosisSummary }) {
+  const riskFactors = [];
+  
+  if (diagnosis.airwayRiskScore !== undefined && diagnosis.airwayRiskScore !== null) {
+    const airwayLevel = diagnosis.airwayRiskScore >= 7 ? "High" : diagnosis.airwayRiskScore >= 4 ? "Moderate" : "Low";
+    riskFactors.push({ label: "Airway Risk", value: airwayLevel, score: diagnosis.airwayRiskScore, icon: Wind });
+  }
+  
+  if (diagnosis.warnings.length > 0) {
+    riskFactors.push({ label: "Clinical Flags", value: `${diagnosis.warnings.length} items`, icon: AlertTriangle });
+  }
+  
+  if (!riskFactors.length) return null;
+  
+  return (
+    <Card className="border-border/40">
+      <div className="flex items-center gap-2 mb-4">
+        <ShieldAlert className="h-4 w-4 text-muted-foreground" />
+        <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Risk Assessment Summary</span>
+      </div>
+      <div className="grid gap-3">
+        {riskFactors.map((rf, i) => {
+          const RiskIcon = rf.icon;
+          return (
+            <div key={i} className="flex items-center justify-between p-3 rounded-lg border border-border/40 bg-muted/10">
+              <div className="flex items-center gap-2">
+                <RiskIcon className="h-3.5 w-3.5 text-muted-foreground" />
+                <span className="text-xs font-medium">{rf.label}</span>
+              </div>
+              <Pill 
+                tone={rf.label === "Airway Risk" && rf.score !== undefined && rf.score >= 7 ? "danger" : "warning"} 
+                size="xs"
+              >
+                {rf.value}
+              </Pill>
+            </div>
+          );
+        })}
+      </div>
+    </Card>
+  );
+}
+
 // ─── Measurement Groups ───────────────────────────────────────────────────────
 
 const MEASUREMENT_GROUPS: { label: string; icon: React.ComponentType<{ className?: string }>; codes: string[] }[] = [
@@ -229,6 +320,72 @@ function AirwayRiskGauge({ score }: { score: number }) {
   );
 }
 
+function CVMStageCard({ cvm }: { cvm: any }) {
+  if (!cvm) return null;
+  const stageColors: Record<string, string> = {
+    "CS 1": "bg-success text-success-foreground",
+    "CS 2": "bg-success text-success-foreground",
+    "CS 3": "bg-warning text-warning-foreground",
+    "CS 4": "bg-warning text-warning-foreground",
+    "CS 5": "bg-orange-500 text-white",
+    "CS 6": "bg-destructive text-destructive-foreground",
+  };
+  const stageColor = stageColors[cvm.stage] || "bg-muted text-muted-foreground";
+  
+  return (
+    <div className="p-4 rounded-xl border border-border/40 bg-muted/10 mb-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <Activity className="h-3.5 w-3.5 text-muted-foreground" />
+          <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">CVM Growth Stage</span>
+        </div>
+        <span className={cn("text-xs font-bold px-2 py-1 rounded-lg", stageColor)}>{cvm.stage}</span>
+      </div>
+      <p className="text-xs text-muted-foreground leading-relaxed">{cvm.description}</p>
+      <div className="mt-2 flex items-center gap-2">
+        <span className="text-[10px] text-muted-foreground/60">Growth Status: </span>
+        <Pill tone={cvm.growth_status === "Complete" ? "neutral" : "warning"} size="xs">{cvm.growth_status}</Pill>
+      </div>
+    </div>
+  );
+}
+
+function DentalSkeletalDifferentialPanel({ diff }: { diff: any }) {
+  if (!diff) return null;
+  const skelPct = Math.round(diff.skeletal_evidence_pct ?? 0);
+  const dentalPct = Math.round(diff.dental_evidence_pct ?? 0);
+  
+  return (
+    <div className="p-4 rounded-xl border border-border/40 bg-muted/10 mb-4">
+      <div className="flex items-center gap-2 mb-3">
+        <Smile className="h-3.5 w-3.5 text-muted-foreground" />
+        <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Dental-Skeletal Differential</span>
+      </div>
+      <div className="grid grid-cols-2 gap-3 mb-3">
+        <div>
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[9px] font-bold text-muted-foreground">Skeletal Evidence</span>
+            <span className="text-xs font-bold">{skelPct}%</span>
+          </div>
+          <div className="h-1.5 w-full rounded-full bg-muted/60 overflow-hidden">
+            <div className="h-full bg-primary rounded-full" style={{ width: `${skelPct}%` }} />
+          </div>
+        </div>
+        <div>
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[9px] font-bold text-muted-foreground">Dental Evidence</span>
+            <span className="text-xs font-bold">{dentalPct}%</span>
+          </div>
+          <div className="h-1.5 w-full rounded-full bg-muted/60 overflow-hidden">
+            <div className="h-full bg-accent rounded-full" style={{ width: `${dentalPct}%` }} />
+          </div>
+        </div>
+      </div>
+      <p className="text-xs text-muted-foreground leading-relaxed">{diff.interpretation}</p>
+    </div>
+  );
+}
+
 function DiagnosisCard({ diagnosis }: { diagnosis: ClinicalArtifacts["diagnosis"] }) {
   const confPct = Math.round((diagnosis.confidence || 0.85) * 100);
   const classItems = [
@@ -296,11 +453,21 @@ function DiagnosisCard({ diagnosis }: { diagnosis: ClinicalArtifacts["diagnosis"
           </div>
         )}
 
+        {/* CVM Growth Staging */}
+        {diagnosis.cvmStaging && (
+          <CVMStageCard cvm={diagnosis.cvmStaging} />
+        )}
+
         {/* Airway risk score */}
         {diagnosis.airwayRiskScore != null && (
           <div className="mb-4">
             <AirwayRiskGauge score={diagnosis.airwayRiskScore} />
           </div>
+        )}
+
+        {/* Dental-Skeletal Differential */}
+        {diagnosis.dentalSkeletalDifferential && (
+          <DentalSkeletalDifferentialPanel diff={diagnosis.dentalSkeletalDifferential} />
         )}
 
         {(diagnosis.warnings.length > 0 || diagnosis.clinicalNotes.length > 0) && (
@@ -330,6 +497,45 @@ function DiagnosisCard({ diagnosis }: { diagnosis: ClinicalArtifacts["diagnosis"
           </div>
         )}
       </div>
+    </Card>
+  );
+}
+
+function NormativeComparisonPanel({ measurements }: { measurements: Measurement[] }) {
+  const abnormal = measurements.filter(m => m.severity !== "Normal");
+  if (!abnormal.length) return null;
+  
+  const stats = {
+    mild: abnormal.filter(m => m.severity === "Mild").length,
+    moderate: abnormal.filter(m => m.severity === "Moderate").length,
+    severe: abnormal.filter(m => m.severity === "Severe").length,
+  };
+  
+  return (
+    <Card className="border-border/40 bg-muted/5">
+      <div className="flex items-center gap-2 mb-4">
+        <BarChart3 className="h-4 w-4 text-muted-foreground" />
+        <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Deviation Summary</span>
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        {[
+          { label: "Mild", count: stats.mild, tone: "warning" },
+          { label: "Moderate", count: stats.moderate, tone: "warning" },
+          { label: "Severe", count: stats.severe, tone: "danger" },
+        ].map(stat => (
+          <div key={stat.label} className="p-3 rounded-lg border border-border/40 bg-muted/10">
+            <p className="text-[9px] font-bold text-muted-foreground uppercase">{stat.label}</p>
+            <p className={cn("text-lg font-bold mt-1", 
+              stat.tone === "danger" ? "text-destructive" : "text-warning"
+            )}>
+              {stat.count}
+            </p>
+          </div>
+        ))}
+      </div>
+      <p className="text-xs text-muted-foreground mt-3 leading-relaxed">
+        {abnormal.length} measurement(s) deviate from population norms. Review flagged parameters for clinical significance.
+      </p>
     </Card>
   );
 }
@@ -738,11 +944,15 @@ export default function ResultsPage({
 
       {/* ── Overview ── */}
       {tab === "overview" && (
-        <div className="grid gap-6 xl:grid-cols-[1fr_1fr] animate-in fade-in duration-300">
-          <DiagnosisCard diagnosis={diagnosis} />
-          <div className="space-y-6">
-            <KeyMeasurementsCard measurements={measurements} />
-            {treatments[0] && (
+        <div className="space-y-6 animate-in fade-in duration-300">
+          <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+            <DiagnosisCard diagnosis={diagnosis} />
+            <div className="space-y-6">
+              <KeyMeasurementsCard measurements={measurements} />
+              <NormativeComparisonPanel measurements={measurements} />
+              <LandmarkQualitySummary measurements={measurements} />
+              <RiskFactorSummary diagnosis={diagnosis} />
+              {treatments[0] && (
               <Card className="border-primary/20 bg-primary/5">
                 <SectionHeader label="Top Treatment Recommendation">
                   <Pill tone="accent" size="xs">AI-ranked #1</Pill>
@@ -761,29 +971,30 @@ export default function ResultsPage({
                 </div>
               </Card>
             )}
-            {overlays.length > 0 && (
-              <Card className="border-border/40">
-                <SectionHeader label="Overlay Preview">
-                  <Pill tone="neutral" size="xs">{overlays.length} images</Pill>
-                </SectionHeader>
-                <div className="grid grid-cols-2 gap-2">
-                  {overlays.slice(0, 4).map(o => (
-                    <div key={o.key} className="aspect-video rounded-xl overflow-hidden bg-black/30">
-                      <img src={o.url} alt={o.label} className="w-full h-full object-contain" />
-                    </div>
-                  ))}
-                </div>
-                {overlays.length > 4 && (
-                  <button
-                    type="button"
-                    onClick={() => setTab("overlays")}
-                    className="mt-3 text-xs text-primary font-bold hover:underline"
-                  >
-                    View all {overlays.length} overlays →
-                  </button>
-                )}
-              </Card>
-            )}
+              {overlays.length > 0 && (
+                <Card className="border-border/40">
+                  <SectionHeader label="Overlay Preview">
+                    <Pill tone="neutral" size="xs">{overlays.length} images</Pill>
+                  </SectionHeader>
+                  <div className="grid grid-cols-2 gap-2">
+                    {overlays.slice(0, 4).map(o => (
+                      <div key={o.key} className="aspect-video rounded-xl overflow-hidden bg-black/30">
+                        <img src={o.url} alt={o.label} className="w-full h-full object-contain" />
+                      </div>
+                    ))}
+                  </div>
+                  {overlays.length > 4 && (
+                    <button
+                      type="button"
+                      onClick={() => setTab("overlays")}
+                      className="mt-3 text-xs text-primary font-bold hover:underline"
+                    >
+                      View all {overlays.length} overlays →
+                    </button>
+                  )}
+                </Card>
+              )}
+            </div>
           </div>
         </div>
       )}

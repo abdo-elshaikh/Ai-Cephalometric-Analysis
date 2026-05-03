@@ -135,6 +135,13 @@ export type DentalSkeletalDifferential = {
   interpretation: string;
 };
 
+export type CVMStaging = {
+  stage: string;
+  classification: string;
+  description: string;
+  growth_status: string;
+};
+
 export type DiagnosisSummary = {
   skeletalClass: string;
   verticalPattern: string;
@@ -151,6 +158,7 @@ export type DiagnosisSummary = {
   airwayRiskScore?: number | null;
   skeletalConsensus?: SkeletalConsensus | null;
   dentalSkeletalDifferential?: DentalSkeletalDifferential | null;
+  cvmStaging?: CVMStaging | null;
 };
 
 export type ClinicalArtifacts = {
@@ -205,6 +213,7 @@ export const DEFAULT_DIAGNOSIS: DiagnosisSummary = {
   summary: "Run a backend AI analysis session to populate diagnosis information.",
   warnings: [],
   clinicalNotes: [],
+  cvmStaging: null,
 };
 
 export const DEFAULT_ARTIFACTS: ClinicalArtifacts = {
@@ -357,6 +366,19 @@ export function labelFromClinicalEnum(value?: string | null) {
 
 export function mapDiagnosis(dto?: BackendDiagnosisDto | null): DiagnosisSummary {
   if (!dto) return DEFAULT_DIAGNOSIS;
+  
+  // Map CVM staging from backend
+  let cvmStaging: CVMStaging | null = null;
+  if (dto.cvmStaging && typeof dto.cvmStaging === 'object') {
+    const cvm = dto.cvmStaging as any;
+    cvmStaging = {
+      stage: cvm.stage || "Unknown",
+      classification: cvm.classification || cvm.label || "Not assessed",
+      description: cvm.description || "",
+      growth_status: cvm.growth_status || cvm.maturation_status || "Unknown",
+    };
+  }
+  
   return {
     skeletalClass: labelFromClinicalEnum(dto.skeletalClass),
     verticalPattern: labelFromClinicalEnum(dto.verticalPattern),
@@ -373,6 +395,7 @@ export function mapDiagnosis(dto?: BackendDiagnosisDto | null): DiagnosisSummary
     airwayRiskScore: dto.airwayRiskScore ?? null,
     skeletalConsensus: dto.skeletalConsensus ?? null,
     dentalSkeletalDifferential: dto.dentalSkeletalDifferential ?? null,
+    cvmStaging,
   };
 }
 
