@@ -23,16 +23,16 @@ import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
   { label: "Dashboard",  href: "/",         icon: Gauge,        section: "Overview"  },
-  { label: "Patients",   href: "/patients", icon: Users,        section: "Records"   },
-  { label: "Cases",      href: "/cases",    icon: FolderKanban, section: "Records"   },
-  { label: "Analysis",   href: "/analysis", icon: Microscope,   section: "Workflow"  },
-  { label: "Viewer",     href: "/viewer",   icon: Activity,     section: "Workflow"  },
-  { label: "Results",    href: "/results",  icon: BarChart3,    section: "Workflow"  },
-  { label: "History",    href: "/history",  icon: History,      section: "Outputs"   },
-  { label: "Reports",    href: "/reports",  icon: FileText,     section: "Outputs"   },
-  { label: "Settings",   href: "/settings", icon: Settings,     section: "Platform"  },
-  { label: "User Guide", href: "/guide",    icon: BookOpen,     section: "Platform"  },
-  { label: "Account",    href: "/auth",     icon: LockKeyhole,  section: "Platform"  },
+  { label: "Patients",   href: "/patients", icon: Users,        section: "Cases"     },
+  { label: "Cases",      href: "/cases",    icon: FolderKanban, section: "Cases"     },
+  { label: "Analysis",   href: "/analysis", icon: Microscope,   section: "Cases"     },
+  { label: "Viewer",     href: "/viewer",   icon: Activity,     section: "Cases"     },
+  { label: "Reports",    href: "/results",  icon: BarChart3,    section: "Results"   },
+  { label: "History",    href: "/history",  icon: History,      section: "Results"   },
+  { label: "Output",     href: "/reports",  icon: FileText,     section: "Results"   },
+  { label: "Settings",   href: "/settings", icon: Settings,     section: "Settings"  },
+  { label: "User Guide", href: "/guide",    icon: BookOpen,     section: "Settings"  },
+  { label: "Account",    href: "/auth",     icon: LockKeyhole,  section: "Settings"  },
 ];
 
 // ─── Props ─────────────────────────────────────────────────────────────────────

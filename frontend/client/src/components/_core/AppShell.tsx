@@ -37,29 +37,24 @@ const NAV_SECTIONS = [
     items: [{ label: "Dashboard", href: "/", icon: Gauge }],
   },
   {
-    label: "Records",
+    label: "Cases",
     items: [
       { label: "Patients", href: "/patients", icon: Users },
       { label: "Cases",    href: "/cases",    icon: FolderKanban },
-    ],
-  },
-  {
-    label: "Workflow",
-    items: [
       { label: "Analysis", href: "/analysis", icon: Microscope },
       { label: "Viewer",   href: "/viewer",   icon: Activity },
-      { label: "Results",  href: "/results",  icon: BarChart3 },
     ],
   },
   {
-    label: "Outputs",
+    label: "Results",
     items: [
-      { label: "History", href: "/history", icon: History  },
-      { label: "Reports", href: "/reports", icon: FileText },
+      { label: "Reports",  href: "/results",  icon: BarChart3 },
+      { label: "History",  href: "/history",  icon: History  },
+      { label: "Output",   href: "/reports",  icon: FileText },
     ],
   },
   {
-    label: "Platform",
+    label: "Settings",
     items: [
       { label: "Settings", href: "/settings", icon: Settings },
       { label: "Guide",    href: "/guide",    icon: BookOpen },
@@ -71,16 +66,16 @@ const NAV_SECTIONS = [
 
 const BREADCRUMB_MAP: Record<string, { section: string; page: string }> = {
   "/":          { section: "Overview",  page: "Dashboard" },
-  "/patients":  { section: "Records",   page: "Patients"  },
-  "/cases":     { section: "Records",   page: "Cases"     },
-  "/analysis":  { section: "Workflow",  page: "Analysis"  },
-  "/calibrate": { section: "Workflow",  page: "Calibrate" },
-  "/viewer":    { section: "Workflow",  page: "Viewer"    },
-  "/results":   { section: "Workflow",  page: "Results"   },
-  "/history":   { section: "Outputs",  page: "History"   },
-  "/reports":   { section: "Outputs",  page: "Reports"   },
-  "/settings":  { section: "Platform", page: "Settings"  },
-  "/guide":     { section: "Platform", page: "Guide"     },
+  "/patients":  { section: "Cases",     page: "Patients"  },
+  "/cases":     { section: "Cases",     page: "Cases"     },
+  "/analysis":  { section: "Cases",     page: "Analysis"  },
+  "/calibrate": { section: "Cases",     page: "Calibrate" },
+  "/viewer":    { section: "Cases",     page: "Viewer"    },
+  "/results":   { section: "Results",   page: "Reports"   },
+  "/history":   { section: "Results",   page: "History"   },
+  "/reports":   { section: "Results",   page: "Output"    },
+  "/settings":  { section: "Settings",  page: "Settings"  },
+  "/guide":     { section: "Settings",  page: "Guide"     },
 };
 
 // ─── Role badge helpers ────────────────────────────────────────────────────────

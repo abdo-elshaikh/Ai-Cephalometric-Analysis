@@ -85,15 +85,15 @@
   --chart-4:             oklch(0.64  0.12  315);
   --chart-5:             oklch(0.72  0.12   35);
 
-  /* Sidebar — sophisticated dark palette */
-  --sidebar:                    oklch(0.12  0.016 268);
-  --sidebar-foreground:         oklch(0.93  0.006 265);
-  --sidebar-primary:            oklch(0.65  0.17  268);
-  --sidebar-primary-foreground: oklch(0.99  0.002 268);
-  --sidebar-accent:             oklch(0.20  0.014 268);
-  --sidebar-accent-foreground:  oklch(0.95  0.006 265);
-  --sidebar-border:             oklch(1     0     0 / 8%);
-  --sidebar-ring:               oklch(0.65  0.17  268);
+  /* Sidebar — modern sophisticated dark palette */
+  --sidebar:                    oklch(0.11  0.014 268);
+  --sidebar-foreground:         oklch(0.94  0.005 265);
+  --sidebar-primary:            oklch(0.68  0.19  268);
+  --sidebar-primary-foreground: oklch(0.99  0.001 268);
+  --sidebar-accent:             oklch(0.19  0.012 268);
+  --sidebar-accent-foreground:  oklch(0.96  0.005 265);
+  --sidebar-border:             oklch(1     0     0 / 7%);
+  --sidebar-ring:               oklch(0.68  0.19  268);
 
   --success:             oklch(0.68  0.13  160);
   --success-foreground:  oklch(0.18  0.028 160);
@@ -138,13 +138,13 @@
   --chart-5:             oklch(0.74  0.12   35);
 
   --sidebar:                    oklch(0.08  0.010 268);
-  --sidebar-foreground:         oklch(0.93  0.006 265);
-  --sidebar-primary:            oklch(0.68  0.19  268);
-  --sidebar-primary-foreground: oklch(0.09  0.012 268);
-  --sidebar-accent:             oklch(0.16  0.012 268);
-  --sidebar-accent-foreground:  oklch(0.96  0.006 268);
-  --sidebar-border:             oklch(1     0     0 / 7%);
-  --sidebar-ring:               oklch(0.68  0.19  268);
+  --sidebar-foreground:         oklch(0.94  0.005 265);
+  --sidebar-primary:            oklch(0.71  0.18  268);
+  --sidebar-primary-foreground: oklch(0.08  0.010 268);
+  --sidebar-accent:             oklch(0.16  0.011 268);
+  --sidebar-accent-foreground:  oklch(0.97  0.004 268);
+  --sidebar-border:             oklch(1     0     0 / 6%);
+  --sidebar-ring:               oklch(0.71  0.18  268);
 
   --success:             oklch(0.75  0.13  160);
   --success-foreground:  oklch(0.13  0.028 160);
@@ -170,6 +170,7 @@
     @apply min-h-screen bg-background text-foreground;
     font-family: "Inter", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
     font-feature-settings: "cv11", "ss01";
+    background-attachment: fixed;
   }
 
   h1 {
@@ -244,11 +245,31 @@
   textarea {
     @apply rounded-lg border border-border bg-card/50 px-3.5 py-2.5 text-sm font-medium;
     @apply placeholder:text-muted-foreground/40;
-    @apply focus:border-primary/40 focus:bg-card focus:ring-2 focus:ring-primary/20;
+    @apply focus:border-primary/30 focus:bg-card focus:ring-2 focus:ring-primary/20;
+    @apply hover:border-border/80;
   }
 
   textarea {
     @apply min-h-[100px] resize-none;
+  }
+
+  /* Scrollbar styling */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--foreground) 20%, transparent);
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--foreground) 35%, transparent);
   }
 }
 
@@ -260,7 +281,7 @@
   }
 
   .clinical-table thead {
-    @apply border-b border-border/60 bg-muted/20;
+    @apply border-b border-border/60 bg-muted/15;
   }
 
   .clinical-table th {
@@ -273,7 +294,11 @@
   }
 
   .clinical-table tbody tr {
-    @apply transition-all duration-100 hover:bg-primary/3;
+    @apply transition-colors duration-150;
+  }
+
+  .clinical-table tbody tr:hover {
+    @apply bg-primary/5;
   }
 
   .clinical-table tbody tr:last-child td {
@@ -308,60 +333,120 @@
 
   /* Card elevation styles */
   .card-elevated {
-    @apply rounded-xl border border-border/40 bg-card transition-all duration-200 hover:border-border/60;
+    @apply rounded-xl border border-border/40 bg-card transition-all duration-200;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
   }
 
   .card-elevated:hover {
+    @apply border-border/60;
     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.07), 0 2px 4px rgba(0, 0, 0, 0.05);
   }
 
   .card-flat {
-    @apply rounded-xl border border-border/30 bg-card/50;
+    @apply rounded-xl border border-border/30 bg-card/50 transition-colors duration-200;
+  }
+
+  .card-flat:hover {
+    @apply border-border/50 bg-card/70;
+  }
+
+  /* Page container styles */
+  .page-container {
+    @apply max-w-7xl mx-auto p-responsive;
+  }
+
+  .page-header {
+    @apply mb-8 space-y-2;
+  }
+
+  .page-header h1 {
+    @apply text-4xl font-bold tracking-tight;
+  }
+
+  .page-header p {
+    @apply text-muted-foreground text-lg;
   }
 
   /* Button styles */
   .btn-primary {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 font-medium transition-all duration-200;
-    @apply bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed;
-    @apply active:scale-[0.98];
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 font-semibold transition-all duration-200;
+    @apply bg-primary text-primary-foreground disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply hover:bg-primary/85 active:scale-[0.97];
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
   }
 
-  .btn-primary:hover {
+  .btn-primary:hover:not(:disabled) {
     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.07), 0 2px 4px rgba(0, 0, 0, 0.05);
   }
 
+  .btn-primary:focus-visible {
+    @apply ring-2 ring-primary/30 ring-offset-2 ring-offset-background outline-none;
+  }
+
   .btn-secondary {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 font-medium transition-all duration-200;
-    @apply border border-border/60 bg-card text-foreground hover:border-border hover:bg-muted/40;
-    @apply disabled:opacity-50 active:scale-[0.98];
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 font-medium transition-all duration-200;
+    @apply border border-border/60 bg-card text-foreground;
+    @apply hover:border-border/90 hover:bg-muted/40 disabled:opacity-50 active:scale-[0.97];
+  }
+
+  .btn-secondary:focus-visible {
+    @apply ring-2 ring-ring/30 ring-offset-2 ring-offset-background outline-none;
   }
 
   .btn-ghost {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 font-medium transition-all duration-200;
-    @apply text-foreground hover:bg-muted/50 disabled:opacity-50 active:scale-[0.98];
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 font-medium transition-all duration-200;
+    @apply text-foreground hover:bg-muted/40 disabled:opacity-50 active:scale-[0.97];
+  }
+
+  .btn-ghost:focus-visible {
+    @apply ring-2 ring-ring/30 ring-offset-2 ring-offset-background outline-none;
+  }
+
+  /* Button size variants */
+  .btn-sm {
+    @apply px-3 py-1.5 text-sm;
+  }
+
+  .btn-lg {
+    @apply px-6 py-3 text-base;
   }
 
   /* Badge system */
   .badge {
-    @apply inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold;
+    @apply inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold transition-colors duration-200;
   }
 
   .badge-primary {
-    @apply badge border-primary/20 bg-primary/10 text-primary;
+    @apply badge border-primary/20 bg-primary/10 text-primary hover:bg-primary/15;
   }
 
   .badge-success {
-    @apply badge border-success/20 bg-success/10 text-success;
+    @apply badge border-success/20 bg-success/10 text-success hover:bg-success/15;
   }
 
   .badge-warning {
-    @apply badge border-warning/20 bg-warning/10 text-warning;
+    @apply badge border-warning/20 bg-warning/10 text-warning hover:bg-warning/15;
   }
 
   .badge-danger {
-    @apply badge border-destructive/20 bg-destructive/10 text-destructive;
+    @apply badge border-destructive/20 bg-destructive/10 text-destructive hover:bg-destructive/15;
+  }
+
+  /* Status indicator */
+  .status-dot {
+    @apply inline-block h-2 w-2 rounded-full;
+  }
+
+  .status-online {
+    @apply bg-green-500 animate-pulse;
+  }
+
+  .status-offline {
+    @apply bg-gray-400;
+  }
+
+  .status-warning {
+    @apply bg-amber-500 animate-pulse;
   }
 }
 
