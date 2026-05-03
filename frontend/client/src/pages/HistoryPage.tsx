@@ -14,6 +14,9 @@ import {
   X,
   User,
   Folder,
+  AlertCircle,
+  AlertTriangle,
+  DownloadCloud,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -67,6 +70,29 @@ function getEventMeta(type: string): EventMeta {
 
 const STAT_TYPES = ["ai", "landmark", "report", "review"] as const;
 const TYPE_OPTIONS = ["All", "Landmark", "AI", "Report", "Patient", "Case", "Calibration", "Upload", "Review"];
+const SEVERITY_OPTIONS = ["All", "Info", "Warning", "Critical"];
+
+function getSeverityIcon(severity?: string) {
+  switch (severity?.toLowerCase()) {
+    case "warning":
+      return AlertTriangle;
+    case "critical":
+      return AlertCircle;
+    default:
+      return null;
+  }
+}
+
+function getSeverityColor(severity?: string): string {
+  switch (severity?.toLowerCase()) {
+    case "warning":
+      return "text-amber-500";
+    case "critical":
+      return "text-red-500";
+    default:
+      return "";
+  }
+}
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -79,6 +105,7 @@ interface HistoryPageProps {
 export default function HistoryPage({ history, cases, patients }: HistoryPageProps) {
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("All");
+  const [severityFilter, setSeverityFilter] = useState("All");
 
   function getPatientName(id: string) {
     const p = patients.find(x => x.id === id);
@@ -106,13 +133,17 @@ export default function HistoryPage({ history, cases, patients }: HistoryPagePro
         !q ||
         item.title.toLowerCase().includes(q) ||
         (item.detail ?? "").toLowerCase().includes(q) ||
-        (getPatientName(item.patientId ?? "") ?? "").toLowerCase().includes(q);
+        (getPatientName(item.patientId ?? "") ?? "").toLowerCase().includes(q) ||
+        (item.userName ?? "").toLowerCase().includes(q);
       const matchType =
         typeFilter === "All" ||
         item.type.toLowerCase() === typeFilter.toLowerCase();
-      return matchQuery && matchType;
+      const matchSeverity =
+        severityFilter === "All" ||
+        (item.severity ?? "info").toLowerCase() === severityFilter.toLowerCase();
+      return matchQuery && matchType && matchSeverity;
     });
-  }, [history, query, typeFilter, patients]);
+  }, [history, query, typeFilter, severityFilter, patients]);
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
@@ -169,7 +200,7 @@ export default function HistoryPage({ history, cases, patients }: HistoryPagePro
           <SearchInput
             value={query}
             onChange={setQuery}
-            placeholder="Search events, patients, or details..."
+            placeholder="Search events, patients, users, or details..."
             className="max-w-md flex-1"
           />
           <div className="flex items-center gap-2">
@@ -185,11 +216,23 @@ export default function HistoryPage({ history, cases, patients }: HistoryPagePro
                 ))}
               </select>
             </div>
-            {(query || typeFilter !== "All") && (
+            <div className="flex items-center gap-2 rounded-xl border border-border/60 bg-muted/20 px-3 h-10">
+              <AlertTriangle className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              <select
+                value={severityFilter}
+                onChange={e => setSeverityFilter(e.target.value)}
+                className="bg-transparent text-xs font-bold uppercase tracking-wider outline-none cursor-pointer text-muted-foreground hover:text-foreground"
+              >
+                {SEVERITY_OPTIONS.map(o => (
+                  <option key={o} value={o}>{o}</option>
+                ))}
+              </select>
+            </div>
+            {(query || typeFilter !== "All" || severityFilter !== "All") && (
               <IconBtn
                 icon={X}
                 label="Clear filters"
-                onClick={() => { setQuery(""); setTypeFilter("All"); }}
+                onClick={() => { setQuery(""); setTypeFilter("All"); setSeverityFilter("All"); }}
                 size="sm"
                 variant="outline"
               />
@@ -211,6 +254,8 @@ export default function HistoryPage({ history, cases, patients }: HistoryPagePro
                 const Icon = meta.icon;
                 const patientName = getPatientName(item.patientId ?? "");
                 const caseTitle = getCaseTitle(item.caseId ?? "");
+                const SeverityIcon = getSeverityIcon(item.severity);
+                const severityColor = getSeverityColor(item.severity);
 
                 return (
                   <div key={item.id} className="relative flex gap-5 pb-8 group">
@@ -238,7 +283,13 @@ export default function HistoryPage({ history, cases, patients }: HistoryPagePro
                         >
                           {meta.label}
                         </span>
-                        <span className="text-[10px] font-mono text-muted-foreground/50 uppercase tracking-widest">
+                        {SeverityIcon && (
+                          <span className={cn("flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest", severityColor)}>
+                            <SeverityIcon className="h-3 w-3" />
+                            {(item.severity ?? "info").toUpperCase()}
+                          </span>
+                        )}
+                        <span className="text-[10px] font-mono text-muted-foreground/50 uppercase tracking-widest ml-auto">
                           {item.at}
                         </span>
                       </div>
@@ -253,8 +304,14 @@ export default function HistoryPage({ history, cases, patients }: HistoryPagePro
                         </p>
                       )}
 
-                      {(patientName || caseTitle) && (
+                      {(patientName || caseTitle || item.userName) && (
                         <div className="mt-2 flex flex-wrap items-center gap-4">
+                          {item.userName && item.userName !== "System" && (
+                            <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/50">
+                              <User className="h-3 w-3" />
+                              {item.userName}
+                            </span>
+                          )}
                           {patientName && (
                             <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/50">
                               <User className="h-3 w-3" />

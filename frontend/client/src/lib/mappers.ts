@@ -143,14 +143,24 @@ export type OverlayArtifact = {
   height: number;
 };
 
+export type AuditSeverity = "info" | "warning" | "critical";
+export type AuditAction = "created" | "updated" | "deleted" | "reviewed" | "processed" | "exported" | "viewed";
+export type AuditResourceType = "patient" | "case" | "image" | "analysis" | "report" | "landmark" | "measurement" | "diagnosis";
+
 export type TimelineItem = {
   id: string;
   at: string;
   type: string;
   title: string;
   detail: string;
+  severity?: AuditSeverity;
+  action?: AuditAction;
+  resourceType?: AuditResourceType;
+  userId?: string;
+  userName?: string;
   caseId?: string;
   patientId?: string;
+  metadata?: Record<string, unknown>;
 };
 
 export type Point = {

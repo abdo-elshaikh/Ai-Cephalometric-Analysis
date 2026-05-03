@@ -52,6 +52,7 @@ import {
   type Notification,
   DEFAULT_ARTIFACTS,
   isGuid,
+  displayUserName,
   mapWorkspace,
   mapPatient,
   mapLandmarks,
@@ -393,7 +394,17 @@ export default function App() {
   }, [activeCase?.sessionId, apiMode]);
 
   function addHistory(item: Omit<TimelineItem, "id" | "at">) {
-    setHistory(prev => [{ id: uid("hist"), at: nowReadable(), ...item }, ...prev]);
+    setHistory(prev => [
+      {
+        id: uid("hist"),
+        at: nowReadable(),
+        userId: authUser?.id,
+        userName: authUser ? displayUserName(authUser) : "System",
+        severity: "info" as const,
+        ...item,
+      },
+      ...prev,
+    ]);
   }
 
   async function handleAuthenticated(user: BackendAuthUser) {
