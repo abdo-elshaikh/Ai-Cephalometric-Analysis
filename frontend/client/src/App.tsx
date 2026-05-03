@@ -71,6 +71,18 @@ import {
   nowReadable,
   uid
 } from "@/lib/clinical-utils";
+import { useSettings, type PopulationNorm } from "@/lib/settings";
+
+const POPULATION_API_KEYS: Record<PopulationNorm, string> = {
+  "Caucasian":        "caucasian",
+  "Chinese":          "chinese",
+  "East Asian":       "east_asian",
+  "Japanese":         "japanese",
+  "African-American": "african_american",
+  "Hispanic":         "hispanic",
+  "Indian":           "indian",
+  "Brazilian":        "brazilian",
+};
 
 // ─── Routing Guards ──────────────────────────────────────────────────────────
 
@@ -274,6 +286,7 @@ export default function App() {
   const [editingPatient, setEditingPatient] = useState<Patient | null>(null);
   const [cmdPaletteOpen, setCmdPaletteOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const { settings } = useSettings();
 
   // ── Notification helpers ──────────────────────────────────────────────────────
   function addNotification(type: Notification["type"], title: string, detail: string) {
@@ -521,7 +534,8 @@ export default function App() {
     if (!c?.imageName || !c.calibrated || apiMode !== "live" || !isGuid(c.imageId)) { toast.error("Ready analysis required."); return; }
     patchCase(caseId, { aiStatus: "processing" });
     addNotification("info", "Analysis Started", "Processing cephalometric data...");
-    const res = await cephApi.fullPipeline(c.imageId!, analysisType, isCbct);
+    const population = POPULATION_API_KEYS[settings.populationNorm];
+    const res = await cephApi.fullPipeline(c.imageId!, analysisType, isCbct, population);
     if (!res.ok) { patchCase(caseId, { aiStatus: "not_started" }); addNotification("error", "Analysis Failed", res.error); toast.error(`AI failed: ${res.error}`); return; }
     patchCase(caseId, { status: "AI completed", aiStatus: "completed", sessionId: res.data.session.id, imageUrl: res.data.session.resultImageUrl ?? c.imageUrl });
     setLandmarks(mergePipelineIntoLandmarks(res.data)); setClinicalArtifacts(mapPipelineArtifacts(res.data));
@@ -543,7 +557,8 @@ export default function App() {
   async function saveAndSend(isCbct = false) {
     const sessionId = await resolveLiveSession(activeCase, "Finalization");
     if (!sessionId || !activeCase) return;
-    const res = await cephApi.finalize(sessionId, landmarks.map(l => ({ landmarkCode: l.code, x: l.x, y: l.y })), isCbct);
+    const population = POPULATION_API_KEYS[settings.populationNorm];
+    const res = await cephApi.finalize(sessionId, landmarks.map(l => ({ landmarkCode: l.code, x: l.x, y: l.y })), isCbct, population);
     if (!res.ok) { toast.error(`Finalize failed: ${res.error}`); return; }
     setLandmarks(mergePipelineIntoLandmarks(res.data)); setClinicalArtifacts(mapPipelineArtifacts(res.data));
     patchCase(activeCase.id, { status: "Reviewed", aiStatus: "completed", sessionId: res.data.session.id || sessionId, imageUrl: res.data.session.resultImageUrl ?? activeCase.imageUrl });

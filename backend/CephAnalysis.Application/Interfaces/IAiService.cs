@@ -14,7 +14,8 @@ public interface IAiService
         decimal pixelSpacingMm,
         CancellationToken ct,
         Dictionary<string, string>? landmarkProvenance = null,
-        bool isCbctDerived = false);
+        bool isCbctDerived = false,
+        string? population = null);
     Task<Result<DiagnosisDto>> ClassifyDiagnosisAsync(Guid sessionId, Dictionary<string, double> measurements, CancellationToken ct);
     Task<Result<IEnumerable<TreatmentDto>>> SuggestTreatmentAsync(Guid sessionId, string skeletalClass, string verticalPattern, Dictionary<string, double> measurements, double patientAge, CancellationToken ct, string? imageBase64 = null);
 

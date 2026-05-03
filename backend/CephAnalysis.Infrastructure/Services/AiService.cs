@@ -98,7 +98,8 @@ public class AiService : IAiService
         decimal pixelSpacingMm,
         CancellationToken ct,
         Dictionary<string, string>? landmarkProvenance = null,
-        bool isCbctDerived = false)
+        bool isCbctDerived = false,
+        string? population = null)
     {
         try
         {
@@ -110,7 +111,8 @@ public class AiService : IAiService
                     landmarkProvenance?.GetValueOrDefault(kv.Key)
                 )),
                 (double)pixelSpacingMm,
-                isCbctDerived
+                isCbctDerived,
+                population
             );
 
             var request = new HttpRequestMessage(HttpMethod.Post, "/ai/calculate-measurements")
@@ -431,7 +433,7 @@ public class AiService : IAiService
     }
 
     private record LandmarkDetectionRequest(string session_id, string image_base64, double pixel_spacing_mm);
-    private record MeasurementCalculationRequest(string session_id, Dictionary<string, LandmarkPointRequest> landmarks, double pixel_spacing_mm, bool is_cbct_derived);
+    private record MeasurementCalculationRequest(string session_id, Dictionary<string, LandmarkPointRequest> landmarks, double pixel_spacing_mm, bool is_cbct_derived, string? population = null);
     private record DiagnosisClassificationRequest(string session_id, Dictionary<string, double> measurements);
 
     private class LandmarkDetectionResponse

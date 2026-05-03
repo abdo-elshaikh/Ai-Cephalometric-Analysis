@@ -498,7 +498,7 @@ public class AdjustLandmarkHandler : IRequestHandler<AdjustLandmarkCommand, Resu
 // Calculate Measurements
 // ═══════════════════════════════════════════════════════════════════════════════
 
-public record CalculateMeasurementsCommand(Guid SessionId, string DoctorId, bool IsCbctDerived = false) : IRequest<Result<IEnumerable<SessionMeasurementDto>>>;
+public record CalculateMeasurementsCommand(Guid SessionId, string DoctorId, bool IsCbctDerived = false, string? Population = null) : IRequest<Result<IEnumerable<SessionMeasurementDto>>>;
 
 public class CalculateMeasurementsHandler : IRequestHandler<CalculateMeasurementsCommand, Result<IEnumerable<SessionMeasurementDto>>>
 {
@@ -538,7 +538,8 @@ public class CalculateMeasurementsHandler : IRequestHandler<CalculateMeasurement
             pixelSpacing,
             ct,
             landmarkProvenance,
-            cmd.IsCbctDerived);
+            cmd.IsCbctDerived,
+            cmd.Population);
         if (!aiResult.IsSuccess)
             return Result<IEnumerable<SessionMeasurementDto>>.Failure(aiResult.Error ?? "Measurement error", aiResult.StatusCode);
 
@@ -902,7 +903,7 @@ public class GetTreatmentHandler : IRequestHandler<GetTreatmentQuery, Result<IEn
 // Full Pipeline (Detect → Measure → Diagnose → Treat)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-public record RunFullPipelineCommand(Guid ImageId, string DoctorId, AnalysisType AnalysisType = AnalysisType.Steiner, bool IsCbctDerived = false) : IRequest<Result<FullPipelineDto>>;
+public record RunFullPipelineCommand(Guid ImageId, string DoctorId, AnalysisType AnalysisType = AnalysisType.Steiner, bool IsCbctDerived = false, string? Population = null) : IRequest<Result<FullPipelineDto>>;
 
 public class RunFullPipelineHandler : IRequestHandler<RunFullPipelineCommand, Result<FullPipelineDto>>
 {
@@ -925,7 +926,7 @@ public class RunFullPipelineHandler : IRequestHandler<RunFullPipelineCommand, Re
         var sessionId = sessionQuery.Data!.Id;
 
         // Step 2: Calculate measurements
-        var measResult = await _mediator.Send(new CalculateMeasurementsCommand(sessionId, cmd.DoctorId, cmd.IsCbctDerived), ct);
+        var measResult = await _mediator.Send(new CalculateMeasurementsCommand(sessionId, cmd.DoctorId, cmd.IsCbctDerived, cmd.Population), ct);
 
         // Step 3: Classify diagnosis
         Result<SessionDiagnosisDto>? diagResult = null;
@@ -960,7 +961,7 @@ public class RunFullPipelineHandler : IRequestHandler<RunFullPipelineCommand, Re
 // Finalize Analysis (Save Landmarks -> Measure -> Diagnose -> Treat -> Snapshot)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-public record FinalizeAnalysisCommand(Guid SessionId, string DoctorId, List<LandmarkUpdateDto> Landmarks, bool IsCbctDerived = false) : IRequest<Result<FullPipelineDto>>;
+public record FinalizeAnalysisCommand(Guid SessionId, string DoctorId, List<LandmarkUpdateDto> Landmarks, bool IsCbctDerived = false, string? Population = null) : IRequest<Result<FullPipelineDto>>;
 
 public class FinalizeAnalysisHandler : IRequestHandler<FinalizeAnalysisCommand, Result<FullPipelineDto>>
 {
@@ -1012,7 +1013,7 @@ public class FinalizeAnalysisHandler : IRequestHandler<FinalizeAnalysisCommand, 
         }
 
         // 2. Sequential calculation pipeline
-        var measRes = await _mediator.Send(new CalculateMeasurementsCommand(cmd.SessionId, cmd.DoctorId, cmd.IsCbctDerived), ct);
+        var measRes = await _mediator.Send(new CalculateMeasurementsCommand(cmd.SessionId, cmd.DoctorId, cmd.IsCbctDerived, cmd.Population), ct);
         if (!measRes.IsSuccess) return Result<FullPipelineDto>.Failure(measRes.Error ?? "Measurement step failed.");
 
         var diagRes = await _mediator.Send(new ClassifyDiagnosisCommand(cmd.SessionId, cmd.DoctorId), ct);

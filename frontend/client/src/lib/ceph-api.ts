@@ -670,8 +670,9 @@ export const cephApi = {
     });
   },
 
-  fullPipeline(imageId: string, type = "Steiner", isCbctDerived = false) {
-    return apiRequest<BackendFullPipelineDto>(`/analysis/full-pipeline/${imageId}?type=${encodeURIComponent(type)}&isCbctDerived=${isCbctDerived}`, {
+  fullPipeline(imageId: string, type = "Steiner", isCbctDerived = false, population?: string) {
+    const pop = population ? `&population=${encodeURIComponent(population)}` : "";
+    return apiRequest<BackendFullPipelineDto>(`/analysis/full-pipeline/${imageId}?type=${encodeURIComponent(type)}&isCbctDerived=${isCbctDerived}${pop}`, {
       method: "POST",
     });
   },
@@ -707,8 +708,9 @@ export const cephApi = {
     );
   },
 
-  finalize(sessionId: string, landmarks: Array<{ landmarkCode: string; x: number; y: number }>, isCbctDerived = false) {
-    return apiRequest<BackendFullPipelineDto>(`/analysis/sessions/${sessionId}/finalize?isCbctDerived=${isCbctDerived}`, {
+  finalize(sessionId: string, landmarks: Array<{ landmarkCode: string; x: number; y: number }>, isCbctDerived = false, population?: string) {
+    const pop = population ? `&population=${encodeURIComponent(population)}` : "";
+    return apiRequest<BackendFullPipelineDto>(`/analysis/sessions/${sessionId}/finalize?isCbctDerived=${isCbctDerived}${pop}`, {
       method: "POST",
       body: landmarks,
     });

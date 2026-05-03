@@ -140,9 +140,9 @@ public class AnalysisController : ControllerBase
 
     /// <summary>Run the full pipeline: landmarks → measurements → diagnosis → treatment</summary>
     [HttpPost("full-pipeline/{imageId:guid}")]
-    public async Task<IActionResult> RunFullPipeline(Guid imageId, [FromQuery] AnalysisType type = AnalysisType.Steiner, [FromQuery] bool isCbctDerived = false, CancellationToken ct = default)
+    public async Task<IActionResult> RunFullPipeline(Guid imageId, [FromQuery] AnalysisType type = AnalysisType.Steiner, [FromQuery] bool isCbctDerived = false, [FromQuery] string? population = null, CancellationToken ct = default)
     {
-        var result = await _mediator.Send(new RunFullPipelineCommand(imageId, CurrentUserId, type, isCbctDerived), ct);
+        var result = await _mediator.Send(new RunFullPipelineCommand(imageId, CurrentUserId, type, isCbctDerived, population), ct);
         return result.IsSuccess 
             ? Ok(result.Data)
             : StatusCode(result.StatusCode, new { error = result.Error });
@@ -177,9 +177,9 @@ public class AnalysisController : ControllerBase
 
     /// <summary>Finalize session: Save landmarks and generate all clinical drafts</summary>
     [HttpPost("sessions/{sessionId:guid}/finalize")]
-    public async Task<IActionResult> FinalizeSession(Guid sessionId, [FromBody] List<LandmarkUpdateDto> landmarks, [FromQuery] bool isCbctDerived = false, CancellationToken ct = default)
+    public async Task<IActionResult> FinalizeSession(Guid sessionId, [FromBody] List<LandmarkUpdateDto> landmarks, [FromQuery] bool isCbctDerived = false, [FromQuery] string? population = null, CancellationToken ct = default)
     {
-        var result = await _mediator.Send(new FinalizeAnalysisCommand(sessionId, CurrentUserId, landmarks, isCbctDerived), ct);
+        var result = await _mediator.Send(new FinalizeAnalysisCommand(sessionId, CurrentUserId, landmarks, isCbctDerived, population), ct);
         return result.IsSuccess 
             ? Ok(result.Data)
             : StatusCode(result.StatusCode, new { error = result.Error });
