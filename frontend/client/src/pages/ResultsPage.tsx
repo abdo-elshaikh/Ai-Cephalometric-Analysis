@@ -30,7 +30,6 @@ import {
   ShieldAlert,
   Vote,
   Gauge,
-  Eye,
   Zap,
 } from "lucide-react";
 import {
