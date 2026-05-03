@@ -87,13 +87,14 @@ export type Population = "ANB" | "Caucasian" | "Asian" | "African" | "Middle Eas
 export type Measurement = {
   code: string;
   name: string;
-  value: number;
+  value: number | null;
   unit: "deg" | "mm" | "%";
   normal: string;
-  status: "Normal" | "Increased" | "Decreased";
+  status: "Normal" | "Increased" | "Decreased" | "Not computed";
   severity: "Normal" | "Mild" | "Moderate" | "Severe";
   qualityStatus?: string | null;
   reviewReasons?: string[] | null;
+  calibrationRequired?: boolean | null;
 };
 
 export type TreatmentOutcome = {
@@ -112,6 +113,8 @@ export type TreatmentOption = {
   evidenceLevel?: string | null;
   retentionRecommendation?: string | null;
   outcomeMetrics?: TreatmentOutcome[] | null;
+  interdisciplinaryReferral?: boolean | null;
+  conflictNote?: string | null;
 };
 
 export type Report = {
@@ -351,17 +354,26 @@ function mapSeverity(value: number, min: number, max: number): Measurement["seve
 }
 
 export function mapMeasurements(dtos: BackendMeasurementDto[]): Measurement[] {
-  return dtos.map(dto => ({
-    code: dto.code,
-    name: dto.name,
-    value: Number(dto.value),
-    unit: mapMeasurementUnit(dto.unit),
-    normal: `${Number(dto.normalMin).toFixed(1)}–${Number(dto.normalMax).toFixed(1)}`,
-    status: mapMeasurementStatus(dto.status),
-    severity: mapSeverity(Number(dto.value), Number(dto.normalMin), Number(dto.normalMax)),
-    qualityStatus: dto.qualityStatus ?? null,
-    reviewReasons: dto.reviewReasons ?? null,
-  }));
+  return dtos.map(dto => {
+    const isCalibrationRequired = (dto as any).calibrationRequired === true;
+    const rawValue = dto.value != null ? Number(dto.value) : null;
+    return {
+      code: dto.code,
+      name: dto.name,
+      value: rawValue,
+      unit: mapMeasurementUnit(dto.unit),
+      normal: `${Number(dto.normalMin).toFixed(1)}–${Number(dto.normalMax).toFixed(1)}`,
+      status: isCalibrationRequired
+        ? "Not computed"
+        : mapMeasurementStatus(dto.status),
+      severity: (rawValue != null && !isCalibrationRequired)
+        ? mapSeverity(rawValue, Number(dto.normalMin), Number(dto.normalMax))
+        : "Normal",
+      qualityStatus: dto.qualityStatus ?? null,
+      reviewReasons: dto.reviewReasons ?? null,
+      calibrationRequired: isCalibrationRequired || null,
+    };
+  });
 }
 
 export function labelFromClinicalEnum(value?: string | null) {
@@ -422,6 +434,8 @@ export function mapTreatments(dtos: BackendTreatmentDto[]): TreatmentOption[] {
     rationale: dto.rationale || dto.description,
     evidenceLevel: dto.evidenceLevel,
     retentionRecommendation: dto.retentionRecommendation,
+    interdisciplinaryReferral: (dto as any).interdisciplinaryReferral ?? null,
+    conflictNote: (dto as any).conflictNote ?? null,
   }));
 }
 

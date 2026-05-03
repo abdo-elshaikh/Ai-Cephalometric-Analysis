@@ -947,7 +947,21 @@ def infer(
     landmarks = _make_fallback_landmarks(orig_W, orig_H)
 
     if not _ensemble:
-        logger.warning("Ensemble not loaded — returning fallback landmarks.")
+        logger.error(
+            "INFERENCE REFUSED: ensemble is empty — no model weights are loaded. "
+            "All returned coordinates are geometric centroids (fallback) and MUST NOT "
+            "be used for clinical measurements. Load model checkpoints before use."
+        )
+        # Mark every landmark so downstream callers can detect the empty-ensemble situation.
+        for key in list(landmarks.keys()):
+            lm = landmarks[key]
+            landmarks[key] = LandmarkPoint(
+                x=lm.x, y=lm.y,
+                confidence=0.0,
+                provenance="fallback",
+                derived_from=lm.derived_from,
+                expected_error_mm=lm.expected_error_mm,
+            )
         return landmarks
 
     try:

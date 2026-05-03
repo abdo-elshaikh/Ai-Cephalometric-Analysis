@@ -44,7 +44,7 @@ class MeasurementItem(BaseModel):
     name: str
     category: Optional[str] = None
     measurement_type: str      # Angle | Distance | Ratio
-    value: float
+    value: Optional[float] = None
     unit: str                  # Degrees | Millimeters
     normal_min: float
     normal_max: float
@@ -54,6 +54,9 @@ class MeasurementItem(BaseModel):
     quality_status: Optional[str] = "clinically_usable"
     review_reasons: list[str] = Field(default_factory=list)
     landmark_provenance: Optional[dict[str, str]] = None
+    calibration_required: Optional[bool] = None  # True when pixel_spacing absent prevents mm computation
+    measurement_uncertainty: Optional[float] = None  # 1-sigma error (native units)
+    ci_95: Optional[list[float]] = None            # [lower, upper] 95% CI
 
 
 class MeasurementResponse(BaseModel):
@@ -129,6 +132,8 @@ class TreatmentItem(BaseModel):
     predicted_outcomes: Optional[dict[str, float]] = None
     evidence_level: Optional[str] = None    # RCT | Cohort | Expert
     retention_recommendation: Optional[str] = None
+    interdisciplinary_referral: Optional[bool] = False   # True for surgery / complex multi-specialty
+    conflict_note: Optional[str] = None                  # Non-None when competing rules apply
 
 
 class XAIDecisionStep(BaseModel):

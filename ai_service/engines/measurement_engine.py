@@ -1174,7 +1174,28 @@ def compute_all_measurements(
     for item in MEASUREMENT_DEFS:
         if not all(ref in landmarks for ref in item["refs"]):
             continue
+
         if item.get("requires_calibration") and not pixel_spacing:
+            # Instead of silently skipping, include entry so the caller knows calibration is needed.
+            results.append({
+                "code":             item["code"],
+                "name":             item["name"],
+                "category":         item["category"],
+                "measurement_type": item["type"],
+                "value":            None,
+                "unit":             item["unit"],
+                "normal_min":       item["min"],
+                "normal_max":       item["max"],
+                "status":           "Not computed",
+                "deviation":        None,
+                "landmark_refs":    item["refs"],
+                "quality_status":   "calibration_required",
+                "review_reasons":   ["Pixel spacing (calibration) required to compute this measurement in mm"],
+                "landmark_provenance": None,
+                "calibration_required": True,
+                "measurement_uncertainty": None,
+                "ci_95":            None,
+            })
             continue
 
         try:
@@ -1216,7 +1237,7 @@ def compute_all_measurements(
             row: Dict[str, Any] = {
                 "code":                    item["code"],
                 "name":                    item["name"],
-                "category":                item["category"],
+                "category":               item["category"],
                 "measurement_type":        item["type"],
                 "value":                   round(value, 4),
                 "unit":                    item["unit"],
@@ -1228,6 +1249,7 @@ def compute_all_measurements(
                 "quality_status":          quality_status,
                 "review_reasons":          review_reasons,
                 "landmark_provenance":     used_provenance,
+                "calibration_required":    False,
                 "measurement_uncertainty": uncertainty,
                 "ci_95":                   list(ci_95) if ci_95 else None,
             }

@@ -31,6 +31,10 @@ import {
   Vote,
   Gauge,
   Zap,
+  FileDown,
+  Hospital,
+  AlertOctagon,
+  PenLine,
 } from "lucide-react";
 import {
   Card,
@@ -56,6 +60,32 @@ import {
   type SkeletalConsensus,
 } from "@/lib/mappers";
 import { cn } from "@/lib/utils";
+
+// ─── CSV Export Helper ────────────────────────────────────────────────────────
+
+function exportMeasurementsCSV(measurements: Measurement[], caseTitle?: string) {
+  const header = ["Code", "Name", "Value", "Unit", "Normal Range", "Status", "Severity", "Quality"];
+  const rows = measurements.map(m => [
+    m.code,
+    `"${m.name}"`,
+    m.calibrationRequired ? "Calibration required" : (m.value ?? ""),
+    m.unit === "deg" ? "°" : m.unit,
+    m.normal,
+    m.status,
+    m.severity,
+    m.qualityStatus ?? "",
+  ]);
+  const csv = [header, ...rows].map(row => row.join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${(caseTitle ?? "cephalometric-analysis").replace(/\s+/g, "-").toLowerCase()}-measurements.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -628,12 +658,16 @@ function KeyMeasurementsCard({ measurements }: { measurements: Measurement[] }) 
                 <span className="text-xs text-muted-foreground truncate hidden sm:block">{m.name}</span>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                <span className="font-mono text-xs font-bold text-foreground">{m.value}{m.unit === "deg" ? "°" : m.unit === "mm" ? " mm" : "%"}</span>
+                {m.calibrationRequired ? (
+                  <span className="text-[10px] text-muted-foreground/60 italic">Calibrate image</span>
+                ) : (
+                  <span className="font-mono text-xs font-bold text-foreground">{m.value}{m.unit === "deg" ? "°" : m.unit === "mm" ? " mm" : "%"}</span>
+                )}
                 <span className="text-[10px] text-muted-foreground/60 hidden sm:block">{m.normal}</span>
                 <Pill tone={severityTone(m.severity)} size="xs" className="font-bold hidden sm:flex">{m.status}</Pill>
               </div>
             </div>
-            <DeviationBar value={m.value} normal={m.normal} severity={m.severity} />
+            <DeviationBar value={m.value ?? 0} normal={m.normal} severity={m.severity} />
           </div>
         ))}
       </div>
@@ -653,26 +687,45 @@ function MeasurementRow({ m }: { m: Measurement }) {
   const unitLabel = m.unit === "deg" ? "°" : m.unit === "mm" ? " mm" : "%";
   const quality = m.qualityStatus;
   const reviewReasons = m.reviewReasons;
+  const isCalibReq = m.calibrationRequired === true;
 
   return (
     <div className={cn(
       "group grid grid-cols-[72px_1fr_70px_90px_140px_90px] items-center gap-4 px-5 py-3.5 hover:bg-muted/10 transition-colors border-b border-border/20 last:border-0",
-      qualityRowClass(quality),
+      isCalibReq ? "opacity-70" : qualityRowClass(quality),
     )}>
       <span className="text-xs font-bold text-primary truncate">{m.code}</span>
       <div className="min-w-0">
         <span className="text-xs font-medium text-foreground truncate block">{m.name}</span>
-        {reviewReasons && reviewReasons.length > 0 && (
+        {isCalibReq ? (
+          <span className="text-[9px] text-muted-foreground truncate block leading-tight mt-0.5">
+            Calibration required for mm measurement
+          </span>
+        ) : reviewReasons && reviewReasons.length > 0 && (
           <span className="text-[9px] text-warning truncate block leading-tight mt-0.5" title={reviewReasons.join("; ")}>
             ⚠ {reviewReasons[0]}
           </span>
         )}
       </div>
-      <span className="font-mono text-xs font-bold text-foreground text-right">{m.value}{unitLabel}</span>
+      {isCalibReq ? (
+        <span className="text-[10px] text-muted-foreground/60 text-right col-span-1 italic">—</span>
+      ) : (
+        <span className="font-mono text-xs font-bold text-foreground text-right">{m.value}{unitLabel}</span>
+      )}
       <span className="text-[10px] text-muted-foreground">{m.normal}{unitLabel.trim()}</span>
-      <DeviationBar value={m.value} normal={m.normal} severity={m.severity} />
+      {isCalibReq ? (
+        <div className="flex items-center gap-1">
+          <Pill tone="neutral" size="xs">Calibrate image</Pill>
+        </div>
+      ) : (
+        <DeviationBar value={m.value ?? 0} normal={m.normal} severity={m.severity} />
+      )}
       <div className="flex justify-end">
-        <Pill tone={severityTone(m.severity)} size="xs" className="font-bold">{m.status}</Pill>
+        {isCalibReq ? (
+          <Pill tone="neutral" size="xs" className="font-bold italic">N/A</Pill>
+        ) : (
+          <Pill tone={severityTone(m.severity)} size="xs" className="font-bold">{m.status}</Pill>
+        )}
       </div>
     </div>
   );
@@ -801,6 +854,11 @@ function TreatmentCard({ treatment, rank }: { treatment: TreatmentOption; rank: 
             <div className="flex items-center gap-2 flex-wrap">
               <span className="font-bold text-sm">{treatment.title}</span>
               {rank === 0 && <Pill tone="accent" size="xs">Recommended</Pill>}
+              {treatment.interdisciplinaryReferral && (
+                <Pill tone="warning" size="xs" className="gap-1">
+                  <Hospital className="h-2.5 w-2.5" /> Multi-specialty
+                </Pill>
+              )}
             </div>
             <p className="text-xs text-muted-foreground mt-0.5 truncate">{treatment.rationale}</p>
           </div>
@@ -831,6 +889,18 @@ function TreatmentCard({ treatment, rank }: { treatment: TreatmentOption; rank: 
               <p className={cn("text-sm font-bold", treatment.score >= 85 ? "text-success" : "text-warning")}>{treatment.score}%</p>
             </div>
           </div>
+          {treatment.conflictNote && (
+            <div className="flex items-start gap-2 p-3 rounded-xl border border-warning/20 bg-warning/5">
+              <AlertOctagon className="h-4 w-4 text-warning shrink-0 mt-0.5" />
+              <p className="text-xs text-muted-foreground leading-relaxed"><span className="font-bold text-warning">Rule Conflict: </span>{treatment.conflictNote}</p>
+            </div>
+          )}
+          {treatment.interdisciplinaryReferral && (
+            <div className="flex items-start gap-2 p-3 rounded-xl border border-warning/20 bg-warning/5">
+              <Hospital className="h-4 w-4 text-warning shrink-0 mt-0.5" />
+              <p className="text-xs text-muted-foreground leading-relaxed"><span className="font-bold text-foreground">Multi-specialty Referral Required: </span>This treatment involves oral surgery and requires coordinated care with an oral and maxillofacial surgeon, anesthesiologist, and orthodontist.</p>
+            </div>
+          )}
           {treatment.outcomeMetrics && <TreatmentOutcomesPanel outcomes={treatment.outcomeMetrics} />}
           {treatment.evidenceLevel && (
             <div className="flex items-start gap-2 p-3 rounded-xl border border-info/20 bg-info/5">
@@ -846,6 +916,92 @@ function TreatmentCard({ treatment, rank }: { treatment: TreatmentOption; rank: 
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Clinician Sign-off Modal ─────────────────────────────────────────────────
+
+function ClinicianSignOffModal({
+  format,
+  onConfirm,
+  onCancel,
+}: {
+  format: ReportFormat;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const [checked, setChecked] = useState(false);
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm animate-in fade-in duration-200 p-4">
+      <div className="w-full max-w-md rounded-2xl border border-border bg-card shadow-2xl animate-in zoom-in-95 duration-200">
+        <div className="flex items-start justify-between gap-3 p-6 border-b border-border/40">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-warning/10 text-warning border border-warning/20">
+              <PenLine className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="font-bold">Clinician Sign-off Required</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Before exporting the {format} report</p>
+            </div>
+          </div>
+          <button type="button" onClick={onCancel} className="text-muted-foreground hover:text-foreground transition-colors">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="p-6 space-y-4">
+          <div className="p-4 rounded-xl border border-destructive/20 bg-destructive/5">
+            <div className="flex items-start gap-2 mb-2">
+              <ShieldAlert className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
+              <p className="text-xs font-bold text-destructive">AI Decision-Support Tool — Clinical Review Mandatory</p>
+            </div>
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              This report contains AI-generated cephalometric analysis. All findings, measurements, and 
+              treatment suggestions must be independently reviewed and validated by a qualified clinician 
+              before use in patient care or documentation.
+            </p>
+          </div>
+          <label className="flex items-start gap-3 cursor-pointer select-none">
+            <div
+              role="checkbox"
+              aria-checked={checked}
+              onClick={() => setChecked(o => !o)}
+              className={cn(
+                "mt-0.5 h-5 w-5 shrink-0 rounded-md border-2 transition-all flex items-center justify-center cursor-pointer",
+                checked ? "bg-primary border-primary" : "border-border hover:border-primary/50"
+              )}
+            >
+              {checked && <CheckCircle2 className="h-3.5 w-3.5 text-primary-foreground" />}
+            </div>
+            <span className="text-xs text-foreground leading-relaxed">
+              I confirm that I am a qualified clinician and I have reviewed this AI-generated analysis. 
+              I accept clinical responsibility for any use of this report.
+            </span>
+          </label>
+        </div>
+        <div className="flex items-center justify-end gap-3 p-6 pt-0">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="h-10 px-4 rounded-xl border border-border/60 bg-muted/20 text-sm font-medium text-muted-foreground hover:bg-muted/40 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => { if (checked) { onConfirm(); } }}
+            disabled={!checked}
+            className={cn(
+              "h-10 px-5 rounded-xl text-sm font-bold transition-all",
+              checked
+                ? "bg-primary text-primary-foreground hover:opacity-90"
+                : "bg-muted/30 text-muted-foreground cursor-not-allowed"
+            )}
+          >
+            Export {format} Report
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1052,6 +1208,18 @@ export default function ResultsPage({
   const [severityFilter, setSeverityFilter] = useState<"all" | "mild" | "moderate" | "severe">("all");
   const [selectedPopulation, setSelectedPopulation] = useState<"Caucasian" | "Asian" | "African" | "Mixed">("Caucasian");
   const [compareMode, setCompareMode] = useState(false);
+  const [signOffFormat, setSignOffFormat] = useState<ReportFormat | null>(null);
+
+  function handleRequestReport(format: ReportFormat) {
+    setSignOffFormat(format);
+  }
+
+  function handleSignOffConfirm() {
+    if (signOffFormat) {
+      onRequestReport(signOffFormat);
+      setSignOffFormat(null);
+    }
+  }
 
   const caseReports = reports.filter(r => r.caseId === activeCase?.id);
 
@@ -1076,14 +1244,21 @@ export default function ResultsPage({
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
+      {signOffFormat && (
+        <ClinicianSignOffModal
+          format={signOffFormat}
+          onConfirm={handleSignOffConfirm}
+          onCancel={() => setSignOffFormat(null)}
+        />
+      )}
       <PageHeader
         eyebrow="Diagnostic Output"
         title="Analysis Results"
         description="AI-generated skeletal classification, cephalometric measurements with deviation analysis, overlay tracings, and evidence-based treatment planning."
         actions={
           <div className="flex gap-2">
-            <PrimaryBtn onClick={() => onRequestReport("PDF")} icon={FileText}>Export PDF</PrimaryBtn>
-            <SecondaryBtn onClick={() => onRequestReport("Word")} icon={FileCheck2}>Export Word</SecondaryBtn>
+            <PrimaryBtn onClick={() => handleRequestReport("PDF")} icon={FileText}>Export PDF</PrimaryBtn>
+            <SecondaryBtn onClick={() => handleRequestReport("Word")} icon={FileCheck2}>Export Word</SecondaryBtn>
           </div>
         }
       />
@@ -1165,6 +1340,15 @@ export default function ResultsPage({
                 placeholder="Search measurements…"
                 className="max-w-xs"
               />
+              <button
+                type="button"
+                onClick={() => exportMeasurementsCSV(measurements, activeCase?.title)}
+                className="flex items-center gap-2 h-10 px-4 rounded-xl border border-border/60 bg-muted/20 text-xs font-bold text-muted-foreground hover:bg-muted/30 transition-all"
+                title="Export measurements as CSV"
+              >
+                <FileDown className="h-3.5 w-3.5" />
+                Export CSV
+              </button>
               <button
                 type="button"
                 onClick={() => setFilterAbnormal(o => !o)}
@@ -1292,7 +1476,7 @@ export default function ResultsPage({
             <div className="grid gap-4 sm:grid-cols-2">
               <button
                 type="button"
-                onClick={() => onRequestReport("PDF")}
+                onClick={() => handleRequestReport("PDF")}
                 className="flex items-center gap-4 p-5 rounded-2xl border border-border/40 bg-muted/10 hover:border-primary/30 hover:bg-primary/5 transition-all group"
               >
                 <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-border/40 bg-card text-destructive group-hover:border-destructive/30 group-hover:bg-destructive/10 transition-all">
@@ -1305,7 +1489,7 @@ export default function ResultsPage({
               </button>
               <button
                 type="button"
-                onClick={() => onRequestReport("Word")}
+                onClick={() => handleRequestReport("Word")}
                 className="flex items-center gap-4 p-5 rounded-2xl border border-border/40 bg-muted/10 hover:border-primary/30 hover:bg-primary/5 transition-all group"
               >
                 <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-border/40 bg-card text-primary group-hover:border-primary/30 group-hover:bg-primary/10 transition-all">

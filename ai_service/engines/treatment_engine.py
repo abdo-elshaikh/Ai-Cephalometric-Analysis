@@ -148,6 +148,7 @@ TREATMENT_RULES: list[dict] = [
         "id": "sarpe",
         "name": "SARPE — Surgically Assisted Rapid Palate Expansion",
         "type": "Surgery",
+        "interdisciplinary_referral": True,
         "conditions": {"min_age": 18},
         "description": "Osteotomy-assisted palate expansion for adults with narrow maxillary arch. Surgically released sutures allow tooth-borne expander to achieve true skeletal widening.",
         "rationale_template": "Indicated for transverse maxillary deficiency in skeletally mature patients where non-surgical RPE is insufficient due to mid-palatal suture ossification.",
@@ -212,6 +213,7 @@ TREATMENT_RULES: list[dict] = [
         "id": "surg-bsso-mand",
         "name": "BSSO — Mandibular Advancement",
         "type": "Surgery",
+        "interdisciplinary_referral": True,
         "conditions": {"skeletal_class": "ClassII", "min_age": 18, "anb": {"min": 7}},
         "description": "Bilateral sagittal split osteotomy for surgical mandibular advancement in severe skeletal Class II (ANB >7°) in skeletally mature patients.",
         "rationale_template": "Definitive correction of severe Class II skeletal discrepancy where growth modification is no longer possible. BSSO physically repositions the mandible.",
@@ -224,6 +226,7 @@ TREATMENT_RULES: list[dict] = [
         "id": "surg-lefort-max",
         "name": "Le Fort I — Maxillary Advancement",
         "type": "Surgery",
+        "interdisciplinary_referral": True,
         "conditions": {"skeletal_class": "ClassIII", "min_age": 18, "anb": {"max": -3}},
         "description": "Le Fort I osteotomy to advance and impaction the maxilla for severe Class III due to midface deficiency.",
         "rationale_template": "Indicated for significant Class III discrepancy with maxillary hypoplasia (SNA <76°) in skeletally mature patients.",
@@ -236,6 +239,7 @@ TREATMENT_RULES: list[dict] = [
         "id": "surg-bimax",
         "name": "Bimaxillary Surgery (Le Fort I + BSSO)",
         "type": "Surgery",
+        "interdisciplinary_referral": True,
         "conditions": {"min_age": 18, "anb": {"min": 8}},
         "description": "Simultaneous Le Fort I maxillary repositioning and bilateral sagittal split mandibular advancement for complex jaw discrepancies requiring multi-jaw correction.",
         "rationale_template": "Bimaxillary surgery distributes the correction across both jaws, producing more stable outcomes and better soft tissue changes compared to single-jaw surgery.",
@@ -710,7 +714,7 @@ def suggest_treatment(
         include_outcome_simulation=True,
     )
 
-    def _rule_to_item(rule: dict, idx: int, is_primary: bool) -> dict:
+    def _rule_to_item(rule: dict, idx: int, is_primary: bool, conflict_note: Optional[str] = None) -> dict:
         return {
             "plan_index":                idx,
             "treatment_type":            rule.get("type", "Fixed"),
@@ -725,12 +729,27 @@ def suggest_treatment(
             "predicted_outcomes":        plan.get("outcome_simulation") if is_primary else None,
             "evidence_level":            rule.get("evidence_level"),
             "retention_recommendation":  rule.get("retention_recommendation"),
+            "interdisciplinary_referral": bool(rule.get("interdisciplinary_referral", False)),
+            "conflict_note":             conflict_note,
         }
+
+    # Detect rule conflicts: when the top-2 applicable rules are close in confidence,
+    # note the competing option so clinicians know an alternative was nearly recommended.
+    all_applicable = [plan.get("recommended_treatment")] + plan.get("alternatives", [])
+    all_applicable = [r for r in all_applicable if r]
+    top_scores = [r.get("priority_score", r.get("confidence", 0.8)) for r in all_applicable[:2]]
+    primary_conflict_note: Optional[str] = None
+    if len(top_scores) == 2 and abs(top_scores[0] - top_scores[1]) < 0.05:
+        runner_up_name = all_applicable[1].get("name", "alternative option")
+        primary_conflict_note = (
+            f"Competing option '{runner_up_name}' scored within 5% of this recommendation "
+            f"({top_scores[1]:.2f} vs {top_scores[0]:.2f}). Clinical judgement required."
+        )
 
     items: list[dict] = []
     rec = plan.get("recommended_treatment")
     if rec:
-        items.append(_rule_to_item(rec, 0, True))
+        items.append(_rule_to_item(rec, 0, True, conflict_note=primary_conflict_note))
     for idx, alt in enumerate(plan.get("alternatives", []), start=1):
         items.append(_rule_to_item(alt, idx, False))
     return items

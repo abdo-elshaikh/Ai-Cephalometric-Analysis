@@ -152,6 +152,7 @@ class AnalysisNormsProvider:
         SEX_DELTA: dict[str, dict[str, tuple[float, float, float]]] = {
             # measurement: {male: (delta_norm, delta_min, delta_max),
             #               female: (delta_norm, delta_min, delta_max)}
+            # Values from Riolo et al. 1974; McNamara & Brudon 2001.
             "SNA":     {"male": (+0.7, +0.5, +1.0), "female": (-0.7, -1.0, -0.5)},
             "SNB":     {"male": (+0.8, +0.5, +1.0), "female": (-0.8, -1.0, -0.5)},
             "ANB":     {"male": (-0.3, -0.5, -0.2), "female": (+0.3, +0.2, +0.5)},
@@ -160,6 +161,10 @@ class AnalysisNormsProvider:
             "PFH":     {"male": (+7.0, +5.0, +9.0),  "female": (-7.0, -9.0, -5.0)},
             "MANDLENGTH": {"male": (+8.0, +6.0, +10.0), "female": (-8.0, -10.0, -6.0)},
             "MIDFACELEN":  {"male": (+4.0, +3.0, +5.0),  "female": (-4.0, -5.0, -3.0)},
+            # Wits appraisal: sex-stratified — female 0 ±2 mm, male −1 ±2 mm.
+            # Reference: Jacobson A, AJO 1975; Richardson ME, EJO 1982.
+            # Male norm is 1 mm lower (more negative) than female.
+            "WITS":    {"male": (-1.0, -1.0, -1.0), "female": (+0.0,  0.0,  0.0)},
         }
 
         if effective_age >= 14 and t in SEX_DELTA:
