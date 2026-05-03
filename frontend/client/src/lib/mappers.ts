@@ -82,6 +82,8 @@ export type Landmark = {
   adjusted?: boolean;
 };
 
+export type Population = "ANB" | "Caucasian" | "Asian" | "African" | "Middle Eastern" | "Hispanic" | "Indian" | "Mixed";
+
 export type Measurement = {
   code: string;
   name: string;

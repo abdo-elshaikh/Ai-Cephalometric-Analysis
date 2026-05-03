@@ -30,6 +30,8 @@ import {
   ShieldAlert,
   Vote,
   Gauge,
+  Eye,
+  Zap,
 } from "lucide-react";
 import {
   Card,
@@ -501,9 +503,9 @@ function DiagnosisCard({ diagnosis }: { diagnosis: ClinicalArtifacts["diagnosis"
   );
 }
 
-function NormativeComparisonPanel({ measurements }: { measurements: Measurement[] }) {
+function NormativeComparisonPanel({ measurements, selectedPopulation, onPopulationChange }: { measurements: Measurement[]; selectedPopulation: string; onPopulationChange: (pop: string) => void }) {
   const abnormal = measurements.filter(m => m.severity !== "Normal");
-  if (!abnormal.length) return null;
+  const populations = ["Caucasian", "Asian", "African", "Mixed"];
   
   const stats = {
     mild: abnormal.filter(m => m.severity === "Mild").length,
@@ -513,28 +515,92 @@ function NormativeComparisonPanel({ measurements }: { measurements: Measurement[
   
   return (
     <Card className="border-border/40 bg-muted/5">
-      <div className="flex items-center gap-2 mb-4">
-        <BarChart3 className="h-4 w-4 text-muted-foreground" />
-        <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Deviation Summary</span>
+      <div className="space-y-4">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-2">
+            <BarChart3 className="h-4 w-4 text-muted-foreground" />
+            <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Deviation Summary</span>
+          </div>
+        </div>
+        <div className="space-y-2">
+          <p className="text-xs font-semibold text-foreground mb-2">Population Reference:</p>
+          <div className="flex gap-1.5 flex-wrap">
+            {populations.map(pop => (
+              <button
+                key={pop}
+                type="button"
+                onClick={() => onPopulationChange(pop)}
+                className={cn(
+                  "h-8 px-3 rounded-lg border text-xs font-bold transition-all",
+                  selectedPopulation === pop
+                    ? "border-primary/40 bg-primary/10 text-primary"
+                    : "border-border/60 bg-muted/20 text-muted-foreground hover:bg-muted/30"
+                )}
+              >
+                {pop}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          {[
+            { label: "Mild", count: stats.mild, tone: "warning" },
+            { label: "Moderate", count: stats.moderate, tone: "warning" },
+            { label: "Severe", count: stats.severe, tone: "danger" },
+          ].map(stat => (
+            <div key={stat.label} className="p-3 rounded-lg border border-border/40 bg-muted/10">
+              <p className="text-[9px] font-bold text-muted-foreground uppercase">{stat.label}</p>
+              <p className={cn("text-lg font-bold mt-1", 
+                stat.tone === "danger" ? "text-destructive" : "text-warning"
+              )}>
+                {stat.count}
+              </p>
+            </div>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground leading-relaxed">
+          {abnormal.length} measurement(s) deviate from {selectedPopulation} population norms. Review flagged parameters for clinical significance.
+        </p>
       </div>
-      <div className="grid grid-cols-3 gap-2">
-        {[
-          { label: "Mild", count: stats.mild, tone: "warning" },
-          { label: "Moderate", count: stats.moderate, tone: "warning" },
-          { label: "Severe", count: stats.severe, tone: "danger" },
-        ].map(stat => (
-          <div key={stat.label} className="p-3 rounded-lg border border-border/40 bg-muted/10">
-            <p className="text-[9px] font-bold text-muted-foreground uppercase">{stat.label}</p>
-            <p className={cn("text-lg font-bold mt-1", 
-              stat.tone === "danger" ? "text-destructive" : "text-warning"
-            )}>
-              {stat.count}
-            </p>
+    </Card>
+  );
+}
+
+function TreatmentComparisonPanel({ treatments }: { treatments: TreatmentOption[] }) {
+  if (!treatments.length) return null;
+  const topTwo = treatments.slice(0, 2);
+  if (topTwo.length < 2) return null;
+
+  const [t1, t2] = topTwo;
+
+  return (
+    <Card className="border-primary/20 bg-primary/5">
+      <div className="flex items-center gap-2 mb-4">
+        <Zap className="h-4 w-4 text-primary" />
+        <span className="text-[10px] font-bold uppercase tracking-widest text-primary">Top Treatment Comparison</span>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        {[t1, t2].map((t, i) => (
+          <div key={i} className="p-4 rounded-xl border border-border/40 bg-card/50">
+            <div className="flex items-start justify-between mb-3">
+              <span className="font-bold text-sm">{t.title}</span>
+              <Pill tone={t.score >= 85 ? "success" : "warning"} size="xs" className="font-bold">{t.score}%</Pill>
+            </div>
+            <div className="space-y-2 text-xs">
+              <div><span className="text-muted-foreground">Duration: </span><span className="font-semibold">{t.duration}</span></div>
+              <div><span className="text-muted-foreground">Complexity: </span><span className="font-semibold">{t.complexity}</span></div>
+              {t.outcomeMetrics && t.outcomeMetrics.length > 0 && (
+                <div className="p-2 rounded bg-muted/40 mt-2">
+                  <p className="text-[10px] font-bold text-foreground mb-1">Expected improvements:</p>
+                  <p className="text-[10px] text-muted-foreground">{t.outcomeMetrics.length} metrics projected</p>
+                </div>
+              )}
+            </div>
           </div>
         ))}
       </div>
       <p className="text-xs text-muted-foreground mt-3 leading-relaxed">
-        {abnormal.length} measurement(s) deviate from population norms. Review flagged parameters for clinical significance.
+        Both strategies are evidence-based. Selection depends on patient age, cooperation, and treatment goals.
       </p>
     </Card>
   );
@@ -610,6 +676,40 @@ function MeasurementRow({ m }: { m: Measurement }) {
         <Pill tone={severityTone(m.severity)} size="xs" className="font-bold">{m.status}</Pill>
       </div>
     </div>
+  );
+}
+
+function LandmarkConfidenceChart({ landmarks }: { landmarks?: any[] }) {
+  if (!landmarks?.length) return null;
+  const highConfidence = landmarks.filter(l => l.confidence >= 0.9).length;
+  const mediumConfidence = landmarks.filter(l => l.confidence >= 0.75 && l.confidence < 0.9).length;
+  const lowConfidence = landmarks.filter(l => l.confidence < 0.75).length;
+
+  return (
+    <Card className="border-border/40 bg-muted/5">
+      <div className="flex items-center gap-2 mb-4">
+        <Eye className="h-4 w-4 text-muted-foreground" />
+        <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Landmark Detection Quality</span>
+      </div>
+      <div className="space-y-3">
+        {[
+          { label: "High Confidence (≥90%)", count: highConfidence, color: "bg-success/20 border-success/30", textColor: "text-success" },
+          { label: "Medium Confidence (75–89%)", count: mediumConfidence, color: "bg-warning/20 border-warning/30", textColor: "text-warning" },
+          { label: "Low Confidence (<75%)", count: lowConfidence, color: "bg-destructive/20 border-destructive/30", textColor: "text-destructive" },
+        ].map(stat => (
+          <div key={stat.label} className={cn("p-3 rounded-lg border", stat.color)}>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-foreground">{stat.label}</span>
+              <span className={cn("text-sm font-bold", stat.textColor)}>{stat.count}</span>
+            </div>
+            <div className="h-1.5 bg-muted/40 rounded-full mt-2 overflow-hidden">
+              <div className={cn("h-full transition-all", stat.textColor.replace("text-", "bg-"))} style={{ width: `${(stat.count / landmarks.length) * 100}%` }} />
+            </div>
+          </div>
+        ))}
+      </div>
+      <p className="text-xs text-muted-foreground mt-3 leading-relaxed">Landmark confidence directly affects measurement accuracy. Review low-confidence landmarks.</p>
+    </Card>
   );
 }
 
@@ -951,6 +1051,8 @@ export default function ResultsPage({
   const [search, setSearch] = useState("");
   const [filterAbnormal, setFilterAbnormal] = useState(false);
   const [severityFilter, setSeverityFilter] = useState<"all" | "mild" | "moderate" | "severe">("all");
+  const [selectedPopulation, setSelectedPopulation] = useState<"Caucasian" | "Asian" | "African" | "Mixed">("Caucasian");
+  const [compareMode, setCompareMode] = useState(false);
 
   const caseReports = reports.filter(r => r.caseId === activeCase?.id);
 
@@ -1001,9 +1103,11 @@ export default function ResultsPage({
             <DiagnosisCard diagnosis={diagnosis} />
             <div className="space-y-6">
               <KeyMeasurementsCard measurements={measurements} />
-              <NormativeComparisonPanel measurements={measurements} />
+              <NormativeComparisonPanel measurements={measurements} selectedPopulation={selectedPopulation} onPopulationChange={setSelectedPopulation} />
               <LandmarkQualitySummary measurements={measurements} />
               <RiskFactorSummary diagnosis={diagnosis} />
+              {diagnosis.landmarks && <LandmarkConfidenceChart landmarks={diagnosis.landmarks} />}
+              {treatments.length > 1 && <TreatmentComparisonPanel treatments={treatments} />}
               {treatments[0] && (
               <Card className="border-primary/20 bg-primary/5">
                 <SectionHeader label="Top Treatment Recommendation">
