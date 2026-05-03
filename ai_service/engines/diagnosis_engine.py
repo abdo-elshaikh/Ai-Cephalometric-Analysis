@@ -104,6 +104,101 @@ def classify_skeletal_class(
     }
 
 
+# ── Multi-Metric Consensus (AP Classification) ────────────────────────────────
+
+def compute_multi_metric_consensus(
+    corrected_anb: float,
+    wits: float | None = None,
+    beta_angle: float | None = None,
+    w_angle: float | None = None,
+) -> dict:
+    """
+    Weighted consensus voting across four rotation-independent AP metrics.
+
+    Each metric casts a vote for Class I / II / III with an evidence-weighted
+    score.  Metrics:
+      • Corrected ANB   weight 1.0  (Steiner 1953; Hasund 1974 correction)
+      • Wits appraisal  weight 0.85 (Jacobson 1975)
+      • Beta angle      weight 0.75 (Baik & Jee 2004, AJO-DO 125:478-495)
+      • W angle         weight 0.70 (Bhad 2013, J World Fed Orthod 2:e85-90)
+
+    Returns consensus class, type, per-metric votes, and weighted probabilities.
+    Consensus ≥ 70% weighted agreement → Definitive
+    Consensus 50–70%                    → Borderline
+    Consensus < 50%                     → Conflicting
+    """
+    votes: list[dict] = []
+
+    # ANB vote
+    if corrected_anb < 0:
+        cls = "ClassIII"
+    elif corrected_anb <= 4.0:
+        cls = "ClassI"
+    else:
+        cls = "ClassII"
+    votes.append({"metric": "ANB (corrected)", "vote": cls, "weight": 1.0})
+
+    # Wits vote
+    if wits is not None:
+        if wits < -2.0:
+            cls = "ClassIII"
+        elif wits <= 2.0:
+            cls = "ClassI"
+        else:
+            cls = "ClassII"
+        votes.append({"metric": "Wits", "vote": cls, "weight": 0.85})
+
+    # Beta angle vote (Baik 2004: Class I 27-35°, <27 ClassII, >35 ClassIII)
+    if beta_angle is not None:
+        if beta_angle < 27.0:
+            cls = "ClassII"
+        elif beta_angle <= 35.0:
+            cls = "ClassI"
+        else:
+            cls = "ClassIII"
+        votes.append({"metric": "Beta Angle", "vote": cls, "weight": 0.75})
+
+    # W angle vote (Bhad 2013: Class I 51-56°, <51 ClassII, >56 ClassIII)
+    if w_angle is not None:
+        if w_angle < 51.0:
+            cls = "ClassII"
+        elif w_angle <= 56.0:
+            cls = "ClassI"
+        else:
+            cls = "ClassIII"
+        votes.append({"metric": "W Angle", "vote": cls, "weight": 0.70})
+
+    # Tally weighted votes
+    tallies: dict[str, float] = {"ClassI": 0.0, "ClassII": 0.0, "ClassIII": 0.0}
+    for v in votes:
+        tallies[v["vote"]] += v["weight"]
+
+    total = sum(tallies.values()) or 1.0
+    probs = {k: round(v / total, 3) for k, v in tallies.items()}
+    best = max(probs, key=probs.get)
+
+    # Determine type
+    agreement_ratio = probs[best]
+    if agreement_ratio >= 0.70:
+        consensus_type = "Definitive"
+    elif agreement_ratio >= 0.50:
+        consensus_type = "Borderline"
+    else:
+        consensus_type = "Conflicting"
+
+    conflicts = [f"{v['metric']}→{v['vote']}" for v in votes if v["vote"] != best]
+
+    return {
+        "consensus_class":  best,
+        "consensus_type":   consensus_type,
+        "probabilities":    probs,
+        "votes":            votes,
+        "metrics_used":     len(votes),
+        "conflict_details": conflicts,
+        "agreement_pct":    round(agreement_ratio * 100, 1),
+    }
+
+
 # ── Vertical Pattern ──────────────────────────────────────────────────────────
 
 def classify_vertical_pattern(
@@ -320,33 +415,43 @@ def classify_airway(
     mp_h_dist: float | None,
     pnw_width: float | None = None,
     ppw_dist: float | None = None,
-) -> dict[str, str | None]:
+) -> dict[str, str | int | None]:
     """
-    Basic airway risk assessment.
+    Multi-factor airway risk assessment with numeric 0-10 risk score.
 
     MP-H distance (mandibular plane to hyoid, mm):
       Normal: 10-15mm  |  Increased: >15mm (risk for OSA)
     PNW: posterior nasopharyngeal width — narrow <8mm
     PPW: posterior pharyngeal wall distance — narrow <5mm
 
-    Reference: Pracharktam N et al. AJO 1994; Riley RW et al. Sleep 1983.
+    risk_score 0-3 = Low, 4-5 = Mild, 6-7 = Moderate, 8-10 = High
+
+    References:
+      Pracharktam N et al. AJO 1994;106:641-650.
+      Riley RW et al. Sleep 1983;6:127-134.
+      Tangugsorn V et al. J Oral Maxillofac Surg 1995;53:1190-1196.
     """
-    result: dict[str, str | None] = {
+    result: dict[str, str | int | None] = {
         "mph_status":   None,
         "pnw_status":   None,
         "ppw_status":   None,
         "airway_risk":  "Unknown",
+        "risk_score":   None,
+        "risk_factors": [],
     }
 
-    risk_flags = 0
+    score = 0
+    factors: list[str] = []
 
     if mp_h_dist is not None:
         if mp_h_dist > 20:
             result["mph_status"] = "Significantly_Increased"
-            risk_flags += 2
+            score += 4
+            factors.append(f"MP-H severely elevated ({mp_h_dist:.1f}mm; normal 10-15mm)")
         elif mp_h_dist > 15:
             result["mph_status"] = "Increased"
-            risk_flags += 1
+            score += 2
+            factors.append(f"MP-H elevated ({mp_h_dist:.1f}mm; normal 10-15mm)")
         elif mp_h_dist < 8:
             result["mph_status"] = "Decreased"
         else:
@@ -355,32 +460,41 @@ def classify_airway(
     if pnw_width is not None:
         if pnw_width < 5:
             result["pnw_status"] = "Severely_Narrow"
-            risk_flags += 2
+            score += 3
+            factors.append(f"PNW severely narrow ({pnw_width:.1f}mm; normal >8mm)")
         elif pnw_width < 8:
             result["pnw_status"] = "Narrow"
-            risk_flags += 1
+            score += 2
+            factors.append(f"PNW narrow ({pnw_width:.1f}mm; normal >8mm)")
         else:
             result["pnw_status"] = "Normal"
 
     if ppw_dist is not None:
         if ppw_dist < 3:
             result["ppw_status"] = "Severely_Narrow"
-            risk_flags += 2
+            score += 3
+            factors.append(f"PPW severely narrow ({ppw_dist:.1f}mm; normal >5mm)")
         elif ppw_dist < 5:
             result["ppw_status"] = "Narrow"
-            risk_flags += 1
+            score += 1
+            factors.append(f"PPW narrow ({ppw_dist:.1f}mm; normal >5mm)")
         else:
             result["ppw_status"] = "Normal"
 
-    if risk_flags == 0:
+    # Normalize to 0-10 scale
+    normalized = round(min(10, score * 10 / 10), 1)
+    result["risk_score"] = normalized
+
+    if score == 0:
         result["airway_risk"] = "Low"
-    elif risk_flags <= 1:
+    elif score <= 3:
         result["airway_risk"] = "Mild"
-    elif risk_flags <= 3:
+    elif score <= 6:
         result["airway_risk"] = "Moderate — refer for sleep study screening"
     else:
         result["airway_risk"] = "High — OSA screening strongly recommended"
 
+    result["risk_factors"] = factors
     return result
 
 
@@ -574,6 +688,10 @@ def classify_diagnosis(
     cv3_concavity = measurements.get("CV3_Concavity")
     cv4_concavity = measurements.get("CV4_Concavity")
 
+    # Rotation-independent AP metrics (supplement ANB)
+    beta_angle = measurements.get("BetaAngle")
+    w_angle    = measurements.get("WAngle")
+
     warnings = _validate_measurements(measurements)
     if fh_ab is None and pp_fh is None:
         warnings.append("FH-AB / PP-FH absent — Kim's APDI not computed.")
@@ -596,6 +714,20 @@ def classify_diagnosis(
     bolton_result = classify_bolton_discrepancy(bolton_ant, bolton_total)
     cvm_result    = classify_cvm_stage(cv3_concavity, cv4_concavity)
     airway_result = classify_airway(mp_h, pnw, ppw)
+
+    # Multi-metric AP consensus (Beta angle + W angle broaden the evidence base)
+    consensus = compute_multi_metric_consensus(
+        corrected_anb=skeletal_result["corrected_anb"],
+        wits=wits,
+        beta_angle=beta_angle,
+        w_angle=w_angle,
+    )
+
+    # If consensus overrides single-metric type, promote the diagnosis type
+    if consensus["consensus_type"] == "Conflicting":
+        skeletal_result = {**skeletal_result, "type": "Conflicting"}
+    elif consensus["consensus_type"] == "Borderline" and skeletal_result["type"] == "Definitive":
+        skeletal_result = {**skeletal_result, "type": "Borderline"}
 
     # APDI/ANB conflict detection
     if apdi_class is not None:
@@ -629,6 +761,38 @@ def classify_diagnosis(
                 f"{skeletal_result['label']}. Verify landmark positions."
             )
 
+    # Multi-metric conflict note
+    if consensus["conflict_details"]:
+        warnings.append(
+            f"AP consensus ({consensus['metrics_used']} metrics, "
+            f"{consensus['agreement_pct']}% agreement): "
+            + ", ".join(consensus["conflict_details"])
+            + ". Additional clinical assessment advised."
+        )
+
+    # Dental vs skeletal contribution differential
+    skeletal_markers  = ["ANB", "Wits", "BetaAngle", "WAngle", "FH-AB", "APDI"]
+    dental_markers    = ["UI-NA_DEG", "LI-NB_DEG", "UI-NA_MM", "LI-NB_MM", "OVERJET", "Interincisal"]
+    skeletal_present  = [m for m in skeletal_markers if measurements.get(m) is not None]
+    dental_present    = [m for m in dental_markers    if measurements.get(m) is not None]
+    total_markers     = len(skeletal_present) + len(dental_present) or 1
+    skeletal_pct      = round(len(skeletal_present) / total_markers * 100, 1)
+    dental_pct        = round(len(dental_present)   / total_markers * 100, 1)
+    dental_skeletal_diff = {
+        "skeletal_evidence_pct": skeletal_pct,
+        "dental_evidence_pct":   dental_pct,
+        "skeletal_markers":      skeletal_present,
+        "dental_markers":        dental_present,
+        "interpretation":        (
+            "Predominantly skeletal" if skeletal_pct > 60 else
+            "Predominantly dental"   if dental_pct   > 60 else
+            "Mixed skeletal/dental"
+        ),
+    }
+
+    # Airway risk numeric score
+    airway_risk_score = airway_result.get("risk_score")
+
     summary = generate_summary(
         skeletal_result, vertical_pattern, upper_incisor, lower_incisor,
         _growth_tendency_text(j_ratio), soft_tissue_profile,
@@ -637,36 +801,53 @@ def classify_diagnosis(
 
     clinical_notes = [
         "2D norms applied; CBCT-derived landmarks use ×1.08 distance scaling (de Oliveira et al. 2020).",
-        "Skeletal class: Gaussian Mixture Model on corrected ANB (Hasund 1974) + Wits appraisal.",
+        (
+            f"Skeletal class: {consensus['metrics_used']}-metric weighted consensus "
+            f"(ANB+Wits+Beta+W; {consensus['agreement_pct']}% agreement → "
+            f"{consensus['consensus_type']} {consensus['consensus_class']})."
+        ),
         "Vertical: FMA (Tweed 1954) weighted 0.75 + Jarabak Ratio 0.25.",
         "CVM staging based on Baccetti et al. (Angle Orthod 2002;72:316-323).",
         "Bolton discrepancy norms: anterior 77.2%±1.65, total 91.3%±1.91 (Bolton 1958).",
-        "Airway: MP-H norm 10-15mm; >15mm indicates hyoid inferior displacement risk.",
+        "Airway: MP-H norm 10-15mm; >15mm indicates hyoid inferior displacement risk (Riley et al. Sleep 1983).",
+        f"Dental/skeletal differential: {dental_skeletal_diff['interpretation']} "
+        f"({skeletal_pct:.0f}% skeletal / {dental_pct:.0f}% dental markers available).",
     ]
 
+    ai_disclaimer = (
+        "This AI-generated analysis is a decision-support tool only. "
+        "All findings must be reviewed and validated by a qualified orthodontic or dental clinician "
+        "before clinical use. Automated landmark detection carries inherent positional uncertainty. "
+        "Do not use as a sole basis for diagnosis or treatment planning."
+    )
+
     return {
-        "skeletal_class":            skeletal_result["label"],
-        "skeletal_type":             skeletal_result["type"],
-        "corrected_anb":             skeletal_result["corrected_anb"],
-        "apdi_classification":       apdi_class,
-        "odi_classification":        odi_class,
-        "vertical_pattern":          vertical_pattern,
-        "maxillary_position":        maxillary_position,
-        "mandibular_position":       mandibular_position,
-        "upper_incisor_inclination": upper_incisor,
-        "lower_incisor_inclination": lower_incisor,
-        "soft_tissue_profile":       soft_tissue_profile,
-        "facial_convexity":          convexity_class,
-        "overjet_mm":                overjet,
-        "overjet_classification":    overjet_class,
-        "overbite_mm":               overbite,
-        "overbite_classification":   overbite_class,
-        "bolton_discrepancy":        bolton_result,
-        "cvm_staging":               cvm_result,
-        "airway_assessment":         airway_result,
-        "confidence_score":          confidence,
-        "skeletal_differential":     skeletal_result.get("probabilities"),
-        "summary":                   summary,
-        "warnings":                  warnings,
-        "clinical_notes":            clinical_notes,
+        "skeletal_class":              skeletal_result["label"],
+        "skeletal_type":               skeletal_result["type"],
+        "corrected_anb":               skeletal_result["corrected_anb"],
+        "apdi_classification":         apdi_class,
+        "odi_classification":          odi_class,
+        "vertical_pattern":            vertical_pattern,
+        "maxillary_position":          maxillary_position,
+        "mandibular_position":         mandibular_position,
+        "upper_incisor_inclination":   upper_incisor,
+        "lower_incisor_inclination":   lower_incisor,
+        "soft_tissue_profile":         soft_tissue_profile,
+        "facial_convexity":            convexity_class,
+        "overjet_mm":                  overjet,
+        "overjet_classification":      overjet_class,
+        "overbite_mm":                 overbite,
+        "overbite_classification":     overbite_class,
+        "bolton_discrepancy":          bolton_result,
+        "cvm_staging":                 cvm_result,
+        "airway_assessment":           airway_result,
+        "airway_risk_score":           airway_risk_score,
+        "skeletal_consensus":          consensus,
+        "dental_skeletal_differential": dental_skeletal_diff,
+        "confidence_score":            confidence,
+        "skeletal_differential":       skeletal_result.get("probabilities"),
+        "summary":                     summary,
+        "warnings":                    warnings,
+        "clinical_notes":              clinical_notes,
+        "ai_disclaimer":               ai_disclaimer,
     }

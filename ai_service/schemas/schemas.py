@@ -93,11 +93,15 @@ class DiagnosisResponse(BaseModel):
     bolton_discrepancy: Optional[dict[str, Any]] = None
     cvm_staging: Optional[dict[str, Any]] = None
     airway_assessment: Optional[dict[str, Any]] = None
+    airway_risk_score: Optional[float] = None      # 0–10 numeric risk score
+    skeletal_consensus: Optional[dict[str, Any]] = None   # Multi-metric AP consensus
+    dental_skeletal_differential: Optional[dict[str, Any]] = None
     skeletal_differential: Optional[dict[str, float]] = None
     confidence_score: float
     summary: str
     warnings: list[str] = Field(default_factory=list)
     clinical_notes: list[str] = Field(default_factory=list)
+    ai_disclaimer: Optional[str] = None           # Mandatory clinical disclaimer
 
 
 # ── Treatment schemas ───────────────────────────────────────────────────────

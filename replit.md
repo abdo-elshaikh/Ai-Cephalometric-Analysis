@@ -52,7 +52,7 @@ ai_service/            Python FastAPI AI microservice (CephAI v2)
                        • Adaptive conformal radius refinement using heatmap sigma:
                          sharp detections ↓ up to 40%; diffuse detections ↑ up to
                          100% of class-level conformal radius (Angelopoulos 2022)
-    measurement_engine.py 90+ measurements: Steiner, Tweed, McNamara, Jarabak, Down's,
+    measurement_engine.py 95+ measurements: Steiner, Tweed, McNamara, Jarabak, Down's,
                          Ricketts, Burstone soft-tissue, Airway, CVM proxies, Bolton proxy,
                          APDI/ODI (Kim's composite indices), Pog-NB_MM (Holdaway),
                          ST-ChinThick, SN-PP signed-angle fix.
@@ -65,11 +65,25 @@ ai_service/            Python FastAPI AI microservice (CephAI v2)
                          • compute_all_measurements() now accepts landmark_uncertainties
                            dict and returns measurement_uncertainty (1-sigma) and
                            ci_95 [lo, hi] fields on every result when provided
+                         v2.3 additions (P0–P1 scope):
+                         • Beta angle (Baik & Jee 2004) — A-to-Xi-Pm true AP jaw relation
+                         • W angle (Bhad 2013) — M-perpendicular sagittal jaw relation
+                         • Upper Gonial angle (N-Go-Ar) — condylar component
+                         • Lower Gonial angle (N-Go-Me) — ramal component
+                         • Corpus Length (Ricketts Xi-PM) — mandibular body dimension
     diagnosis_engine.py  Probabilistic skeletal class (GMM+ANB+Wits), CVM staging
                          (Baccetti 2002), Bolton discrepancy, airway risk, facial convexity;
                          compute_confidence() now penalises score when avg critical-landmark
                          confidence <0.80; Wits/ANB direction conflict detection added;
                          expanded plausibility ranges (IMPA, FMIA, SN-GoGn, Interincisal, NSBa)
+                         v2.3 additions:
+                         • compute_multi_metric_consensus() — 4-metric weighted voting
+                           (ANB 30% + Wits 25% + Beta 25% + W 20%) with probability
+                           distribution and agreement score across Class I/II/III
+                         • classify_airway() — numeric 0–10 risk score with contributing
+                           risk-factor list (MP-H, PAS, SPP, tongue/tonsil flags)
+                         • classify_diagnosis() — propagates consensus dict, dental-skeletal
+                           differential string, airway_risk_score, ai_disclaimer field
     treatment_engine.py  22 evidence-based rules (added pediatric RPE + clear aligner+TAD
                          for moderate Class II non-growers); predict_treatment_outcome()
                          now scales Class II functional effects by Wits severity and APDI;

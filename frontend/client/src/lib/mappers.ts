@@ -90,6 +90,8 @@ export type Measurement = {
   normal: string;
   status: "Normal" | "Increased" | "Decreased";
   severity: "Normal" | "Mild" | "Moderate" | "Severe";
+  qualityStatus?: string | null;
+  reviewReasons?: string[] | null;
 };
 
 export type TreatmentOption = {
@@ -115,6 +117,24 @@ export type Report = {
 
 export type ApiMode = "checking" | "live" | "offline";
 
+export type SkeletalConsensus = {
+  consensus_class: string;
+  consensus_type: string;
+  probabilities: Record<string, number>;
+  votes: { metric: string; vote: string; weight: number }[];
+  metrics_used: number;
+  conflict_details: string[];
+  agreement_pct: number;
+};
+
+export type DentalSkeletalDifferential = {
+  skeletal_evidence_pct: number;
+  dental_evidence_pct: number;
+  skeletal_markers: string[];
+  dental_markers: string[];
+  interpretation: string;
+};
+
 export type DiagnosisSummary = {
   skeletalClass: string;
   verticalPattern: string;
@@ -127,6 +147,10 @@ export type DiagnosisSummary = {
   correctedAnb?: number | null;
   apdi?: string | null;
   odi?: string | null;
+  aiDisclaimer?: string | null;
+  airwayRiskScore?: number | null;
+  skeletalConsensus?: SkeletalConsensus | null;
+  dentalSkeletalDifferential?: DentalSkeletalDifferential | null;
 };
 
 export type ClinicalArtifacts = {
@@ -316,6 +340,8 @@ export function mapMeasurements(dtos: BackendMeasurementDto[]): Measurement[] {
     normal: `${Number(dto.normalMin).toFixed(1)}–${Number(dto.normalMax).toFixed(1)}`,
     status: mapMeasurementStatus(dto.status),
     severity: mapSeverity(Number(dto.value), Number(dto.normalMin), Number(dto.normalMax)),
+    qualityStatus: dto.qualityStatus ?? null,
+    reviewReasons: dto.reviewReasons ?? null,
   }));
 }
 
@@ -343,6 +369,10 @@ export function mapDiagnosis(dto?: BackendDiagnosisDto | null): DiagnosisSummary
     confidence: Number(dto.confidenceScore ?? DEFAULT_DIAGNOSIS.confidence),
     summary: dto.summaryText || DEFAULT_DIAGNOSIS.summary,
     warnings: dto.warnings?.length ? dto.warnings : DEFAULT_DIAGNOSIS.warnings,
+    aiDisclaimer: dto.aiDisclaimer ?? null,
+    airwayRiskScore: dto.airwayRiskScore ?? null,
+    skeletalConsensus: dto.skeletalConsensus ?? null,
+    dentalSkeletalDifferential: dto.dentalSkeletalDifferential ?? null,
   };
 }
 

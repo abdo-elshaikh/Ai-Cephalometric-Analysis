@@ -27,6 +27,9 @@ import {
   X,
   ImageIcon,
   Maximize2,
+  ShieldAlert,
+  Vote,
+  Gauge,
 } from "lucide-react";
 import {
   Card,
@@ -49,6 +52,7 @@ import {
   type Measurement,
   type TreatmentOption,
   type OverlayArtifact,
+  type SkeletalConsensus,
 } from "@/lib/mappers";
 import { cn } from "@/lib/utils";
 
@@ -122,6 +126,109 @@ function complexityTone(c: string): "success" | "warning" | "danger" {
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
+function ConsensusMiniBar({ consensus }: { consensus: SkeletalConsensus }) {
+  const classColor: Record<string, string> = {
+    ClassI:   "bg-success",
+    ClassII:  "bg-warning",
+    ClassIII: "bg-destructive",
+  };
+  const classLabel: Record<string, string> = {
+    ClassI: "I", ClassII: "II", ClassIII: "III",
+  };
+  const typeTone: Record<string, string> = {
+    Definitive: "text-success",
+    Borderline: "text-warning",
+    Conflicting: "text-destructive",
+  };
+
+  return (
+    <div className="p-3.5 rounded-xl border border-border/40 bg-muted/20 space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5 text-muted-foreground">
+          <Vote className="h-3.5 w-3.5" />
+          <span className="text-[10px] font-bold uppercase tracking-widest">Multi-Metric Consensus</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className={cn("text-[10px] font-bold uppercase", typeTone[consensus.consensus_type] ?? "text-muted-foreground")}>
+            {consensus.consensus_type}
+          </span>
+          <span className="text-[10px] text-muted-foreground">({consensus.agreement_pct}%)</span>
+        </div>
+      </div>
+      <div className="flex gap-2 flex-wrap">
+        {consensus.votes.map(v => (
+          <div
+            key={v.metric}
+            className={cn(
+              "flex items-center gap-1 px-2 py-1 rounded-lg border text-[10px] font-bold",
+              v.vote === consensus.consensus_class
+                ? "border-success/30 bg-success/10 text-success"
+                : "border-warning/30 bg-warning/10 text-warning"
+            )}
+          >
+            <span>{v.metric}</span>
+            <span className="text-muted-foreground">→</span>
+            <span>Class {classLabel[v.vote] ?? v.vote}</span>
+          </div>
+        ))}
+      </div>
+      {/* Probability bars */}
+      <div className="space-y-1.5">
+        {Object.entries(consensus.probabilities)
+          .sort(([, a], [, b]) => b - a)
+          .map(([cls, prob]) => (
+            <div key={cls} className="flex items-center gap-2">
+              <span className="text-[10px] text-muted-foreground w-14 shrink-0">Class {classLabel[cls] ?? cls}</span>
+              <div className="flex-1 h-1.5 rounded-full bg-muted/40 overflow-hidden">
+                <div
+                  className={cn("h-full rounded-full transition-all duration-700", classColor[cls] ?? "bg-muted-foreground")}
+                  style={{ width: `${Math.round(prob * 100)}%` }}
+                />
+              </div>
+              <span className="text-[10px] font-bold text-muted-foreground w-8 text-right">{Math.round(prob * 100)}%</span>
+            </div>
+          ))}
+      </div>
+    </div>
+  );
+}
+
+function AirwayRiskGauge({ score }: { score: number }) {
+  const clampedScore = Math.max(0, Math.min(10, score));
+  const riskLabel = clampedScore <= 3 ? "Low" : clampedScore <= 5 ? "Mild" : clampedScore <= 7 ? "Moderate" : "High";
+  const riskTone = clampedScore <= 3 ? "text-success" : clampedScore <= 5 ? "text-warning" : "text-destructive";
+  const barColor = clampedScore <= 3 ? "bg-success" : clampedScore <= 5 ? "bg-warning" : "bg-destructive";
+
+  return (
+    <div className="p-3.5 rounded-xl border border-border/40 bg-muted/20">
+      <div className="flex items-center justify-between mb-2.5">
+        <div className="flex items-center gap-1.5 text-muted-foreground">
+          <Gauge className="h-3.5 w-3.5" />
+          <span className="text-[10px] font-bold uppercase tracking-widest">Airway Risk Score</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className={cn("text-sm font-bold", riskTone)}>{clampedScore.toFixed(0)}/10</span>
+          <Pill
+            tone={clampedScore <= 3 ? "success" : clampedScore <= 5 ? "warning" : "danger"}
+            size="xs"
+          >{riskLabel}</Pill>
+        </div>
+      </div>
+      <div className="h-2 w-full rounded-full bg-muted/60 overflow-hidden">
+        <div
+          className={cn("h-full rounded-full transition-all duration-700", barColor)}
+          style={{ width: `${(clampedScore / 10) * 100}%` }}
+        />
+      </div>
+      <div className="flex justify-between mt-1">
+        {[0, 2, 4, 6, 8, 10].map(tick => (
+          <span key={tick} className="text-[9px] text-muted-foreground/40">{tick}</span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function DiagnosisCard({ diagnosis }: { diagnosis: ClinicalArtifacts["diagnosis"] }) {
   const confPct = Math.round((diagnosis.confidence || 0.85) * 100);
   const classItems = [
@@ -135,6 +242,18 @@ function DiagnosisCard({ diagnosis }: { diagnosis: ClinicalArtifacts["diagnosis"
     <Card className="relative overflow-hidden">
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-transparent" />
       <div className="relative">
+
+        {/* AI Disclaimer banner — always visible, clinically required */}
+        {diagnosis.aiDisclaimer && (
+          <div className="flex items-start gap-2.5 p-3 rounded-xl border border-destructive/20 bg-destructive/5 mb-5">
+            <ShieldAlert className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
+            <p className="text-[10px] leading-relaxed text-muted-foreground">
+              <span className="font-bold text-destructive">Clinical Use Only — AI Decision Support: </span>
+              {diagnosis.aiDisclaimer}
+            </p>
+          </div>
+        )}
+
         <div className="flex items-start justify-between gap-3 mb-5">
           <div>
             <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-primary mb-1.5">Clinical Diagnosis</p>
@@ -169,6 +288,20 @@ function DiagnosisCard({ diagnosis }: { diagnosis: ClinicalArtifacts["diagnosis"
             />
           </div>
         </div>
+
+        {/* Multi-metric skeletal consensus */}
+        {diagnosis.skeletalConsensus && (
+          <div className="mb-4">
+            <ConsensusMiniBar consensus={diagnosis.skeletalConsensus} />
+          </div>
+        )}
+
+        {/* Airway risk score */}
+        {diagnosis.airwayRiskScore != null && (
+          <div className="mb-4">
+            <AirwayRiskGauge score={diagnosis.airwayRiskScore} />
+          </div>
+        )}
 
         {(diagnosis.warnings.length > 0 || diagnosis.clinicalNotes.length > 0) && (
           <div className="space-y-3">
@@ -237,12 +370,33 @@ function KeyMeasurementsCard({ measurements }: { measurements: Measurement[] }) 
   );
 }
 
+function qualityRowClass(quality?: string): string {
+  if (quality === "review_recommended" || quality === "unreliable")
+    return "border-l-2 border-l-warning bg-warning/[0.03]";
+  if (quality === "critical_review_required")
+    return "border-l-2 border-l-destructive bg-destructive/[0.03]";
+  return "";
+}
+
 function MeasurementRow({ m }: { m: Measurement }) {
   const unitLabel = m.unit === "deg" ? "°" : m.unit === "mm" ? " mm" : "%";
+  const quality = m.qualityStatus;
+  const reviewReasons = m.reviewReasons;
+
   return (
-    <div className="group grid grid-cols-[72px_1fr_70px_90px_140px_90px] items-center gap-4 px-5 py-3.5 hover:bg-muted/10 transition-colors border-b border-border/20 last:border-0">
+    <div className={cn(
+      "group grid grid-cols-[72px_1fr_70px_90px_140px_90px] items-center gap-4 px-5 py-3.5 hover:bg-muted/10 transition-colors border-b border-border/20 last:border-0",
+      qualityRowClass(quality),
+    )}>
       <span className="text-xs font-bold text-primary truncate">{m.code}</span>
-      <span className="text-xs font-medium text-foreground truncate">{m.name}</span>
+      <div className="min-w-0">
+        <span className="text-xs font-medium text-foreground truncate block">{m.name}</span>
+        {reviewReasons && reviewReasons.length > 0 && (
+          <span className="text-[9px] text-warning truncate block leading-tight mt-0.5" title={reviewReasons.join("; ")}>
+            ⚠ {reviewReasons[0]}
+          </span>
+        )}
+      </div>
       <span className="font-mono text-xs font-bold text-foreground text-right">{m.value}{unitLabel}</span>
       <span className="text-[10px] text-muted-foreground">{m.normal}{unitLabel.trim()}</span>
       <DeviationBar value={m.value} normal={m.normal} severity={m.severity} />

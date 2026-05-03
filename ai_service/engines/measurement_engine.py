@@ -522,6 +522,82 @@ def _soft_tissue_facial_angle() -> CalcFunc:
     return calc
 
 
+def _beta_angle() -> CalcFunc:
+    """
+    Beta angle (Baik & Jee 2004): angle at A between line AB and the
+    perpendicular from A to the mandibular plane (Go-Me).
+    Independent of jaw rotation — supplements ANB for AP classification.
+    Class I: 27–35° | Class II: <27° | Class III: >35°.
+    Reference: Baik HS, Jee SH. AJO-DO 2004;125:478-495.
+    """
+    def calc(lms: dict, ps: Optional[float]) -> Optional[float]:
+        if not all(k in lms for k in ["A", "B", "Go", "Me"]): return None
+        foot = project_onto_line(lms["A"], lms["Go"], lms["Me"])
+        return angle_between(lms["A"], lms["B"], foot)
+    return calc
+
+
+def _w_angle() -> CalcFunc:
+    """
+    W angle (Bhad 2013): angle at midpoint M of Go-Me between line S→M and
+    the perpendicular from M to line AB.  Unaffected by incisor inclination
+    or cant of the occlusal plane — useful when ANB is unreliable.
+    Class I: 51–56° | Class II: <51° | Class III: >56°.
+    Reference: Bhad WA et al. J World Fed Orthod 2013;2:e85-90.
+    """
+    def calc(lms: dict, ps: Optional[float]) -> Optional[float]:
+        if not all(k in lms for k in ["S", "A", "B", "Go", "Me"]): return None
+        mx = (lms["Go"][0] + lms["Me"][0]) / 2.0
+        my = (lms["Go"][1] + lms["Me"][1]) / 2.0
+        m_gome = (mx, my)
+        foot_on_ab = project_onto_line(m_gome, lms["A"], lms["B"])
+        return angle_between(m_gome, lms["S"], foot_on_ab)
+    return calc
+
+
+def _upper_gonial_angle() -> CalcFunc:
+    """
+    Upper (superior) gonial angle component: N-Go-Ar.
+    Normal ~52–55°. Increased → steep ramus, growth rotation tendency.
+    """
+    def calc(lms: dict, ps: Optional[float]) -> Optional[float]:
+        if not all(k in lms for k in ["N", "Go", "Ar"]): return None
+        return angle_between(lms["Go"], lms["N"], lms["Ar"])
+    return calc
+
+
+def _lower_gonial_angle() -> CalcFunc:
+    """
+    Lower (inferior) gonial angle component: N-Go-Me.
+    Normal ~70–75°. Increased → horizontal mandibular growth tendency.
+    """
+    def calc(lms: dict, ps: Optional[float]) -> Optional[float]:
+        if not all(k in lms for k in ["N", "Go", "Me"]): return None
+        return angle_between(lms["Go"], lms["N"], lms["Me"])
+    return calc
+
+
+def _corpus_length() -> CalcFunc:
+    """
+    Ricketts Corpus Length (Xi-PM, mm). Normal adult ~65mm.
+    Horizontal mandibular body dimension; part of Ricketts structural analysis.
+    """
+    def calc(lms: dict, ps: Optional[float]) -> Optional[float]:
+        if not all(k in lms for k in ["Xi", "PM"]) or not ps: return None
+        return euclidean_distance(lms["Xi"], lms["PM"]) * ps
+    return calc
+
+
+def _ramus_height_ricketts() -> CalcFunc:
+    """
+    Ricketts Ramus Height (Ar-Go at Xi level, mm). Normal ~44mm adult.
+    """
+    def calc(lms: dict, ps: Optional[float]) -> Optional[float]:
+        if not all(k in lms for k in ["Ar", "Xi", "Go"]) or not ps: return None
+        return perpendicular_distance(lms["Xi"], lms["Ar"], lms["Go"]) * ps
+    return calc
+
+
 # ── Measurement Definitions ───────────────────────────────────────────────────
 
 MEASUREMENT_DEFS: list[dict] = [
@@ -631,6 +707,14 @@ MEASUREMENT_DEFS: list[dict] = [
     {"category": "Jarabak", "code": "JRatio",        "name": "Jarabak Ratio (PFH/AFH)",
      "type": "Ratio",    "unit": "Percent",     "min": 62,  "max": 65,
      "refs": ["S", "Go", "N", "Me"],            "calc": _ratio("S", "Go", "N", "Me")},
+
+    {"category": "Jarabak", "code": "UpperGonial", "name": "Upper Gonial Angle (N-Go-Ar)",
+     "type": "Angle",    "unit": "Degrees",     "min": 52,  "max": 55,
+     "refs": ["N", "Go", "Ar"],                 "calc": _upper_gonial_angle()},
+
+    {"category": "Jarabak", "code": "LowerGonial", "name": "Lower Gonial Angle (N-Go-Me)",
+     "type": "Angle",    "unit": "Degrees",     "min": 70,  "max": 75,
+     "refs": ["N", "Go", "Me"],                 "calc": _lower_gonial_angle()},
 
     {"category": "Jarabak", "code": "BJORK_SUM",     "name": "Björk Sum of Angles",
      "type": "Angle",    "unit": "Degrees",     "min": 392, "max": 400,
@@ -820,6 +904,23 @@ MEASUREMENT_DEFS: list[dict] = [
     {"category": "Advanced","code": "NSBa",        "name": "Cranial Base Flexure (N-S-Ba)",
      "type": "Angle",    "unit": "Degrees",     "min": 125, "max": 138,
      "refs": ["N", "S", "Ba"],                  "calc": _nsba_angle()},
+
+    # ── ROTATION-INDEPENDENT AP INDICES ──────────────────────────────────────
+    # These supplement ANB which is subject to rotation artefacts. Use for
+    # cases where ANB and Wits conflict, or where jaw rotation is marked.
+    {"category": "Advanced","code": "BetaAngle",  "name": "Beta Angle (Baik & Jee 2004)",
+     "type": "Angle",    "unit": "Degrees",     "min": 27,  "max": 35,
+     "refs": ["A", "B", "Go", "Me"],            "calc": _beta_angle()},
+
+    {"category": "Advanced","code": "WAngle",     "name": "W Angle (Bhad 2013)",
+     "type": "Angle",    "unit": "Degrees",     "min": 51,  "max": 56,
+     "refs": ["S", "A", "B", "Go", "Me"],       "calc": _w_angle()},
+
+    # ── RICKETTS STRUCTURAL LENGTHS ───────────────────────────────────────────
+    {"category": "Ricketts","code": "CorpusLen",  "name": "Corpus Length — Xi to PM (Ricketts)",
+     "type": "Distance", "unit": "Millimeters", "min": 60,  "max": 70,
+     "refs": ["Xi", "PM"],                      "calc": _corpus_length(),
+     "requires_calibration": True},
 
     # ── KIM'S COMPOSITE INDICES (standalone) ─────────────────────────────────
     # APDI = FH-AB + PP-FH  (norm 81.4 ± 3.5°; Kim 1978 AJO-DO)

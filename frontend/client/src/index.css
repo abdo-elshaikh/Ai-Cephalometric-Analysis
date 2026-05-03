@@ -352,8 +352,12 @@
 
   /* Page container styles */
   .page-container {
-    @apply max-w-7xl mx-auto p-responsive;
+    @apply max-w-7xl mx-auto;
+    padding: 1rem;
   }
+  @media (min-width: 640px)  { .page-container { padding: 1.25rem; } }
+  @media (min-width: 768px)  { .page-container { padding: 1.5rem;  } }
+  @media (min-width: 1024px) { .page-container { padding: 2rem;    } }
 
   .page-header {
     @apply mb-8 space-y-2;
@@ -411,25 +415,29 @@
     @apply px-6 py-3 text-base;
   }
 
-  /* Badge system */
+  /* Badge system — variants inline base styles to avoid @apply custom-class issues in v4 */
   .badge {
     @apply inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold transition-colors duration-200;
   }
 
   .badge-primary {
-    @apply badge border-primary/20 bg-primary/10 text-primary hover:bg-primary/15;
+    @apply inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold transition-colors duration-200;
+    @apply border-primary/20 bg-primary/10 text-primary hover:bg-primary/15;
   }
 
   .badge-success {
-    @apply badge border-success/20 bg-success/10 text-success hover:bg-success/15;
+    @apply inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold transition-colors duration-200;
+    @apply border-success/20 bg-success/10 text-success hover:bg-success/15;
   }
 
   .badge-warning {
-    @apply badge border-warning/20 bg-warning/10 text-warning hover:bg-warning/15;
+    @apply inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold transition-colors duration-200;
+    @apply border-warning/20 bg-warning/10 text-warning hover:bg-warning/15;
   }
 
   .badge-danger {
-    @apply badge border-destructive/20 bg-destructive/10 text-destructive hover:bg-destructive/15;
+    @apply inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold transition-colors duration-200;
+    @apply border-destructive/20 bg-destructive/10 text-destructive hover:bg-destructive/15;
   }
 
   /* Status indicator */
@@ -492,18 +500,6 @@
     @apply space-y-8;
   }
 
-  /* Responsive padding scales */
-  .p-responsive {
-    @apply p-4 sm:p-5 md:p-6 lg:p-8;
-  }
-
-  .px-responsive {
-    @apply px-4 sm:px-5 md:px-6 lg:px-8;
-  }
-
-  .py-responsive {
-    @apply py-4 sm:py-5 md:py-6 lg:py-8;
-  }
 
   /* Glass morphism subtle effect */
   .glass-subtle {

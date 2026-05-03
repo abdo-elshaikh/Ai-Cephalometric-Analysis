@@ -120,6 +120,25 @@ export type BackendDiagnosisDto = {
   summaryText?: string | null;
   warnings: string[];
   skeletalDifferential?: Record<string, number> | null;
+  // v2 enriched fields
+  aiDisclaimer?: string | null;
+  airwayRiskScore?: number | null;
+  skeletalConsensus?: {
+    consensus_class: string;
+    consensus_type: string;
+    probabilities: Record<string, number>;
+    votes: { metric: string; vote: string; weight: number }[];
+    metrics_used: number;
+    conflict_details: string[];
+    agreement_pct: number;
+  } | null;
+  dentalSkeletalDifferential?: {
+    skeletal_evidence_pct: number;
+    dental_evidence_pct: number;
+    skeletal_markers: string[];
+    dental_markers: string[];
+    interpretation: string;
+  } | null;
 };
 
 export type BackendTreatmentDto = {
