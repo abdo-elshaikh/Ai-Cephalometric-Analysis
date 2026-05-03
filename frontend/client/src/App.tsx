@@ -49,6 +49,7 @@ import {
   type CaseFormState,
   type ReportFormat,
   type CaseStatus,
+  type Notification,
   DEFAULT_ARTIFACTS,
   isGuid,
   mapWorkspace,
@@ -271,11 +272,41 @@ export default function App() {
   const [caseDialogOpen, setCaseDialogOpen] = useState(false);
   const [editingPatient, setEditingPatient] = useState<Patient | null>(null);
   const [cmdPaletteOpen, setCmdPaletteOpen] = useState(false);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+
+  // ── Notification helpers ──────────────────────────────────────────────────────
+  function addNotification(type: Notification["type"], title: string, detail: string) {
+    const id = `notif-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    const now = new Date();
+    const timestamp = now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+    setNotifications(prev => [
+      { id, type, title, detail, timestamp, read: false },
+      ...prev,
+    ]);
+    // Auto-dismiss after 6 seconds (except errors)
+    if (type !== "error") {
+      setTimeout(() => dismissNotification(id), 6000);
+    }
+  }
+
+  function markNotificationAsRead(id: string) {
+    setNotifications(prev =>
+      prev.map(n => (n.id === id ? { ...n, read: true } : n))
+    );
+  }
+
+  function dismissNotification(id: string) {
+    setNotifications(prev => prev.filter(n => n.id !== id));
+  }
+
+  function clearAllNotifications() {
+    setNotifications([]);
+  }
 
   // ── Session expiry guard ─────────────────────────────────────────────────────
   useEffect(() => {
     cephApi.setOnAuthExpired(() => {
-      toast.error("Session expired — please sign in again.", { duration: 5000 });
+      addNotification("error", "Session Expired", "Please sign in again to continue.");
       setAuthUser(null);
       setPatients([]); setCases([]); setReports([]); setHistory([]);
       setLandmarks([]); setClinicalArtifacts(DEFAULT_ARTIFACTS); setOverlayArtifacts([]);
@@ -410,6 +441,7 @@ export default function App() {
     const created = mapPatient(res.data);
     setPatients(prev => [created, ...prev]); setActivePatientId(created.id);
     addHistory({ type: "Patient", title: "Patient created", detail: `${created.firstName} added.`, patientId: created.id });
+    addNotification("success", "Patient Created", `${created.firstName} ${created.lastName} added to workspace.`);
     toast.success("Patient created");
   }
 
@@ -432,6 +464,7 @@ export default function App() {
     const created: CaseRecord = { id: res.data.id, patientId: res.data.patientId, title: res.data.title || data.title, type: toStudyType(res.data.studyType), date: res.data.studyDate, status: "Draft", calibrated: false, aiStatus: "not_started", reportStatus: "pending", updatedAt: res.data.createdAt.slice(0, 10) };
     setCases(prev => [created, ...prev]); setActivePatientId(data.patientId); setActiveCaseId(created.id);
     addHistory({ type: "Case", title: "Case created", detail: `${created.title} added.`, caseId: created.id, patientId: created.patientId });
+    addNotification("success", "Case Created", `${created.title} case ready for analysis.`);
     toast.success("Case added"); navigate("/analysis");
   }
 
@@ -468,6 +501,7 @@ export default function App() {
     patchCase(caseId, { imageId: res.data.id, imageName: res.data.fileName, imageUrl: res.data.storageUrl, calibrated: res.data.isCalibrated, status: res.data.isCalibrated ? "Calibrated" : "Image uploaded", aiStatus: "not_started" });
     const c = cases.find(x => x.id === caseId);
     addHistory({ type: "Upload", title: "Image uploaded", detail: `${res.data.fileName} attached.`, caseId, patientId: c?.patientId });
+    addNotification("success", "Image Uploaded", `${res.data.fileName} ready for analysis.`);
     toast.success("Image uploaded");
   }
 
@@ -475,12 +509,14 @@ export default function App() {
     const c = cases.find(x => x.id === caseId);
     if (!c?.imageName || !c.calibrated || apiMode !== "live" || !isGuid(c.imageId)) { toast.error("Ready analysis required."); return; }
     patchCase(caseId, { aiStatus: "processing" });
+    addNotification("info", "Analysis Started", "Processing cephalometric data...");
     const res = await cephApi.fullPipeline(c.imageId!, analysisType, isCbct);
-    if (!res.ok) { patchCase(caseId, { aiStatus: "not_started" }); toast.error(`AI failed: ${res.error}`); return; }
+    if (!res.ok) { patchCase(caseId, { aiStatus: "not_started" }); addNotification("error", "Analysis Failed", res.error); toast.error(`AI failed: ${res.error}`); return; }
     patchCase(caseId, { status: "AI completed", aiStatus: "completed", sessionId: res.data.session.id, imageUrl: res.data.session.resultImageUrl ?? c.imageUrl });
     setLandmarks(mergePipelineIntoLandmarks(res.data)); setClinicalArtifacts(mapPipelineArtifacts(res.data));
     void refreshOverlays(res.data.session.id, c);
     addHistory({ type: "AI", title: "AI completed", detail: `${isCbct ? "CBCT" : "Lateral"} data generated.`, caseId, patientId: c.patientId });
+    addNotification("success", "Analysis Complete", `${res.data.landmarks?.length || 0} landmarks detected, ${res.data.measurements?.length || 0} measurements computed.`);
     toast.success("AI pipeline completed"); navigate("/viewer");
   }
 
@@ -521,11 +557,13 @@ export default function App() {
   async function requestReport(format: ReportFormat) {
     const sessionId = await resolveLiveSession(activeCase, "Report generation");
     if (!sessionId || !activeCase) return;
+    addNotification("info", "Report Generation", `Generating ${format} report…`);
     const res = await cephApi.generateReport(sessionId, format);
-    if (!res.ok) { toast.error(`Report failed: ${res.error}`); return; }
+    if (!res.ok) { addNotification("error", "Report Failed", res.error); toast.error(`Report failed: ${res.error}`); return; }
     setReports(prev => [{ ...mapReport(res.data, activeCase.id), format }, ...prev]);
     patchCase(activeCase.id, { reportStatus: "generated", status: "Report ready" });
     addHistory({ type: "Report", title: "Report generated", detail: `${format} export ready.`, caseId: activeCase.id, patientId: activeCase.patientId });
+    addNotification("success", "Report Ready", `${format} report generated and ready for download.`);
     toast.success(`${format} report ready`);
   }
 
@@ -583,8 +621,12 @@ export default function App() {
           <>
             <AppShell
               apiMode={apiMode} authUser={authUser} serviceHealth={serviceHealth}
+              notifications={notifications}
               onAuth={() => navigate("/auth")} onLogout={handleLogout} onRefreshHealth={refreshServiceHealth}
               onOpenCommandPalette={() => setCmdPaletteOpen(true)}
+              onMarkNotificationAsRead={markNotificationAsRead}
+              onDismissNotification={dismissNotification}
+              onClearAllNotifications={clearAllNotifications}
             >
               <AppRoutes
                 patients={patients} cases={cases} reports={reports} history={history}

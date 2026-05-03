@@ -24,7 +24,8 @@ import {
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { ThemeToggle } from "./ClinicalComponents";
-import { displayUserName, type ApiMode } from "@/lib/mappers";
+import NotificationCenter from "./NotificationCenter";
+import { displayUserName, type ApiMode, type Notification } from "@/lib/mappers";
 import { type BackendAuthUser, type ServiceHealth } from "@/lib/ceph-api";
 import { cn } from "@/lib/utils";
 
@@ -110,11 +111,14 @@ interface ShellProps {
   apiMode: ApiMode;
   authUser: BackendAuthUser | null;
   serviceHealth: ServiceHealth;
+  notifications: Notification[];
   onAuth: () => void;
   onLogout: () => void | Promise<void>;
   onRefreshHealth: () => void | Promise<void>;
   onOpenCommandPalette?: () => void;
-  notificationCount?: number;
+  onMarkNotificationAsRead?: (id: string) => void;
+  onDismissNotification?: (id: string) => void;
+  onClearAllNotifications?: () => void;
 }
 
 // ─── Sidebar nav item ─────────────────────────────────────────────────────────
@@ -163,11 +167,14 @@ export default function Shell({
   apiMode,
   authUser,
   serviceHealth,
+  notifications,
   onAuth,
   onLogout,
   onRefreshHealth,
   onOpenCommandPalette,
-  notificationCount = 0,
+  onMarkNotificationAsRead,
+  onDismissNotification,
+  onClearAllNotifications,
 }: ShellProps) {
   const [location] = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -388,19 +395,13 @@ export default function Shell({
               {isLive ? "Online" : isChecking ? "Syncing" : "Offline"}
             </div>
             <ThemeToggle />
-            {/* Bell with notification badge */}
-            <button
-              type="button"
-              aria-label="Notifications"
-              className="relative flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-            >
-              <Bell className="h-4 w-4" />
-              {notificationCount > 0 && (
-                <span className="absolute right-1 top-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-primary text-[8px] font-bold text-primary-foreground">
-                  {notificationCount > 9 ? "9+" : notificationCount}
-                </span>
-              )}
-            </button>
+            {/* Notification center */}
+            <NotificationCenter
+              notifications={notifications}
+              onMarkAsRead={onMarkNotificationAsRead || (() => {})}
+              onDismiss={onDismissNotification || (() => {})}
+              onClearAll={onClearAllNotifications || (() => {})}
+            />
             {authUser && (
               <button
                 type="button"
