@@ -94,6 +94,13 @@ export type Measurement = {
   reviewReasons?: string[] | null;
 };
 
+export type TreatmentOutcome = {
+  metric: string;
+  baseline: number;
+  projected: number;
+  unit: string;
+};
+
 export type TreatmentOption = {
   title: string;
   score: number;
@@ -102,6 +109,7 @@ export type TreatmentOption = {
   rationale: string;
   evidenceLevel?: string | null;
   retentionRecommendation?: string | null;
+  outcomeMetrics?: TreatmentOutcome[] | null;
 };
 
 export type Report = {

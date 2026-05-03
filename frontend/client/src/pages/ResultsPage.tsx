@@ -653,6 +653,31 @@ function MeasurementGroupSection({ label, icon: Icon, measurements }: {
   );
 }
 
+function TreatmentOutcomesPanel({ outcomes }: { outcomes?: any[] }) {
+  if (!outcomes?.length) return null;
+  
+  return (
+    <div className="mt-4 p-4 rounded-xl border border-primary/20 bg-primary/5">
+      <div className="flex items-center gap-2 mb-3">
+        <Target className="h-4 w-4 text-primary" />
+        <span className="text-[10px] font-bold uppercase tracking-widest text-foreground">Expected Outcomes</span>
+      </div>
+      <div className="space-y-2">
+        {outcomes.slice(0, 4).map((outcome, i) => (
+          <div key={i} className="flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">{outcome.metric}</span>
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-foreground">{outcome.baseline}{outcome.unit}</span>
+              <span className="text-muted-foreground/60">→</span>
+              <span className="font-bold text-success">{outcome.projected}{outcome.unit}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function TreatmentCard({ treatment, rank }: { treatment: TreatmentOption; rank: number }) {
   const [expanded, setExpanded] = useState(rank === 0);
   return (
@@ -707,6 +732,7 @@ function TreatmentCard({ treatment, rank }: { treatment: TreatmentOption; rank: 
               <p className={cn("text-sm font-bold", treatment.score >= 85 ? "text-success" : "text-warning")}>{treatment.score}%</p>
             </div>
           </div>
+          {treatment.outcomeMetrics && <TreatmentOutcomesPanel outcomes={treatment.outcomeMetrics} />}
           {treatment.evidenceLevel && (
             <div className="flex items-start gap-2 p-3 rounded-xl border border-info/20 bg-info/5">
               <Info className="h-4 w-4 text-info shrink-0 mt-0.5" />
@@ -764,31 +790,55 @@ function GrowthPanel({ activeCase }: { activeCase?: CaseRecord }) {
       </Card>
 
       <Card>
-        <SectionHeader label="Growth Prediction (Proffit / Petrovic Model)">
-          <Pill tone="neutral" size="xs">Estimated projections</Pill>
+        <SectionHeader label="Growth Projection Timeline">
+          <Pill tone="neutral" size="xs">Proffit/Petrovic Model</Pill>
         </SectionHeader>
-        <div className="grid gap-4 sm:grid-cols-3">
-          {[
-            { label: "Current", years: 0, desc: "Baseline skeletal pattern at time of analysis", color: "border-primary/30 bg-primary/5" },
-            { label: "+2 Years", years: 2, desc: "Projected skeletal change with untreated growth", color: "border-warning/30 bg-warning/5" },
-            { label: "End of Growth", years: null, desc: "Estimated final skeletal position at maturity", color: "border-success/30 bg-success/5" },
-          ].map(p => (
-            <div key={p.label} className={cn("p-4 rounded-2xl border", p.color)}>
-              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">{p.label}</p>
-              <p className="text-xs text-muted-foreground leading-relaxed">{p.desc}</p>
-              {age && p.years !== null && (
-                <p className="mt-2 text-[10px] text-muted-foreground/60">
-                  Patient age: {age + p.years}yr
-                </p>
-              )}
-            </div>
-          ))}
+        <div className="space-y-4">
+          <div className="flex gap-2 mb-4">
+            {[0, 2, null].map((years, i) => {
+              const labels = ["Current (Baseline)", "+2 Years Growth", "End of Growth"];
+              return (
+                <div key={i} className="flex-1 text-center">
+                  <div className="h-2 rounded-full bg-muted/40 mb-2" />
+                  <p className="text-[9px] font-bold text-muted-foreground">{labels[i]}</p>
+                  {age && years !== null && (
+                    <p className="text-[10px] text-muted-foreground/60 mt-1">Age {age + years}y</p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <div className="grid gap-4 sm:grid-cols-3">
+            {[
+              { label: "Current", years: 0, desc: "Baseline skeletal pattern at time of analysis", color: "border-primary/30 bg-primary/5" },
+              { label: "+2 Years", years: 2, desc: "Projected skeletal change with untreated growth", color: "border-warning/30 bg-warning/5" },
+              { label: "End of Growth", years: null, desc: "Estimated final skeletal position at maturity", color: "border-success/30 bg-success/5" },
+            ].map(p => (
+              <div key={p.label} className={cn("p-4 rounded-2xl border", p.color)}>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">{p.label}</p>
+                <p className="text-xs text-muted-foreground leading-relaxed">{p.desc}</p>
+                {age && p.years !== null && (
+                  <p className="mt-2 text-[10px] text-muted-foreground/60">
+                    Projected age: {age + p.years}yr
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+          <div className="p-3 rounded-xl border border-success/20 bg-success/5">
+            <p className="text-[10px] font-bold text-success mb-1">💡 Growth Timing Insights:</p>
+            <ul className="text-[10px] text-success-foreground/80 space-y-1">
+              <li>• Early growth stages (CS 1–3): Maximum response to functional appliances</li>
+              <li>• Late growth (CS 4–5): Consider fixed appliance coordination with growth prediction</li>
+              <li>• Growth complete (CS 6): Surgical options may be indicated for severe patterns</li>
+            </ul>
+          </div>
         </div>
         <div className="mt-4 p-3 rounded-xl border border-border/40 bg-muted/10">
           <p className="text-[10px] text-muted-foreground leading-relaxed">
             <span className="font-bold text-foreground">Disclaimer: </span>
-            Growth projections are estimates based on population norms. Individual variation is significant. 
-            CVM staging from lateral cephalogram is required for precise timing.
+            Growth projections are population-based estimates. Individual biological variation is significant. 
+            CVM staging and serial cephalograms provide more precise growth assessment.
           </p>
         </div>
       </Card>
@@ -900,6 +950,7 @@ export default function ResultsPage({
   const [tab, setTab] = useState<ResultsTab>("overview");
   const [search, setSearch] = useState("");
   const [filterAbnormal, setFilterAbnormal] = useState(false);
+  const [severityFilter, setSeverityFilter] = useState<"all" | "mild" | "moderate" | "severe">("all");
 
   const caseReports = reports.filter(r => r.caseId === activeCase?.id);
 
@@ -907,8 +958,9 @@ export default function ResultsPage({
     let ms = measurements;
     if (search) ms = ms.filter(m => m.name.toLowerCase().includes(search.toLowerCase()) || m.code.toLowerCase().includes(search.toLowerCase()));
     if (filterAbnormal) ms = ms.filter(m => m.severity !== "Normal");
+    if (severityFilter !== "all") ms = ms.filter(m => m.severity.toLowerCase() === severityFilter);
     return ms;
-  }, [measurements, search, filterAbnormal]);
+  }, [measurements, search, filterAbnormal, severityFilter]);
 
   const abnormalCount = measurements.filter(m => m.severity !== "Normal").length;
 
@@ -1002,28 +1054,54 @@ export default function ResultsPage({
       {/* ── Measurements ── */}
       {tab === "measurements" && (
         <div className="space-y-5 animate-in fade-in duration-300">
-          <div className="flex items-center gap-3 flex-wrap">
-            <SearchInput
-              value={search}
-              onChange={setSearch}
-              placeholder="Search measurements…"
-              className="max-w-xs"
-            />
-            <button
-              type="button"
-              onClick={() => setFilterAbnormal(o => !o)}
-              className={cn(
-                "flex items-center gap-2 h-10 px-4 rounded-xl border text-xs font-bold transition-all",
-                filterAbnormal
-                  ? "border-warning/40 bg-warning/10 text-warning"
-                  : "border-border/60 bg-muted/20 text-muted-foreground hover:bg-muted/30"
-              )}
-            >
-              <Filter className="h-3.5 w-3.5" />
-              {filterAbnormal ? "Showing flagged" : "Show flagged only"}
-            </button>
-            <Pill tone="neutral" size="sm">{filteredMeasurements.length} parameters</Pill>
-            {abnormalCount > 0 && <Pill tone="warning" size="sm">{abnormalCount} outside normal range</Pill>}
+          <div className="space-y-3">
+            <div className="flex items-center gap-3 flex-wrap">
+              <SearchInput
+                value={search}
+                onChange={setSearch}
+                placeholder="Search measurements…"
+                className="max-w-xs"
+              />
+              <button
+                type="button"
+                onClick={() => setFilterAbnormal(o => !o)}
+                className={cn(
+                  "flex items-center gap-2 h-10 px-4 rounded-xl border text-xs font-bold transition-all",
+                  filterAbnormal
+                    ? "border-warning/40 bg-warning/10 text-warning"
+                    : "border-border/60 bg-muted/20 text-muted-foreground hover:bg-muted/30"
+                )}
+              >
+                <Filter className="h-3.5 w-3.5" />
+                {filterAbnormal ? "Showing flagged" : "Show flagged only"}
+              </button>
+              <div className="flex items-center gap-2">
+                {["all", "mild", "moderate", "severe"].map(sev => (
+                  <button
+                    key={sev}
+                    type="button"
+                    onClick={() => setSeverityFilter(sev as any)}
+                    className={cn(
+                      "h-10 px-3 rounded-lg border text-xs font-bold transition-all capitalize",
+                      severityFilter === sev
+                        ? sev === "severe" ? "border-destructive/40 bg-destructive/10 text-destructive"
+                          : sev === "moderate" ? "border-warning/40 bg-warning/10 text-warning"
+                          : sev === "mild" ? "border-orange-500/40 bg-orange-500/10 text-orange-600"
+                          : "border-primary/40 bg-primary/10 text-primary"
+                        : "border-border/60 bg-muted/20 text-muted-foreground hover:bg-muted/30"
+                    )}
+                  >
+                    {sev === "all" ? "All" : sev}
+                  </button>
+                ))}
+              </div>
+              <Pill tone="neutral" size="sm">{filteredMeasurements.length} parameters</Pill>
+              {abnormalCount > 0 && <Pill tone="warning" size="sm">{abnormalCount} outside normal range</Pill>}
+            </div>
+            <div className="text-xs text-muted-foreground leading-relaxed p-3 rounded-lg border border-border/40 bg-muted/10">
+              <p className="font-semibold text-foreground mb-1">💡 Filtering Tip:</p>
+              <p>Use search to find specific measurements by code or name. Toggle "Show flagged only" to review abnormal findings. Click measurement groups to expand/collapse categories.</p>
+            </div>
           </div>
 
           {MEASUREMENT_GROUPS.map(group => {
