@@ -5,7 +5,7 @@ import {
 } from "react";
 import { Toaster, toast } from "sonner";
 import { Route, Switch, useLocation } from "wouter";
-import { ShieldCheck } from "lucide-react";
+import { ShieldAlert, ShieldCheck } from "lucide-react";
 
 import ErrorBoundary from "@/components/ErrorBoundary";
 import { ThemeProvider } from "@/contexts/ThemeContext";
@@ -67,21 +67,21 @@ import {
   toStudyType,
   todayIso,
 } from "@/lib/mappers";
-import { 
+import {
   nowReadable,
   uid
 } from "@/lib/clinical-utils";
 import { useSettings, type PopulationNorm } from "@/lib/settings";
 
 const POPULATION_API_KEYS: Record<PopulationNorm, string> = {
-  "Caucasian":        "caucasian",
-  "Chinese":          "chinese",
-  "East Asian":       "east_asian",
-  "Japanese":         "japanese",
+  "Caucasian": "caucasian",
+  "Chinese": "chinese",
+  "East Asian": "east_asian",
+  "Japanese": "japanese",
   "African-American": "african_american",
-  "Hispanic":         "hispanic",
-  "Indian":           "indian",
-  "Brazilian":        "brazilian",
+  "Hispanic": "hispanic",
+  "Indian": "indian",
+  "Brazilian": "brazilian",
 };
 
 // ─── Routing Guards ──────────────────────────────────────────────────────────
@@ -100,15 +100,15 @@ function AuthRedirectScreen() {
   );
 }
 
-function ProtectedRoute({ 
-  authUser, 
+function ProtectedRoute({
+  authUser,
   children,
-}: { 
-  authUser: BackendAuthUser | null; 
+}: {
+  authUser: BackendAuthUser | null;
   children: React.ReactNode;
 }) {
   const [, navigate] = useLocation();
-  
+
   useEffect(() => {
     if (!authUser) {
       navigate("/auth");
@@ -126,14 +126,24 @@ const DEFAULT_SERVICE_HEALTH: ServiceHealth = {
 
 // ─── 404 Page ────────────────────────────────────────────────────────────────
 
+// ─── 404 Page ────────────────────────────────────────────────────────────────
+
 function NotFoundPage() {
+  const [, setLocation] = useLocation();
   return (
-    <div className="flex h-[60vh] flex-col items-center justify-center text-center">
-      <h2 className="text-4xl font-bold tracking-tight text-foreground">404</h2>
-      <p className="mt-2 text-muted-foreground">The clinical module you are looking for does not exist.</p>
-      <PrimaryBtn onClick={() => window.location.href = "/"} className="mt-8">
-        Back to Dashboard
-      </PrimaryBtn>
+    <div className="flex min-h-[60vh] items-center justify-center p-6">
+      <Card className="max-w-lg w-full p-12 text-center glass-premium border-border/20 shadow-lg-professional space-y-8 animate-in fade-in zoom-in-95 duration-700">
+        <div className="mx-auto h-20 w-20 rounded-[28px] border-2 border-primary/20 bg-primary/10 flex items-center justify-center text-primary shadow-xl shadow-primary/10">
+          <ShieldAlert className="h-10 w-10" />
+        </div>
+        <div className="space-y-2">
+          <h2 className="text-3xl font-black tracking-tight">Endpoint De-synced</h2>
+          <p className="text-sm text-muted-foreground font-medium leading-relaxed">The requested clinical module identifier is not recognized by the neural core.</p>
+        </div>
+        <PrimaryBtn onClick={() => setLocation("/")} className="h-12 px-10 rounded-xl font-black uppercase tracking-widest text-[10px] shadow-lg shadow-primary/20 hover-lift">
+          Return to Core
+        </PrimaryBtn>
+      </Card>
     </div>
   );
 }
@@ -253,8 +263,8 @@ function AppRoutes({
         <GuidePage />
       </Route>
       <Route path="/auth">
-         {/* AuthPage is accessible without ProtectedRoute via direct rendering in App root */}
-         <NotFoundPage /> 
+        {/* AuthPage is accessible without ProtectedRoute via direct rendering in App root */}
+        <NotFoundPage />
       </Route>
       <Route><NotFoundPage /></Route>
     </Switch>
@@ -593,7 +603,7 @@ export default function App() {
     toast.success(`${format} report ready`);
   }
 
-  const authRoute   = location.startsWith("/auth");
+  const authRoute = location.startsWith("/auth");
   const publicRoute = location.startsWith("/guide");  // no login required
   const routeBlocked = !authRoute && !publicRoute && authChecked && !authUser;
 
@@ -602,28 +612,36 @@ export default function App() {
   if (!authRoute && !publicRoute && (!authChecked || routeBlocked)) {
     return (
       <ThemeProvider defaultTheme="dark" switchable>
-        <div className="flex h-screen items-center justify-center bg-background p-4">
-          <div className="flex flex-col items-center gap-5 text-center">
+        <div className="flex h-screen items-center justify-center bg-[#050508] p-6 relative overflow-hidden">
+          {/* Ambient background */}
+          <div className="pointer-events-none absolute inset-0">
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] rounded-full bg-primary/10 blur-[160px] animate-pulse" />
+            <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.1] pointer-events-none" />
+          </div>
+
+          <div className="relative z-10 flex flex-col items-center gap-8 text-center max-w-sm animate-in fade-in duration-1000">
             {/* Animated logo mark */}
-            <div className="relative flex h-16 w-16 items-center justify-center">
-              <div className="absolute inset-0 rounded-2xl border border-primary/20 bg-primary/8 animate-pulse" />
-              <ShieldCheck className="h-7 w-7 text-primary relative z-10" />
+            <div className="relative flex h-24 w-24 items-center justify-center">
+              <div className="absolute inset-0 rounded-[32px] border-2 border-primary/20 bg-primary/10 animate-pulse shadow-2xl shadow-primary/20" />
+              <ShieldCheck className="h-10 w-10 text-primary relative z-10" />
             </div>
-            {/* Spinner */}
-            <div className="flex items-center gap-2">
+
+            {/* Progress Indicators */}
+            <div className="flex items-center gap-3">
               <div className="h-1 w-1 rounded-full bg-primary animate-bounce [animation-delay:-0.3s]" />
               <div className="h-1 w-1 rounded-full bg-primary animate-bounce [animation-delay:-0.15s]" />
               <div className="h-1 w-1 rounded-full bg-primary animate-bounce" />
             </div>
-            <div>
-              <p className="text-[11px] font-bold uppercase tracking-[0.25em] text-primary/50 mb-1">CephAI</p>
-              <p className="text-sm font-medium text-foreground">
-                {routeBlocked ? "Redirecting to sign in…" : "Verifying session"}
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
+
+            <div className="space-y-2">
+              <p className="text-[10px] font-black uppercase tracking-[0.4em] text-primary/60 mb-2">Neural Nexus</p>
+              <h3 className="text-xl font-black tracking-tight text-white">
+                {routeBlocked ? "Establishing Handshake..." : "Synchronizing Session..."}
+              </h3>
+              <p className="text-xs font-medium text-muted-foreground leading-relaxed opacity-60">
                 {routeBlocked
-                  ? "Authentication required to access this page."
-                  : "Loading your clinical workspace."}
+                  ? "Identity verification required for clinical workspace access."
+                  : "Authenticating with the CephAI neural inference core."}
               </p>
             </div>
           </div>

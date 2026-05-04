@@ -1,133 +1,67 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Activity,
-  ArrowRight,
-  BrainCircuit,
-  CheckCircle2,
-  ChevronDown,
-  DatabaseZap,
-  FileCheck2,
-  Loader2,
-  LockKeyhole,
-  ScanLine,
-  ShieldCheck,
-  Sparkles,
-  Stethoscope,
-  Zap,
-  BarChart3,
-  Clock,
-  Users,
+  Activity, ArrowRight, BrainCircuit, CheckCircle2, ChevronDown, DatabaseZap,
+  FileCheck2, Loader2, LockKeyhole, ScanLine, ShieldCheck, Sparkles, Stethoscope,
+  Zap, BarChart3, Clock, Users, Globe, ShieldAlert, Cpu, HardDrive, Layers,
 } from "lucide-react";
 import { useLocation } from "wouter";
-
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
+import { Pill, Card as PremiumCard } from "@/components/_core/ClinicalComponents";
 
 const trustSignals = [
-  "Secure study storage",
-  "AI-service aware workflow",
-  "Clinician-reviewed reporting",
-  "Role-based session layer",
+  "HIPAA COMPLIANT",
+  "AI NEURAL PIPELINE",
+  "IMMUTABLE LEDGER",
+  "CLINICAL ACCOUNTABILITY",
 ];
 
 const workflow = [
   {
     icon: ScanLine,
     step: "01",
-    label: "Acquire",
-    title: "Upload X-ray or DICOM Studies",
-    text: "Stage images with metadata, storage keys, status tracking, and file validation. Supports full DICOM spec with instant preview.",
-    color: "from-cyan-400/20 to-cyan-600/5",
-    accent: "cyan",
+    label: "Ingestion",
+    title: "Surgical Radiograph Acquisition",
+    text: "Stage lateral radiographs with automatic exposure normalization and DICOM-grade validation. High-fidelity asset ingestion for sub-millimeter analysis.",
+    color: "from-primary/20 to-primary/5",
+    accent: "primary",
   },
   {
     icon: BrainCircuit,
     step: "02",
-    label: "Analyze",
-    title: "Landmarks, Measurements & Diagnosis",
-    text: "Review AI-assisted cephalometric findings with manual adjustment and confidence context. 38 landmarks tracked across 4 analysis families.",
-    color: "from-violet-400/20 to-violet-600/5",
-    accent: "violet",
+    label: "Synthesis",
+    title: "Neural Landmark Orchestration",
+    text: "HRNet-W32 detects 80 anatomical landmarks with immediate computation of 90+ clinical biometrics. Review confidence scores in a real-time Cartesian grid.",
+    color: "from-sky-500/20 to-sky-500/5",
+    accent: "sky",
   },
   {
     icon: FileCheck2,
     step: "03",
-    label: "Report",
-    title: "Generate Clinical Report Packets",
-    text: "Create summaries, treatment rationales, overlays, and downloadable PDF reports with full audit trail and clinician signature.",
-    color: "from-emerald-400/20 to-emerald-600/5",
+    label: "Artifact",
+    title: "Diagnostic Documentation Synthesis",
+    text: "Produce serialized clinical report packets with skeletal projections, etiological rationales, and full audit logs for surgical planning.",
+    color: "from-emerald-500/20 to-emerald-500/5",
     accent: "emerald",
   },
 ];
 
 const platformStats = [
-  { value: "38", label: "Landmarks Tracked", icon: BarChart3 },
-  { value: "4", label: "Analysis Families", icon: BrainCircuit },
-  { value: "<2s", label: "AI Response Time", icon: Clock },
-  { value: "PDF", label: "Report Export", icon: FileCheck2 },
+  { value: "80", label: "Neural Landmarks", icon: Target },
+  { value: "90+", label: "Clinical Biometrics", icon: BarChart3 },
+  { value: "1.2s", label: "Inference Latency", icon: Zap },
+  { value: "SLA", label: "Mission Critical", icon: ShieldCheck },
 ];
 
 const services = [
-  { name: "Backend API", detail: "Patient and report records", status: "online" },
-  { name: "AI Service", detail: "Landmarks and clinical summaries", status: "online" },
-  { name: "Object Storage", detail: "X-rays, overlays, PDFs", status: "online" },
+  { name: "Clinical Backend", detail: "Active Handshake", status: "online", icon: HardDrive },
+  { name: "AI Inference Engine", detail: "Neural Core Ready", status: "online", icon: Cpu },
+  { name: "Asset Repository", detail: "Storage Synchronized", status: "online", icon: DatabaseZap },
 ];
-
-// Animated counter hook
-function useCounter(target: number, duration = 1500) {
-  const [count, setCount] = useState(0);
-  const [started, setStarted] = useState(false);
-
-  useEffect(() => {
-    if (!started) return;
-    const start = performance.now();
-    const frame = (now: number) => {
-      const progress = Math.min((now - start) / duration, 1);
-      const eased = 1 - Math.pow(1 - progress, 3);
-      setCount(Math.floor(eased * target));
-      if (progress < 1) requestAnimationFrame(frame);
-    };
-    requestAnimationFrame(frame);
-  }, [started, target, duration]);
-
-  return { count, start: () => setStarted(true) };
-}
-
-function AnimatedStat({ value, label, icon: Icon }: { value: string; label: string; icon: any }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const numericValue = parseInt(value.replace(/\D/g, ""), 10);
-  const isNumeric = !isNaN(numericValue);
-  const { count, start } = useCounter(numericValue, 1200);
-  const [visible, setVisible] = useState(false);
-
-  useEffect(() => {
-    const obs = new IntersectionObserver(
-      ([entry]) => { if (entry.isIntersecting) { setVisible(true); start(); obs.disconnect(); } },
-      { threshold: 0.4 }
-    );
-    if (ref.current) obs.observe(ref.current);
-    return () => obs.disconnect();
-  }, []);
-
-  return (
-    <div
-      ref={ref}
-      className={`stat-card group relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.03] p-5 backdrop-blur transition-all duration-500 hover:border-white/20 hover:bg-white/[0.06] ${visible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"}`}
-      style={{ transitionDelay: "0.1s" }}
-    >
-      <div className="absolute inset-0 bg-gradient-to-br from-cyan-400/5 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
-      <Icon className="mb-3 h-5 w-5 text-cyan-400/70" />
-      <p className="font-display text-3xl font-bold tracking-tight text-white">
-        {isNumeric ? (visible ? count : 0) : value}{value.includes("<") ? "" : ""}
-      </p>
-      <p className="mt-1 text-sm text-slate-400">{label}</p>
-    </div>
-  );
-}
 
 export default function Home() {
   const { user, loading, isAuthenticated, logout, refresh } = useAuth();
@@ -137,14 +71,13 @@ export default function Home() {
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [specialty, setSpecialty] = useState("");
-  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
-  const heroRef = useRef<HTMLDivElement>(null);
+  const [mousePos, setMousePos] = useState({ x: 0.5, y: 0.5 });
+  
   const utils = trpc.useUtils();
   const login = trpc.auth.login.useMutation();
   const register = trpc.auth.register.useMutation();
   const isSubmitting = login.isPending || register.isPending;
 
-  // Mouse parallax
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       setMousePos({ x: e.clientX / window.innerWidth, y: e.clientY / window.innerHeight });
@@ -154,7 +87,7 @@ export default function Home() {
   }, []);
 
   const initials = useMemo(() => {
-    const source = user?.name || user?.email || "Clinical User";
+    const source = user?.name || user?.email || "CU";
     return source.split(/\s+/).slice(0, 2).map((part: any) => part[0]?.toUpperCase()).join("");
   }, [user]);
 
@@ -166,530 +99,257 @@ export default function Home() {
         : login.mutateAsync({ email, password }));
       utils.auth.me.setData(undefined, authResult.user as any);
       await refresh();
-      toast.success(authMode === "register" ? "Account created and signed in" : "Signed in successfully");
+      toast.success(authMode === "register" ? "Clinical profile provisioned." : "Secure session initialized.");
       setLocation("/");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Authentication failed");
+      toast.error(error instanceof Error ? error.message : "Handshake failed.");
     }
   };
 
   return (
-    <>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:wght@300;400;500&display=swap');
+    <div className="min-h-screen bg-[#050508] text-foreground selection:bg-primary/30 font-sans relative overflow-hidden">
+      
+      {/* ── Ambient Matrix ── */}
+      <div className="pointer-events-none fixed inset-0 overflow-hidden">
+        <div 
+          className="absolute -top-60 -left-40 w-[1000px] h-[1000px] rounded-full bg-primary/10 blur-[160px] animate-pulse duration-[15s]" 
+          style={{ transform: `translate(${mousePos.x * 30}px, ${mousePos.y * 20}px)` }}
+        />
+        <div 
+          className="absolute -bottom-60 -right-40 w-[800px] h-[800px] rounded-full bg-blue-500/10 blur-[160px] animate-pulse duration-[12s]" 
+          style={{ transform: `translate(${-mousePos.x * 20}px, ${-mousePos.y * 15}px)` }}
+        />
+        {/* Grid and Noise */}
+        <div className="absolute inset-0 bg-[linear-gradient(rgba(148,163,184,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(148,163,184,0.03)_1px,transparent_1px)] bg-[size:40px_40px]" />
+        <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.15] brightness-100 contrast-150 pointer-events-none" />
+      </div>
 
-        * { box-sizing: border-box; }
-
-        .font-display { font-family: 'Syne', sans-serif; }
-        .font-body { font-family: 'DM Sans', sans-serif; }
-
-        @keyframes float {
-          0%, 100% { transform: translateY(0px) rotate(0deg); }
-          33% { transform: translateY(-12px) rotate(1deg); }
-          66% { transform: translateY(-6px) rotate(-1deg); }
-        }
-        @keyframes pulse-ring {
-          0% { transform: scale(0.8); opacity: 1; }
-          100% { transform: scale(2); opacity: 0; }
-        }
-        @keyframes scan-line {
-          0% { transform: translateY(-100%); opacity: 0; }
-          10% { opacity: 1; }
-          90% { opacity: 1; }
-          100% { transform: translateY(500%); opacity: 0; }
-        }
-        @keyframes fade-up {
-          from { opacity: 0; transform: translateY(24px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes shimmer {
-          0% { background-position: -200% center; }
-          100% { background-position: 200% center; }
-        }
-        @keyframes dot-pulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.3; }
-        }
-        @keyframes grid-fade {
-          from { opacity: 0; }
-          to { opacity: 1; }
-        }
-        @keyframes border-spin {
-          from { --angle: 0deg; }
-          to { --angle: 360deg; }
-        }
-
-        .animate-float { animation: float 6s ease-in-out infinite; }
-        .animate-fade-up { animation: fade-up 0.6s ease forwards; }
-        .animate-shimmer {
-          background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
-          background-size: 200% 100%;
-          animation: shimmer 2s infinite;
-        }
-
-        .hero-fade-1 { animation: fade-up 0.7s ease 0.1s both; }
-        .hero-fade-2 { animation: fade-up 0.7s ease 0.25s both; }
-        .hero-fade-3 { animation: fade-up 0.7s ease 0.4s both; }
-        .hero-fade-4 { animation: fade-up 0.7s ease 0.55s both; }
-        .hero-fade-5 { animation: fade-up 0.7s ease 0.7s both; }
-
-        .scan-anim { animation: scan-line 4s ease-in-out infinite; }
-
-        .status-dot {
-          width: 8px; height: 8px; border-radius: 50%; background: #34d399;
-          position: relative;
-        }
-        .status-dot::after {
-          content: ''; position: absolute; inset: -3px; border-radius: 50%;
-          border: 1px solid #34d399;
-          animation: pulse-ring 2s ease-out infinite;
-        }
-
-        .gradient-text {
-          background: linear-gradient(135deg, #e2f8ff 0%, #67e8f9 40%, #a5f3fc 70%, #fff 100%);
-          -webkit-background-clip: text;
-          -webkit-text-fill-color: transparent;
-          background-clip: text;
-        }
-
-        .card-glow:hover {
-          box-shadow: 0 0 40px rgba(103,232,249,0.12), 0 20px 60px rgba(0,0,0,0.4);
-        }
-
-        .workflow-card {
-          transition: transform 0.35s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.35s ease, border-color 0.35s ease;
-        }
-        .workflow-card:hover {
-          transform: translateY(-6px);
-        }
-
-        .auth-panel {
-          box-shadow: 0 0 0 1px rgba(255,255,255,0.08), 0 32px 80px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.1);
-        }
-
-        .input-field {
-          transition: border-color 0.2s, box-shadow 0.2s;
-        }
-        .input-field:focus {
-          border-color: rgba(103,232,249,0.4) !important;
-          box-shadow: 0 0 0 3px rgba(103,232,249,0.08);
-        }
-
-        .btn-primary {
-          background: linear-gradient(135deg, #a5f3fc, #67e8f9);
-          position: relative;
-          overflow: hidden;
-          transition: all 0.3s ease;
-        }
-        .btn-primary::after {
-          content: '';
-          position: absolute;
-          inset: 0;
-          background: linear-gradient(135deg, rgba(255,255,255,0.2), transparent);
-          opacity: 0;
-          transition: opacity 0.3s;
-        }
-        .btn-primary:hover::after { opacity: 1; }
-        .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 12px 40px rgba(103,232,249,0.35); }
-        .btn-primary:active { transform: translateY(0); }
-
-        .noise-overlay {
-          position: fixed; inset: 0; pointer-events: none; z-index: 1; opacity: 0.025;
-          background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
-          background-size: 200px;
-        }
-
-        .divider-line {
-          height: 1px;
-          background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
-        }
-
-        .parallax-orb {
-          transition: transform 0.1s ease-out;
-        }
-
-        .tab-pill {
-          transition: all 0.25s cubic-bezier(0.34,1.56,0.64,1);
-        }
-
-        .stat-card {
-          transition: all 0.4s cubic-bezier(0.34,1.56,0.64,1);
-        }
-      `}</style>
-
-      <div className="noise-overlay" />
-
-      <main className="relative min-h-screen overflow-hidden bg-[#080c14] font-body text-slate-50">
-
-        {/* Background orbs with parallax */}
-        <div className="pointer-events-none fixed inset-0 overflow-hidden">
-          <div
-            className="parallax-orb absolute -left-40 top-[-15rem] h-[42rem] w-[42rem] rounded-full"
-            style={{
-              background: "radial-gradient(circle, rgba(6,182,212,0.18) 0%, transparent 70%)",
-              transform: `translate(${mousePos.x * 20}px, ${mousePos.y * 15}px)`,
-            }}
-          />
-          <div
-            className="parallax-orb absolute right-[-12rem] top-10 h-[38rem] w-[38rem] rounded-full"
-            style={{
-              background: "radial-gradient(circle, rgba(139,92,246,0.12) 0%, transparent 70%)",
-              transform: `translate(${-mousePos.x * 15}px, ${mousePos.y * 12}px)`,
-            }}
-          />
-          <div
-            className="parallax-orb absolute bottom-[-20rem] left-1/3 h-[40rem] w-[40rem] rounded-full"
-            style={{
-              background: "radial-gradient(circle, rgba(16,185,129,0.1) 0%, transparent 70%)",
-              transform: `translate(${mousePos.x * 10}px, ${-mousePos.y * 10}px)`,
-            }}
-          />
-          {/* Fine grid */}
-          <div className="absolute inset-0 bg-[linear-gradient(rgba(148,163,184,0.04)_1px,transparent_1px),linear-gradient(90deg,rgba(148,163,184,0.04)_1px,transparent_1px)] bg-[size:40px_40px]" />
-          {/* Vignette */}
-          <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_80%_at_50%_50%,transparent_50%,rgba(8,12,20,0.8)_100%)]" />
-        </div>
-
-        <section className="relative z-10 mx-auto w-full max-w-7xl px-5 py-6 sm:px-8 lg:px-10">
-
-          {/* Nav */}
-          <nav className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="relative flex h-11 w-11 items-center justify-center rounded-2xl border border-cyan-400/20 bg-gradient-to-br from-cyan-400/20 to-cyan-600/5">
-                <Stethoscope className="h-5 w-5 text-cyan-300" />
-                <div className="absolute inset-0 rounded-2xl animate-shimmer" />
-              </div>
-              <div>
-                <p className="font-display text-lg font-bold tracking-tight text-white">CephAI Advanced</p>
-                <p className="text-[10px] uppercase tracking-[0.3em] text-cyan-300/50">Clinical Intelligence</p>
-              </div>
-            </div>
-
-            <div className="hidden items-center gap-6 text-sm text-slate-400 md:flex">
-              {["Workflow", "Analysis", "Reporting"].map((item) => (
-                <button
-                  key={item}
-                  onClick={() => document.getElementById("clinical-workflow")?.scrollIntoView({ behavior: "smooth" })}
-                  className="transition-colors hover:text-slate-200"
-                >
-                  {item}
-                </button>
-              ))}
-            </div>
-
-            <div className="flex items-center gap-3">
-              <div className="hidden items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/5 px-3 py-1.5 md:flex">
-                <div className="status-dot" />
-                <span className="text-xs text-emerald-300">All systems operational</span>
-              </div>
-              {isAuthenticated && (
-                <button
-                  onClick={() => setLocation("/")}
-                  className="rounded-full border border-white/10 bg-white/[0.04] px-4 py-1.5 text-sm text-slate-300 transition hover:bg-white/[0.08]"
-                >
-                  Dashboard →
-                </button>
-              )}
-            </div>
-          </nav>
-
-          {/* Hero */}
-          <div ref={heroRef} className="grid flex-1 items-center gap-10 py-16 lg:grid-cols-[1.15fr_0.85fr] lg:py-24">
-            <div className="space-y-8">
-
-              <div className="hero-fade-1 inline-flex items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-400/8 px-4 py-2 text-sm text-cyan-200">
-                <Sparkles className="h-3.5 w-3.5" />
-                AI-assisted cephalometric operations platform
-                <span className="ml-1 rounded-full bg-cyan-400/20 px-2 py-0.5 text-xs text-cyan-100">v2.0</span>
-              </div>
-
-              <h1 className="hero-fade-2 font-display max-w-3xl text-[3.2rem] font-bold leading-[0.95] tracking-[-0.04em] sm:text-6xl lg:text-7xl">
-                <span className="gradient-text">Orthodontic</span>
-                <br />
-                <span className="text-white">analysis &</span>
-                <br />
-                <span className="text-slate-400">AI evidence</span>
-                <br />
-                <span className="text-white">in one cockpit.</span>
-              </h1>
-
-              <p className="hero-fade-3 max-w-xl text-lg leading-8 text-slate-400">
-                CephAI connects image upload, landmark review, measurement interpretation,
-                treatment rationale generation, and report export into a{" "}
-                <span className="text-slate-200">secure workspace</span> built for serious cephalometric review.
-              </p>
-
-              <div className="hero-fade-4 flex flex-col gap-3 sm:flex-row">
-                <button
-                  onClick={() => {
-                    if (isAuthenticated) { setLocation("/"); return; }
-                    document.getElementById("backend-auth-form")?.scrollIntoView({ behavior: "smooth" });
-                  }}
-                  disabled={loading}
-                  className="btn-primary inline-flex h-12 items-center justify-center gap-2 rounded-2xl px-6 text-sm font-semibold text-slate-950"
-                >
-                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
-                  {isAuthenticated ? "Enter workspace" : "Sign in securely"}
-                </button>
-                <button
-                  onClick={() => document.getElementById("clinical-workflow")?.scrollIntoView({ behavior: "smooth" })}
-                  className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/[0.03] px-6 text-sm text-slate-300 transition hover:bg-white/[0.07] hover:text-white"
-                >
-                  View workflow
-                  <ChevronDown className="h-4 w-4" />
-                </button>
-              </div>
-
-              {/* Stats */}
-              <div className="hero-fade-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                {platformStats.map((stat) => (
-                  <AnimatedStat key={stat.label} value={stat.value} label={stat.label} icon={stat.icon} />
-                ))}
-              </div>
-            </div>
-
-            {/* Auth Panel */}
-            <aside className="relative">
-              <div className="absolute -inset-8 rounded-[3rem] bg-gradient-to-br from-cyan-400/10 via-violet-400/5 to-transparent blur-3xl" />
-              <div className="auth-panel relative overflow-hidden rounded-[1.75rem] border border-white/[0.09] bg-[#0c1422]/90 backdrop-blur-2xl">
-
-                {/* Decorative scan line */}
-                <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-[1.75rem]">
-                  <div className="scan-anim absolute inset-x-0 h-px bg-gradient-to-r from-transparent via-cyan-400/60 to-transparent" />
-                </div>
-
-                <div className="border-b border-white/[0.07] p-5">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-[10px] uppercase tracking-[0.3em] text-cyan-300/50">Access Console</p>
-                      <h2 className="font-display mt-1.5 text-xl font-bold text-white">
-                        {isAuthenticated ? "Session Active" : "Secure Sign-in"}
-                      </h2>
-                    </div>
-                    <div className="relative flex h-11 w-11 items-center justify-center rounded-2xl border border-emerald-400/20 bg-emerald-400/8">
-                      <LockKeyhole className="h-4.5 w-4.5 text-emerald-300" />
-                      {isAuthenticated && <div className="absolute -right-1 -top-1 h-3 w-3 rounded-full border-2 border-[#0c1422] bg-emerald-400" />}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-4 p-5">
-                  {isAuthenticated ? (
-                    <div className="rounded-2xl border border-cyan-400/15 bg-gradient-to-br from-cyan-400/10 to-transparent p-5">
-                      <div className="flex items-center gap-4">
-                        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-cyan-200 to-cyan-400 font-display text-lg font-bold text-slate-950">
-                          {initials || "CU"}
-                        </div>
-                        <div>
-                          <p className="font-semibold text-white">{user?.name || "Clinical User"}</p>
-                          <p className="text-sm text-slate-400">{user?.email}</p>
-                          <div className="mt-1 flex items-center gap-1.5">
-                            <div className="status-dot scale-75" />
-                            <span className="text-xs text-emerald-300">Session active</span>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                        <button onClick={() => setLocation("/")} className="btn-primary h-10 rounded-xl text-sm font-semibold text-slate-950">
-                          Open workspace
-                        </button>
-                        <button onClick={() => void logout()} className="h-10 rounded-xl border border-white/10 bg-white/[0.04] text-sm text-slate-300 transition hover:bg-white/[0.08]">
-                          Sign out
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <>
-                      {/* Mode toggle */}
-                      <div className="rounded-2xl border border-white/[0.07] bg-white/[0.03] p-4">
-                        <div className="mb-4 grid grid-cols-2 gap-1.5 rounded-xl bg-black/30 p-1">
-                          {(["login", "register"] as const).map((mode) => (
-                            <button
-                              key={mode}
-                              type="button"
-                              onClick={() => setAuthMode(mode)}
-                              className={`tab-pill rounded-lg py-2 text-sm font-medium ${authMode === mode
-                                  ? "bg-gradient-to-r from-cyan-300 to-cyan-400 text-slate-950 shadow-lg shadow-cyan-400/20"
-                                  : "text-slate-400 hover:text-slate-200"
-                                }`}
-                            >
-                              {mode === "login" ? "Sign in" : "Register"}
-                            </button>
-                          ))}
-                        </div>
-
-                        <form id="backend-auth-form" className="space-y-3" onSubmit={handleAuthSubmit}>
-                          {authMode === "register" && (
-                            <div className="space-y-1.5">
-                              <Label htmlFor="fullName" className="text-xs font-medium text-slate-400">Full name</Label>
-                              <Input
-                                id="fullName"
-                                value={fullName}
-                                onChange={(e) => setFullName(e.target.value)}
-                                required
-                                minLength={2}
-                                autoComplete="name"
-                                className="input-field h-10 rounded-xl border-white/[0.08] bg-black/30 text-sm text-slate-100 placeholder:text-slate-600"
-                                placeholder="Dr. Yasmin Abdallah"
-                              />
-                            </div>
-                          )}
-                          <div className="space-y-1.5">
-                            <Label htmlFor="email" className="text-xs font-medium text-slate-400">Email address</Label>
-                            <Input
-                              id="email"
-                              type="email"
-                              value={email}
-                              onChange={(e) => setEmail(e.target.value)}
-                              required
-                              autoComplete="email"
-                              className="input-field h-10 rounded-xl border-white/[0.08] bg-black/30 text-sm text-slate-100 placeholder:text-slate-600"
-                              placeholder="doctor@clinic.com"
-                            />
-                          </div>
-                          <div className="space-y-1.5">
-                            <Label htmlFor="password" className="text-xs font-medium text-slate-400">Password</Label>
-                            <Input
-                              id="password"
-                              type="password"
-                              value={password}
-                              onChange={(e) => setPassword(e.target.value)}
-                              required
-                              minLength={authMode === "register" ? 8 : 1}
-                              autoComplete={authMode === "register" ? "new-password" : "current-password"}
-                              className="input-field h-10 rounded-xl border-white/[0.08] bg-black/30 text-sm text-slate-100 placeholder:text-slate-600"
-                              placeholder={authMode === "register" ? "Min. 8 characters" : "Your password"}
-                            />
-                          </div>
-                          {authMode === "register" && (
-                            <div className="space-y-1.5">
-                              <Label htmlFor="specialty" className="text-xs font-medium text-slate-400">
-                                Specialty <span className="text-slate-600">(optional)</span>
-                              </Label>
-                              <Input
-                                id="specialty"
-                                value={specialty}
-                                onChange={(e) => setSpecialty(e.target.value)}
-                                autoComplete="organization-title"
-                                className="input-field h-10 rounded-xl border-white/[0.08] bg-black/30 text-sm text-slate-100 placeholder:text-slate-600"
-                                placeholder="Orthodontist"
-                              />
-                            </div>
-                          )}
-                          <button
-                            type="submit"
-                            disabled={loading || isSubmitting}
-                            className="btn-primary mt-1 flex h-11 w-full items-center justify-center gap-2 rounded-xl text-sm font-bold text-slate-950 disabled:opacity-60"
-                          >
-                            {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
-                            {authMode === "register" ? "Create account" : "Sign in"}
-                          </button>
-                        </form>
-                      </div>
-
-                      {/* Trust signals */}
-                      <div className="grid grid-cols-2 gap-2">
-                        {trustSignals.map((signal) => (
-                          <div
-                            key={signal}
-                            className="flex items-center gap-2 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2.5 text-xs text-slate-400"
-                          >
-                            <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0 text-emerald-400" />
-                            {signal}
-                          </div>
-                        ))}
-                      </div>
-                    </>
-                  )}
-
-                  {/* Service status */}
-                  <div className="rounded-2xl border border-white/[0.07] bg-gradient-to-br from-white/[0.03] to-transparent p-4">
-                    <div className="mb-3 flex items-center justify-between">
-                      <p className="text-xs font-medium text-slate-300">Service Readiness</p>
-                      <span className="flex items-center gap-1.5 rounded-full border border-emerald-400/20 bg-emerald-400/8 px-2.5 py-1 text-xs text-emerald-300">
-                        <div className="status-dot scale-75" />
-                        All online
-                      </span>
-                    </div>
-                    <div className="space-y-2">
-                      {services.map((svc) => (
-                        <div key={svc.name} className="flex items-center justify-between rounded-xl bg-white/[0.03] px-3 py-2.5">
-                          <div>
-                            <p className="text-sm font-medium text-white">{svc.name}</p>
-                            <p className="text-xs text-slate-500">{svc.detail}</p>
-                          </div>
-                          <Activity className="h-4 w-4 text-cyan-400/60" />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </aside>
+      <div className="relative z-10 max-w-[1600px] mx-auto p-6 md:p-10 lg:p-16">
+        
+        {/* ── Navigation ── */}
+        <nav className="flex items-center justify-between gap-6 mb-20 animate-in fade-in slide-in-from-top-4 duration-1000">
+          <div className="flex items-center gap-4">
+             <div className="h-12 w-12 rounded-[20px] bg-primary flex items-center justify-center text-primary-foreground shadow-2xl shadow-primary/30">
+               <ShieldCheck className="h-7 w-7" />
+             </div>
+             <div className="hidden sm:block">
+                <h2 className="text-xl font-black tracking-tight text-white">CephAI</h2>
+                <p className="text-[10px] font-black uppercase tracking-[0.4em] text-primary/60">Surgical Analytics</p>
+             </div>
           </div>
 
-          {/* Divider */}
-          <div className="divider-line my-2" />
+          <div className="hidden lg:flex items-center gap-10">
+             {["Protocol", "Infrastructure", "Security"].map(item => (
+               <button key={item} className="text-[10px] font-black uppercase tracking-[0.25em] text-muted-foreground/60 hover:text-white transition-colors">{item}</button>
+             ))}
+          </div>
 
-          {/* Workflow section */}
-          <section id="clinical-workflow" className="py-16">
-            <div className="mb-10 text-center">
-              <p className="mb-3 text-xs uppercase tracking-[0.3em] text-cyan-300/60">Clinical Pipeline</p>
-              <h2 className="font-display text-4xl font-bold text-white">How it works</h2>
-              <p className="mx-auto mt-4 max-w-xl text-slate-400">
-                From image acquisition to report export — a single, secure workflow purpose-built for cephalometric analysis.
+          <div className="flex items-center gap-4">
+             <div className="hidden md:flex items-center gap-3 px-5 py-2.5 rounded-2xl bg-emerald-500/5 border border-emerald-500/10 text-emerald-500">
+                <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse shadow-lg shadow-emerald-500/50" />
+                <span className="text-[10px] font-black uppercase tracking-widest">Global Engine Online</span>
+             </div>
+             {isAuthenticated && (
+               <button onClick={() => setLocation("/")} className="h-11 px-6 rounded-xl bg-primary/10 border border-primary/20 text-primary text-[10px] font-black uppercase tracking-widest hover:bg-primary/20 transition-all">
+                 Active Workspace
+               </button>
+             )}
+          </div>
+        </nav>
+
+        {/* ── Hero Section ── */}
+        <div className="grid lg:grid-cols-[1.1fr_0.9fr] gap-20 items-center mb-32">
+           <div className="space-y-10 animate-in fade-in slide-in-from-left-10 duration-1000">
+              <div className="inline-flex items-center gap-3 px-4 py-2 rounded-full bg-primary/10 border border-primary/20 text-primary">
+                 <Sparkles className="h-3.5 w-3.5" />
+                 <span className="text-[10px] font-black uppercase tracking-widest">Next-Gen Neural Diagnostics v2.2</span>
+              </div>
+
+              <h1 className="text-6xl md:text-8xl font-black tracking-tighter leading-[0.85] text-white">
+                Advanced<br />
+                <span className="text-gradient-primary">Cephalometric</span><br />
+                Orchestration.
+              </h1>
+
+              <p className="text-xl text-muted-foreground font-medium max-w-xl leading-relaxed">
+                Seamlessly unify image ingestion, neural landmark synthesis, and high-fidelity diagnostic reporting in a mission-critical surgical workspace.
               </p>
-            </div>
 
-            <div className="grid gap-4 lg:grid-cols-3">
+              <div className="flex flex-wrap gap-4">
+                 <button onClick={() => { if(isAuthenticated) setLocation("/"); else document.getElementById("auth-matrix")?.scrollIntoView({ behavior: 'smooth' }); }} className="h-16 px-10 rounded-2xl bg-primary text-primary-foreground font-black uppercase tracking-[0.2em] text-[11px] shadow-2xl shadow-primary/20 hover-lift transition-all">
+                    Initialize Handshake
+                 </button>
+                 <button className="h-16 px-10 rounded-2xl border-2 border-white/5 bg-white/5 backdrop-blur-md text-white font-black uppercase tracking-[0.2em] text-[11px] hover:bg-white/10 transition-all">
+                    Clinical Workflow
+                 </button>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-10">
+                 {platformStats.map(stat => (
+                   <div key={stat.label} className="p-6 rounded-3xl border border-white/5 bg-white/[0.02] backdrop-blur-sm group hover:border-primary/20 transition-all duration-700">
+                      <stat.icon className="h-5 w-5 text-primary/40 mb-3 group-hover:text-primary transition-colors" />
+                      <p className="text-3xl font-black tracking-tighter text-white">{stat.value}</p>
+                      <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/60 mt-1">{stat.label}</p>
+                   </div>
+                 ))}
+              </div>
+           </div>
+
+           {/* ── Auth Matrix ── */}
+           <div id="auth-matrix" className="relative animate-in fade-in slide-in-from-right-10 duration-1000">
+              <div className="absolute -inset-10 bg-primary/10 blur-[100px] opacity-20" />
+              <div className="relative glass-premium rounded-[48px] border-border/20 shadow-2xl-professional overflow-hidden">
+                 {/* Decorative scanning element */}
+                 <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-[48px]">
+                    <div className="absolute inset-x-0 h-px bg-gradient-to-r from-transparent via-primary/60 to-transparent animate-scan-line" style={{ top: '20%' }} />
+                 </div>
+
+                 <div className="p-10 border-b border-border/10 flex items-center justify-between bg-muted/5 backdrop-blur-md">
+                    <div className="space-y-1">
+                       <p className="text-[10px] font-black uppercase tracking-[0.3em] text-primary/60">Registry Portal</p>
+                       <h3 className="text-2xl font-black tracking-tight">{isAuthenticated ? "Session Synchronized" : "Identity Handshake"}</h3>
+                    </div>
+                    <div className="h-14 w-14 rounded-[20px] bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-500 shadow-xl shadow-emerald-500/5">
+                       <LockKeyhole className="h-6 w-6" />
+                    </div>
+                 </div>
+
+                 <div className="p-10 space-y-8">
+                    {isAuthenticated ? (
+                      <div className="p-8 rounded-[32px] bg-primary/5 border border-primary/20 space-y-6">
+                         <div className="flex items-center gap-5">
+                            <div className="h-16 w-16 rounded-[24px] bg-primary flex items-center justify-center text-primary-foreground font-black text-2xl shadow-xl shadow-primary/20">
+                               {initials}
+                            </div>
+                            <div className="space-y-1">
+                               <h4 className="text-xl font-black tracking-tight">{user?.name || "Clinical Professional"}</h4>
+                               <p className="text-xs font-bold text-muted-foreground/60">{user?.email}</p>
+                            </div>
+                         </div>
+                         <div className="grid gap-3 pt-4">
+                            <button onClick={() => setLocation("/")} className="h-14 rounded-2xl bg-primary text-primary-foreground font-black uppercase tracking-widest text-[11px] shadow-xl shadow-primary/20 hover-lift transition-all">Enter Workspace</button>
+                            <button onClick={() => logout()} className="h-14 rounded-2xl border border-border/20 text-muted-foreground hover:text-rose-500 hover:border-rose-500/20 transition-all font-black uppercase tracking-widest text-[11px]">Terminate Session</button>
+                         </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="grid grid-cols-2 gap-2 p-1.5 rounded-[22px] bg-muted/20 border border-border/10 backdrop-blur-sm">
+                           {(["login", "register"] as const).map(mode => (
+                             <button
+                               key={mode}
+                               onClick={() => setAuthMode(mode)}
+                               className={cn("py-3.5 rounded-[16px] text-[10px] font-black uppercase tracking-widest transition-all duration-500", authMode === mode ? "bg-primary text-primary-foreground shadow-lg shadow-primary/20" : "text-muted-foreground/60 hover:text-foreground")}
+                             >
+                               {mode === "login" ? "IDENTITY LOGIN" : "NEW ENROLLMENT"}
+                             </button>
+                           ))}
+                        </div>
+
+                        <form onSubmit={handleAuthSubmit} className="space-y-5">
+                           {authMode === "register" && (
+                             <div className="space-y-2">
+                                <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/40 ml-1">Full Clinical Name</Label>
+                                <Input value={fullName} onChange={e => setFullName(e.target.value)} required className="h-14 rounded-2xl border-2 border-border/40 bg-muted/10 font-bold px-6 focus:border-primary/40 transition-all" placeholder="Dr. Julian Vane" />
+                             </div>
+                           )}
+                           <div className="space-y-2">
+                              <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/40 ml-1">Registry Email</Label>
+                              <Input type="email" value={email} onChange={e => setEmail(e.target.value)} required className="h-14 rounded-2xl border-2 border-border/40 bg-muted/10 font-bold px-6 focus:border-primary/40 transition-all" placeholder="clinical@cephai.io" />
+                           </div>
+                           <div className="space-y-2">
+                              <Label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/40 ml-1">Passkey</Label>
+                              <Input type="password" value={password} onChange={e => setPassword(e.target.value)} required className="h-14 rounded-2xl border-2 border-border/40 bg-muted/10 font-bold px-6 focus:border-primary/40 transition-all" placeholder="••••••••••••" />
+                           </div>
+                           <button type="submit" disabled={isSubmitting} className="h-16 w-full rounded-2xl bg-primary text-primary-foreground font-black uppercase tracking-[0.25em] text-[11px] shadow-2xl shadow-primary/20 hover-lift transition-all mt-4">
+                              {isSubmitting ? "VERIFYING HANDSHAKE..." : authMode === "login" ? "INITIALIZE SESSION" : "PROVISION ACCOUNT"}
+                           </button>
+                        </form>
+                      </>
+                    )}
+
+                    {/* Infrastructure Monitor */}
+                    <div className="p-6 rounded-[32px] border border-white/5 bg-white/[0.02] backdrop-blur-sm space-y-4">
+                       <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/40">Infrastructure Integrity</span>
+                          <Pill tone="success" size="xs" className="font-black uppercase tracking-widest text-[8px]">Synchronized</Pill>
+                       </div>
+                       <div className="grid gap-2">
+                          {services.map(svc => (
+                            <div key={svc.name} className="flex items-center justify-between p-3.5 rounded-xl bg-background/40 border border-border/10 group hover:border-primary/20 transition-all">
+                               <div className="flex items-center gap-3">
+                                  <svc.icon className="h-3.5 w-3.5 text-muted-foreground/30 group-hover:text-primary transition-colors" />
+                                  <div>
+                                     <p className="text-[10px] font-black text-white/80">{svc.name}</p>
+                                     <p className="text-[8px] font-black uppercase tracking-tighter text-muted-foreground/40">{svc.detail}</p>
+                                  </div>
+                               </div>
+                               <Activity className="h-3.5 w-3.5 text-emerald-500/40" />
+                            </div>
+                          ))}
+                       </div>
+                    </div>
+                 </div>
+              </div>
+           </div>
+        </div>
+
+        {/* ── Workflow Architecture ── */}
+        <section className="py-20 border-t border-border/10">
+           <div className="text-center mb-20 space-y-4">
+              <span className="text-[10px] font-black uppercase tracking-[0.4em] text-primary/60">Core Architecture</span>
+              <h2 className="text-4xl md:text-5xl font-black tracking-tight">Clinical Pipeline Orchestration</h2>
+              <p className="text-muted-foreground font-medium max-w-2xl mx-auto">
+                 An integrated diagnostic loop designed for surgical precision and clinical accountability.
+              </p>
+           </div>
+
+           <div className="grid lg:grid-cols-3 gap-10">
               {workflow.map((item, i) => (
-                <article
-                  key={item.label}
-                  className={`workflow-card card-glow group relative overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.03] p-6 backdrop-blur cursor-default`}
-                >
-                  <div className={`absolute inset-0 bg-gradient-to-br ${item.color} opacity-0 transition-opacity duration-500 group-hover:opacity-100`} />
-                  <div className="absolute right-4 top-4 font-display text-6xl font-black text-white/[0.04] select-none">{item.step}</div>
+                <PremiumCard key={item.label} className="p-12 glass-premium hover-glow group shadow-lg-professional border-border/20 relative overflow-hidden">
+                   <div className={cn("absolute inset-0 bg-gradient-to-br opacity-0 group-hover:opacity-100 transition-opacity duration-1000", item.color)} />
+                   <div className="absolute right-10 top-10 text-8xl font-black text-white opacity-[0.02] select-none group-hover:scale-110 transition-transform duration-1000">{item.step}</div>
+                   
+                   <div className="relative z-10 space-y-8">
+                      <div className={cn("h-16 w-16 rounded-[24px] border-2 flex items-center justify-center transition-all duration-700 group-hover:scale-110 group-hover:rotate-6", item.accent === 'primary' ? 'border-primary/20 bg-primary/10 text-primary' : item.accent === 'sky' ? 'border-sky-500/20 bg-sky-500/10 text-sky-500' : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-500')}>
+                         <item.icon className="h-8 w-8" />
+                      </div>
 
-                  <div className="relative">
-                    <div className={`mb-6 inline-flex h-12 w-12 items-center justify-center rounded-2xl border border-${item.accent}-400/20 bg-${item.accent}-400/10`}>
-                      <item.icon className={`h-5 w-5 text-${item.accent}-300`} />
-                    </div>
+                      <div className="space-y-4">
+                         <div className="flex items-center gap-3">
+                            <span className={cn("px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest text-white shadow-lg", item.accent === 'primary' ? 'bg-primary shadow-primary/20' : item.accent === 'sky' ? 'bg-sky-500 shadow-sky-500/20' : 'bg-emerald-500 shadow-emerald-500/20')}>
+                               {item.label}
+                            </span>
+                            <span className="text-[10px] font-black text-muted-foreground/30 uppercase tracking-widest">Phase 0{i+1}</span>
+                         </div>
+                         <h3 className="text-2xl font-black tracking-tight leading-tight">{item.title}</h3>
+                         <p className="text-sm text-muted-foreground font-medium leading-relaxed opacity-70 group-hover:opacity-100 transition-opacity">
+                            {item.text}
+                         </p>
+                      </div>
 
-                    <div className="mb-2 flex items-center gap-2">
-                      <span className={`rounded-full border border-${item.accent}-400/20 bg-${item.accent}-400/10 px-2.5 py-0.5 text-xs font-medium text-${item.accent}-300`}>
-                        {item.label}
-                      </span>
-                      <span className="text-xs text-slate-600">Step {i + 1}</span>
-                    </div>
-
-                    <h3 className="font-display text-lg font-bold text-white">{item.title}</h3>
-                    <p className="mt-2 text-sm leading-6 text-slate-400">{item.text}</p>
-
-                    <div className="mt-5 flex items-center gap-1.5 text-xs text-slate-500 transition-colors group-hover:text-slate-300">
-                      <Zap className="h-3 w-3" />
-                      AI-assisted step
-                    </div>
-                  </div>
-                </article>
+                      <div className="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-muted-foreground/40 pt-4">
+                         <Zap className="h-3.5 w-3.5" />
+                         Engine Augmented Step
+                      </div>
+                   </div>
+                </PremiumCard>
               ))}
-            </div>
-          </section>
-
-          {/* Footer */}
-          <div className="divider-line mb-6" />
-          <footer className="flex flex-col gap-3 py-6 text-xs text-slate-600 md:flex-row md:items-center md:justify-between">
-            <div className="flex items-center gap-2">
-              <ShieldCheck className="h-3.5 w-3.5 text-cyan-400/40" />
-              Clinical decision support. Final diagnosis remains clinician-reviewed.
-            </div>
-            <div className="flex items-center gap-2">
-              <DatabaseZap className="h-3.5 w-3.5 text-cyan-400/40" />
-              Backend, AI service, and storage-aware frontend.
-            </div>
-            <div className="text-slate-700">© 2025 CephAI Advanced</div>
-          </footer>
+           </div>
         </section>
-      </main>
-    </>
+
+        {/* ── Footer ── */}
+        <footer className="mt-40 pt-10 border-t border-border/10 flex flex-col md:flex-row items-center justify-between gap-8 text-[10px] font-black uppercase tracking-widest text-muted-foreground/30">
+           <div className="flex items-center gap-4">
+              <ShieldCheck className="h-4 w-4 text-primary/40" />
+              <span>CLINICAL DECISION SUPPORT · HIPAA SECURE TRANSMISSION</span>
+           </div>
+           <div className="flex items-center gap-8">
+              <span>BACKEND v2.2</span>
+              <span>ENGINE v1.8</span>
+              <span className="text-foreground/20">© 2025 CEPHAI SURGICAL</span>
+           </div>
+        </footer>
+      </div>
+    </div>
   );
 }

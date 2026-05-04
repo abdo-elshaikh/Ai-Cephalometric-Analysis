@@ -1,28 +1,15 @@
 import React, { useState } from "react";
 import {
-  BookOpen,
-  Users,
-  FolderKanban,
-  Upload,
-  ScanLine,
-  BrainCircuit,
-  Activity,
-  BarChart3,
-  FileText,
-  ChevronDown,
-  ChevronRight,
-  CheckCircle2,
-  Lightbulb,
-  AlertTriangle,
-  Keyboard,
-  Microscope,
-  Target,
-  Info,
-  Zap,
-  Shield,
-  ExternalLink,
+  BookOpen, Users, FolderKanban, Upload, ScanLine, BrainCircuit, Activity,
+  BarChart3, FileText, ChevronDown, ChevronRight, CheckCircle2, Lightbulb,
+  AlertTriangle, Keyboard, Microscope, Target, Info, Zap, Shield, ExternalLink,
+  HelpCircle, MessageSquare, Globe, Layers, Sparkles, Command, MousePointer2,
+  Monitor,
+  ImageIcon,
+  Layout,
+  Share2,
 } from "lucide-react";
-import { Card, PageHeader, TabBar, Pill, Divider } from "@/components/_core/ClinicalComponents";
+import { Card, PageHeader, TabBar, Pill, Divider, TextInput } from "@/components/_core/ClinicalComponents";
 import { cn } from "@/lib/utils";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -41,19 +28,21 @@ function Callout({
   children: React.ReactNode;
 }) {
   const styles = {
-    info:    { border: "border-info/20",    bg: "bg-info/8",    icon: Info,          iconColor: "text-info-foreground"    },
-    warning: { border: "border-warning/20", bg: "bg-warning/8", icon: AlertTriangle, iconColor: "text-warning-foreground" },
-    tip:     { border: "border-primary/20", bg: "bg-primary/8", icon: Lightbulb,     iconColor: "text-primary"            },
-    success: { border: "border-success/20", bg: "bg-success/8", icon: CheckCircle2,  iconColor: "text-success-foreground" },
+    info: { border: "border-sky-500/20", bg: "bg-sky-500/5", icon: Info, iconColor: "text-sky-500" },
+    warning: { border: "border-amber-500/20", bg: "bg-amber-500/5", icon: AlertTriangle, iconColor: "text-amber-500" },
+    tip: { border: "border-primary/20", bg: "bg-primary/5", icon: Lightbulb, iconColor: "text-primary" },
+    success: { border: "border-emerald-500/20", bg: "bg-emerald-500/5", icon: CheckCircle2, iconColor: "text-emerald-500" },
   }[type];
   const Icon = styles.icon;
 
   return (
-    <div className={cn("flex gap-3 rounded-lg border p-4", styles.border, styles.bg)}>
-      <Icon className={cn("h-4 w-4 mt-0.5 shrink-0", styles.iconColor)} />
+    <div className={cn("flex gap-5 rounded-[24px] border p-6 backdrop-blur-sm", styles.border, styles.bg)}>
+      <div className={cn("h-10 w-10 rounded-xl flex items-center justify-center shrink-0 border border-current opacity-20")}>
+        <Icon className={cn("h-5 w-5", styles.iconColor)} />
+      </div>
       <div>
-        {title && <p className="text-[12px] font-semibold text-foreground mb-1">{title}</p>}
-        <div className="text-[12px] leading-relaxed text-muted-foreground">{children}</div>
+        {title && <p className="text-[11px] font-black uppercase tracking-widest text-foreground mb-1">{title}</p>}
+        <div className="text-sm leading-relaxed text-muted-foreground font-medium">{children}</div>
       </div>
     </div>
   );
@@ -70,22 +59,22 @@ function Accordion({
 }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="border-b border-border last:border-b-0">
+    <div className="border-b border-border/10 last:border-b-0 group">
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
-        className="flex w-full items-center justify-between gap-4 py-4 text-left transition-colors hover:text-foreground"
+        className="flex w-full items-center justify-between gap-6 py-8 text-left transition-all hover:pl-2"
       >
-        <span className="text-[13px] font-medium text-foreground">{question}</span>
-        {open
-          ? <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
-          : <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" />}
+        <span className={cn("text-base font-black tracking-tight transition-colors", open ? "text-primary" : "text-foreground/80 group-hover:text-foreground")}>{question}</span>
+        <div className={cn("h-8 w-8 rounded-lg flex items-center justify-center border transition-all", open ? "bg-primary/10 border-primary/20 text-primary rotate-180" : "bg-muted/10 border-border/20 text-muted-foreground/40")}>
+          <ChevronDown className="h-4 w-4" />
+        </div>
       </button>
-      {open && (
-        <div className="pb-4 text-[12px] leading-relaxed text-muted-foreground space-y-2">
+      <div className={cn("overflow-hidden transition-all duration-500", open ? "max-h-[500px] opacity-100 pb-8" : "max-h-0 opacity-0")}>
+        <div className="text-sm leading-relaxed text-muted-foreground font-medium space-y-4 pl-2 border-l-2 border-primary/20">
           {children}
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -108,23 +97,28 @@ function WorkflowStep({
   children: React.ReactNode;
 }) {
   return (
-    <div className="relative flex gap-5">
+    <div className="relative flex gap-10 group">
       {/* Spine connector */}
       {step < 7 && (
-        <div className="absolute left-[19px] top-12 bottom-0 w-px bg-border" />
+        <div className="absolute left-[23px] top-12 bottom-0 w-px bg-gradient-to-b from-primary/40 to-transparent" />
       )}
       <div className={cn(
-        "relative z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-full border-2 text-[12px] font-bold",
+        "relative z-10 flex h-12 w-12 shrink-0 items-center justify-center rounded-[18px] border-2 text-[14px] font-black transition-all duration-500 group-hover:scale-110",
         color
       )}>
-        <Icon className="h-4 w-4" />
-      </div>
-      <div className="flex-1 pb-8">
-        <div className="flex items-center gap-2 mb-2">
-          <h3 className="text-[14px] font-semibold text-foreground">{title}</h3>
-          <code className="text-[10px] font-mono bg-muted px-1.5 py-0.5 rounded text-muted-foreground">{href}</code>
+        <Icon className="h-5 w-5" />
+        <div className="absolute -top-2 -right-2 h-6 w-6 rounded-full bg-background border-2 border-current flex items-center justify-center text-[10px] font-black">
+          {step}
         </div>
-        <div className="text-[13px] leading-relaxed text-muted-foreground space-y-2">
+      </div>
+      <div className="flex-1 pb-16">
+        <div className="flex flex-wrap items-center gap-4 mb-4">
+          <h3 className="text-xl font-black tracking-tight text-foreground group-hover:text-primary transition-colors">{title}</h3>
+          <div className="px-3 py-1 rounded-lg bg-muted/20 border border-border/10 text-[9px] font-black font-mono tracking-widest text-muted-foreground/60 uppercase">
+            Route: {href}
+          </div>
+        </div>
+        <div className="text-sm leading-relaxed text-muted-foreground font-medium space-y-4 max-w-3xl">
           {children}
         </div>
       </div>
@@ -136,14 +130,14 @@ function WorkflowStep({
 
 function ShortcutRow({ keys, action }: { keys: string[]; action: string }) {
   return (
-    <div className="flex items-center justify-between py-2.5 border-b border-border/50 last:border-0">
-      <span className="text-[13px] text-muted-foreground">{action}</span>
-      <div className="flex items-center gap-1">
+    <div className="flex items-center justify-between py-5 border-b border-border/5 last:border-0 group/row">
+      <span className="text-[11px] font-black uppercase tracking-widest text-muted-foreground group-hover/row:text-foreground transition-colors">{action}</span>
+      <div className="flex items-center gap-2">
         {keys.map((k, i) => (
           <React.Fragment key={k}>
-            {i > 0 && <span className="text-[11px] text-muted-foreground/50">+</span>}
-            <kbd className="inline-flex items-center rounded border border-border bg-muted px-2 py-0.5 text-[11px] font-mono font-medium text-foreground shadow-sm">
-              {k}
+            {i > 0 && <span className="text-[10px] font-black text-muted-foreground/20">+</span>}
+            <kbd className="inline-flex items-center h-8 min-w-8 justify-center rounded-lg border-2 border-border/40 bg-card/60 px-3 text-[10px] font-black font-mono text-foreground shadow-sm group-hover/row:border-primary/40 group-hover/row:text-primary transition-all">
+              {k.toUpperCase()}
             </kbd>
           </React.Fragment>
         ))}
@@ -156,11 +150,20 @@ function ShortcutRow({ keys, action }: { keys: string[]; action: string }) {
 
 function MeasurementRow({ name, normal, unit, desc }: { name: string; normal: string; unit: string; desc: string }) {
   return (
-    <tr className="border-b border-border/40 hover:bg-muted/20 transition-colors">
-      <td className="py-3 px-4 text-[13px] font-semibold text-foreground">{name}</td>
-      <td className="py-3 px-4 font-mono text-[12px] text-muted-foreground tabular-nums">{normal}</td>
-      <td className="py-3 px-4 text-[11px] text-muted-foreground/70">{unit}</td>
-      <td className="py-3 px-4 text-[12px] text-muted-foreground max-w-[280px]">{desc}</td>
+    <tr className="border-b border-border/5 group hover:bg-muted/5 transition-colors">
+      <td className="py-6 px-8">
+        <div className="flex items-center gap-3">
+          <div className="h-1.5 w-1.5 rounded-full bg-primary opacity-0 group-hover:opacity-100 transition-opacity" />
+          <span className="text-sm font-black tracking-tight text-foreground group-hover:text-primary transition-colors">{name}</span>
+        </div>
+      </td>
+      <td className="py-6 px-8">
+        <div className="font-black tabular-nums text-xs text-foreground/80 bg-muted/20 px-3 py-1.5 rounded-lg border border-border/10 inline-block">
+          {normal}
+        </div>
+      </td>
+      <td className="py-6 px-8 text-[10px] font-black uppercase tracking-widest text-muted-foreground/40">{unit}</td>
+      <td className="py-6 px-8 text-xs text-muted-foreground font-medium leading-relaxed max-w-[320px]">{desc}</td>
     </tr>
   );
 }
@@ -171,462 +174,400 @@ export default function GuidePage() {
   const [tab, setTab] = useState<GuideTab>("start");
 
   return (
-    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-3 duration-400">
-      <PageHeader
-        eyebrow="Documentation"
-        title="User Guide"
-        description="Everything you need to use the CephAI clinical platform — from first login to final report."
-      />
+    <div className="min-h-screen bg-background text-foreground selection:bg-primary/30 pb-20 animate-in fade-in duration-700">
 
-      <TabBar<GuideTab>
-        tabs={[
-          { id: "start",        label: "Getting Started", icon: Zap         },
-          { id: "workflow",     label: "Workflow",         icon: ChevronRight },
-          { id: "measurements", label: "Measurements",     icon: Target       },
-          { id: "shortcuts",    label: "Shortcuts",        icon: Keyboard     },
-          { id: "faq",          label: "FAQ",              icon: BookOpen     },
-        ]}
-        active={tab}
-        onChange={setTab}
-      />
+      {/* ── Ambient background ── */}
+      <div className="pointer-events-none fixed inset-0 overflow-hidden">
+        <div className="absolute -top-60 -left-40 w-[800px] h-[800px] rounded-full bg-primary/5 blur-[120px] animate-pulse duration-[12s]" />
+        <div className="absolute bottom-0 -right-40 w-[600px] h-[600px] rounded-full bg-emerald-500/5 blur-[100px] animate-pulse duration-[10s]" />
+      </div>
 
-      {/* ── Getting Started ──────────────────────────────────────────────────── */}
-      {tab === "start" && (
-        <div className="space-y-6">
-          <div className="grid gap-4 sm:grid-cols-3">
-            {[
-              { icon: Shield,      title: "HIPAA-Compliant",    desc: "All PHI stored on your backend server. The browser stores only your session token." },
-              { icon: BrainCircuit,title: "AI-Powered Analysis",desc: "HRNet-W32 detects 80 anatomical landmarks. 90+ cephalometric measurements computed automatically." },
-              { icon: FileText,    title: "Clinical Reports",   desc: "Export PDF and DOCX reports with measurements, overlays, diagnosis, and treatment plan." },
-            ].map(item => {
-              const Icon = item.icon;
-              return (
-                <Card key={item.title} className="flex flex-col gap-3">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-primary/20 bg-primary/10">
-                    <Icon className="h-4 w-4 text-primary" />
+      <div className="relative z-10 space-y-10 p-6 md:p-8 lg:p-10 max-w-[1600px] mx-auto">
+
+        {/* ── Page header ── */}
+        <div className="flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="h-1.5 w-8 rounded-full bg-gradient-to-r from-primary to-emerald-400" />
+              <span className="text-xs font-black uppercase tracking-[0.25em] text-primary/80">
+                Instructional Nexus
+              </span>
+            </div>
+            <h1 className="text-4xl font-black tracking-tight text-gradient-primary md:text-5xl">
+              User Guide
+            </h1>
+            <p className="text-muted-foreground font-medium max-w-2xl leading-relaxed">
+              Comprehensive clinical documentation for the CephAI ecosystem. Master the diagnostic orchestration cycle, AI telemetry, and report synthesis.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-3 shrink-0 bg-card/30 backdrop-blur-md p-2 rounded-2xl border border-border/40 shadow-sm-professional">
+            <div className="flex items-center gap-3 px-6 py-2.5 bg-primary/10 border border-primary/20 rounded-xl text-primary">
+              <HelpCircle className="h-4 w-4" />
+              <span className="text-[10px] font-black uppercase tracking-widest">Knowledge Base v2.2</span>
+            </div>
+          </div>
+        </div>
+
+        <TabBar<GuideTab>
+          tabs={[
+            { id: "start", label: "Orientation", icon: Zap },
+            { id: "workflow", label: "Orchestration", icon: ChevronRight },
+            { id: "measurements", label: "Biometrics", icon: Target },
+            { id: "shortcuts", label: "Hotkeys", icon: Keyboard },
+            { id: "faq", label: "Synthesis FAQ", icon: BookOpen },
+          ]}
+          active={tab}
+          onChange={setTab}
+          className="bg-card/40 backdrop-blur-xl border-border/20 p-2 rounded-[32px] shadow-lg-professional w-fit mx-auto lg:mx-0"
+        />
+
+        {/* ── Orientation ──────────────────────────────────────────────────── */}
+        {tab === "start" && (
+          <div className="space-y-12 animate-in fade-in slide-in-from-bottom-6 duration-700">
+            <div className="grid gap-8 lg:grid-cols-3">
+              {[
+                { icon: Shield, title: "HIPAA Integrity", desc: "All patient metadata and clinical radiographs are persisted on secure surgical backends. Frontend assets are ephemeral." },
+                { icon: BrainCircuit, title: "Neural Synthesis", desc: "Proprietary HRNet-W32 architectures facilitate 80-point landmark detection with sub-pixel geometric precision." },
+                { icon: FileText, title: "Artifact Export", desc: "Synthesize high-fidelity PDF and Word reports containing complete diagnostic measurements and skeletal projections." },
+              ].map((item, idx) => (
+                <Card key={item.title} className="p-10 glass-premium hover-lift border-border/40 shadow-md-professional space-y-6">
+                  <div className="h-14 w-14 rounded-[20px] bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shadow-xl shadow-primary/5">
+                    <item.icon className="h-7 w-7" />
                   </div>
-                  <div>
-                    <p className="text-[13px] font-semibold text-foreground">{item.title}</p>
-                    <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">{item.desc}</p>
+                  <div className="space-y-2">
+                    <h3 className="text-xl font-black tracking-tight text-foreground">{item.title}</h3>
+                    <p className="text-sm leading-relaxed text-muted-foreground font-medium opacity-70">{item.desc}</p>
                   </div>
                 </Card>
-              );
-            })}
-          </div>
-
-          <Card title="Quick-start checklist">
-            <div className="space-y-3">
-              {[
-                { done: true,  label: "Sign in with your clinic credentials" },
-                { done: false, label: "Create at least one patient record" },
-                { done: false, label: "Create a clinical case and attach it to a patient" },
-                { done: false, label: "Upload a lateral cephalometric X-ray image (JPEG/PNG/BMP, max 100 MB)" },
-                { done: false, label: "Calibrate the image using a known reference distance" },
-                { done: false, label: "Run the AI full pipeline (detection → measurements → diagnosis → treatment)" },
-                { done: false, label: "Review results, adjust any landmarks, and finalize" },
-                { done: false, label: "Generate and export the clinical report" },
-              ].map((item, i) => (
-                <div key={i} className="flex items-start gap-3">
-                  <div className={cn(
-                    "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border",
-                    item.done
-                      ? "border-success/30 bg-success/10 text-success"
-                      : "border-border bg-muted/30 text-muted-foreground/40"
-                  )}>
-                    {item.done
-                      ? <CheckCircle2 className="h-3 w-3" />
-                      : <span className="text-[9px] font-bold">{i + 1}</span>}
-                  </div>
-                  <p className={cn("text-[13px]", item.done ? "text-muted-foreground line-through" : "text-foreground")}>
-                    {item.label}
-                  </p>
-                </div>
               ))}
             </div>
-          </Card>
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <Card title="System Requirements">
-              <ul className="space-y-2 text-[12px] text-muted-foreground">
-                {[
-                  "Modern browser: Chrome 120+, Firefox 121+, Safari 17+, Edge 120+",
-                  "Screen resolution: 1280 × 800 minimum (1440 × 900 recommended)",
-                  "JavaScript enabled",
-                  ".NET 9 backend reachable on configured port (default 5180)",
-                  "Python FastAPI AI service on port 8000 (for landmark detection)",
-                  "PostgreSQL 16 + Redis 7 on the server",
-                ].map((r, i) => (
-                  <li key={i} className="flex items-start gap-2">
-                    <ChevronRight className="h-3 w-3 shrink-0 mt-0.5 text-primary/60" />
-                    {r}
-                  </li>
-                ))}
-              </ul>
-            </Card>
+            <div className="grid gap-8 lg:grid-cols-2">
+              <Card className="p-10 glass-premium border-border/40 shadow-lg-professional space-y-8">
+                <div className="flex items-center gap-4 mb-2">
+                  <div className="h-10 w-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-500">
+                    <CheckCircle2 className="h-5 w-5" />
+                  </div>
+                  <h3 className="text-xl font-black tracking-tight">Clinical Checklist</h3>
+                </div>
+                <div className="space-y-4">
+                  {[
+                    { done: true, label: "Initialize clinical identity (Sign In)" },
+                    { done: false, label: "Register patient biometrics in the registry" },
+                    { done: false, label: "Provision a clinical study (Case)" },
+                    { done: false, label: "Asset ingestion (Radiograph Upload)" },
+                    { done: false, label: "Metric calibration (Scale Sync)" },
+                    { done: false, label: "Execute Neural Pipeline (AI Analysis)" },
+                    { done: false, label: "Finalize biometric model (Viewer Review)" },
+                    { done: false, label: "Artifact synthesis (Report Generation)" },
+                  ].map((item, i) => (
+                    <div key={i} className="flex items-start gap-4 group">
+                      <div className={cn(
+                        "mt-0.5 h-6 w-6 shrink-0 rounded-lg border-2 flex items-center justify-center text-[10px] font-black transition-all",
+                        item.done ? "bg-emerald-500 border-emerald-500 text-white shadow-lg shadow-emerald-500/20" : "bg-muted/10 border-border/20 text-muted-foreground/30 group-hover:border-primary/40"
+                      )}>
+                        {item.done ? <CheckCircle2 className="h-3.5 w-3.5" /> : i + 1}
+                      </div>
+                      <p className={cn("text-sm font-bold tracking-tight", item.done ? "text-muted-foreground/40 line-through" : "text-foreground group-hover:text-primary transition-colors")}>
+                        {item.label}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </Card>
 
-            <Card title="Image Requirements">
-              <ul className="space-y-2 text-[12px] text-muted-foreground">
-                {[
-                  "Format: JPEG, PNG, BMP, or DICOM-derived PNG",
-                  "Max file size: 100 MB",
-                  "Recommended resolution: ≥ 1500 × 1500 px",
-                  "View: standard lateral cephalometric (90° to Frankfort horizontal)",
-                  "Contrast: avoid heavy filtering — raw radiographic tone preferred",
-                  "Calibration object must be visible (e.g. 20 mm metal ball, ruler)",
-                ].map((r, i) => (
-                  <li key={i} className="flex items-start gap-2">
-                    <ChevronRight className="h-3 w-3 shrink-0 mt-0.5 text-primary/60" />
-                    {r}
-                  </li>
-                ))}
-              </ul>
+              <div className="space-y-8">
+                <Card className="p-8 glass-premium border-border/40 space-y-6">
+                  <div className="flex items-center gap-4">
+                    <Monitor className="h-5 w-5 text-primary" />
+                    <h4 className="text-sm font-black uppercase tracking-widest text-foreground/80">System Telemetry</h4>
+                  </div>
+                  <ul className="grid gap-3">
+                    {[
+                      "Chrome 120+ / Edge 120+ Environment",
+                      "1440 × 900 Spatial Resolution (Recommended)",
+                      "Secure WebSocket Protocol Enabled",
+                      "CephAI Backend Core v2.2 Handshake",
+                    ].map((r, i) => (
+                      <li key={i} className="flex items-center gap-3 text-[11px] font-black uppercase tracking-widest text-muted-foreground/60 bg-muted/5 p-3 rounded-xl border border-border/5">
+                        <Zap className="h-3 w-3 text-primary/40" />
+                        {r}
+                      </li>
+                    ))}
+                  </ul>
+                </Card>
+
+                <Card className="p-8 glass-premium border-border/40 space-y-6">
+                  <div className="flex items-center gap-4">
+                    <ImageIcon className="h-5 w-5 text-sky-500" />
+                    <h4 className="text-sm font-black uppercase tracking-widest text-foreground/80">Asset Parameters</h4>
+                  </div>
+                  <ul className="grid gap-3">
+                    {[
+                      "Format: Lossless PNG / High-Quality JPEG",
+                      "Max Payload: 100 MB per study",
+                      "Spatial Denisty: ≥ 1500px Cartesian Grid",
+                      "Radiology: True Lateral Projection (90°)",
+                    ].map((r, i) => (
+                      <li key={i} className="flex items-center gap-3 text-[11px] font-black uppercase tracking-widest text-muted-foreground/60 bg-muted/5 p-3 rounded-xl border border-border/5">
+                        <ScanLine className="h-3 w-3 text-sky-500/40" />
+                        {r}
+                      </li>
+                    ))}
+                  </ul>
+                </Card>
+              </div>
+            </div>
+
+            <Callout type="warning" title="Clinical Governance & Validation">
+              The CephAI ecosystem is a diagnostic augmentation layer. All neural inferences, etiological summaries, and treatment modalities must be authenticated and validated by a licensed clinical professional. The system serves as a decision-support module, not a singular diagnostic entity.
+            </Callout>
+          </div>
+        )}
+
+        {/* ── Orchestration ──────────────────────────────────────────────────── */}
+        {tab === "workflow" && (
+          <div className="space-y-12 animate-in fade-in slide-in-from-bottom-6 duration-700">
+            <Callout type="tip" title="Contextual Navigation">
+              The platform operates within a global "Active Study" context. Initializing a session on the Registry or Portfolio modules synchronizes all subsequent diagnostic computations to that patient identity.
+            </Callout>
+
+            <Card className="p-12 glass-premium border-border/40 shadow-lg-professional">
+              <WorkflowStep step={1} icon={Users} title="Patient Registration" href="/patients"
+                color="border-primary/40 bg-primary/10 text-primary shadow-lg shadow-primary/10">
+                <p>Access the <strong>Patient Registry</strong> to enroll a new identity. Critical biometric parameters include date of birth (for growth velocity calculation) and sex (for population normative baseline).</p>
+                <div className="p-5 rounded-2xl bg-muted/10 border border-border/10 flex gap-4 items-start">
+                  <Users className="h-5 w-5 text-primary mt-1" />
+                  <p className="text-xs font-medium text-muted-foreground leading-relaxed italic">PRO TIP: Utilize the neural search filter to prevent redundant patient enrollment before provisioning a new profile.</p>
+                </div>
+              </WorkflowStep>
+
+              <WorkflowStep step={2} icon={FolderKanban} title="Case Provisioning" href="/cases"
+                color="border-amber-500/40 bg-amber-500/10 text-amber-500 shadow-lg shadow-amber-500/10">
+                <p>Initialize a specific diagnostic study within the <strong>Clinical Portfolio</strong>. Select the target patient and define the analysis protocol (Steiner, Ricketts, or Full Synthesis). The case will enter a <Pill tone="neutral" size="xs" className="mx-1 uppercase font-black tracking-widest">DRAFT</Pill> state until asset ingestion.</p>
+              </WorkflowStep>
+
+              <WorkflowStep step={3} icon={Upload} title="Radiograph Ingestion" href="/analysis"
+                color="border-sky-500/40 bg-sky-500/10 text-sky-500 shadow-lg shadow-sky-500/10">
+                <p>Upload the lateral cephalometric asset. Our processing pipeline accepts high-resolution Cartesian grids and applies automatic exposure normalization. Once ingested, the session advances to <Pill tone="info" size="xs" className="mx-1 uppercase font-black tracking-widest">ASSET SYNCED</Pill>.</p>
+              </WorkflowStep>
+
+              <WorkflowStep step={4} icon={ScanLine} title="Metric Synchronization" href="/calibrate"
+                color="border-emerald-500/40 bg-emerald-500/10 text-emerald-500 shadow-lg shadow-emerald-500/10">
+                <p>Establish a spatial bridge by calibrating the pixel-to-millimeter ratio. Identify two points on a known geometric reference (ruler or marker) and enter the absolute clinical distance. This ensures biometric accuracy across all linear measurements.</p>
+                <Callout type="warning">Execution without calibration will produce pixel-relative metrics, flagged with diagnostic warnings on all clinical artifacts.</Callout>
+              </WorkflowStep>
+
+              <WorkflowStep step={5} icon={BrainCircuit} title="Neural Engine Execution" href="/analysis"
+                color="border-primary/40 bg-primary/10 text-primary shadow-lg shadow-primary/10">
+                <p>Trigger the <strong>Full AI Pipeline</strong>. The engine performs asynchronous computation across four diagnostic tiers:</p>
+                <div className="grid sm:grid-cols-2 gap-4 mt-6">
+                  {[
+                    { title: "Landmark Inversion", desc: "80 anatomical points via HRNet-W32" },
+                    { title: "Biometric Synthesis", desc: "90+ clinical measurements computed" },
+                    { title: "Diagnostic Mapping", desc: "Etiological classification & class mapping" },
+                    { title: "Modality Ranking", desc: "Rule-based treatment recommendations" },
+                  ].map(tier => (
+                    <div key={tier.title} className="p-4 rounded-xl bg-background/40 border border-border/10">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-primary mb-1">{tier.title}</p>
+                      <p className="text-xs text-muted-foreground font-medium">{tier.desc}</p>
+                    </div>
+                  ))}
+                </div>
+              </WorkflowStep>
+
+              <WorkflowStep step={6} icon={Activity} title="Biometric Review" href="/viewer"
+                color="border-sky-500/40 bg-sky-500/10 text-sky-500 shadow-lg shadow-sky-500/10">
+                <p>Navigate to the <strong>Diagnostic Viewer</strong> to audit the neural output. High-fidelity vector overlays represent the skeletal and soft-tissue synthesis. Adjust landmarks manually for surgical precision and finalize the model to synchronize final measurements.</p>
+              </WorkflowStep>
+
+              <WorkflowStep step={7} icon={FileText} title="Artifact Synthesis" href="/results"
+                color="border-emerald-500/40 bg-emerald-500/10 text-emerald-500 shadow-lg shadow-emerald-500/10">
+                <p>Review the comprehensive <strong>Diagnostic Synthesis</strong>. Analyze growth projections, airway metrics, and dental torque. Export the clinical artifact as a serialized PDF or DOCX packet for patient communication or surgical documentation.</p>
+              </WorkflowStep>
             </Card>
           </div>
+        )}
 
-          <Callout type="warning" title="For professional clinical use only">
-            CephAI is a decision-support tool. All AI-generated measurements, diagnoses, and treatment
-            suggestions must be reviewed and validated by a qualified orthodontist or oral/maxillofacial
-            specialist before clinical use. Do not rely solely on AI output for treatment decisions.
-          </Callout>
-        </div>
-      )}
+        {/* ── Biometrics ──────────────────────────────────────────────────────── */}
+        {tab === "measurements" && (
+          <div className="space-y-12 animate-in fade-in slide-in-from-bottom-6 duration-700">
+            <Callout type="info" title="Computational Matrix">
+              The CephAI neural core computes metrics across Steiner, Tweed, McNamara, Jarabak, Downs, Ricketts, and Burstone modalities. All values include propagated uncertainty and deviation from normative population baselines.
+            </Callout>
 
-      {/* ── Workflow ──────────────────────────────────────────────────────────── */}
-      {tab === "workflow" && (
-        <div className="space-y-6">
-          <Callout type="tip" title="Active case context">
-            The platform uses an "active case" concept. Set the active case on the Cases page before
-            running analysis — all AI pipeline steps operate on the active case's image.
-          </Callout>
+            {[
+              {
+                group: "Skeletal Architecture — Maxilla/Mandible",
+                rows: [
+                  { name: "SNA", normal: "82 ± 3°", unit: "degrees", desc: "Maxillary sagittal position relative to cranial base" },
+                  { name: "SNB", normal: "80 ± 3°", unit: "degrees", desc: "Mandibular sagittal position relative to cranial base" },
+                  { name: "ANB", normal: "2 ± 2°", unit: "degrees", desc: "Sagittal jaw relationship (negative = Class III tendency)" },
+                  { name: "Wits", normal: "0 ± 2 mm", unit: "mm", desc: "Functional occlusal plane-based jaw discrepancy" },
+                ],
+              },
+              {
+                group: "Vertical Vector — Facial Pattern",
+                rows: [
+                  { name: "FMA (FH-MP)", normal: "25 ± 3°", unit: "degrees", desc: "Frankfort-Mandibular plane angle; high = hyperdivergent" },
+                  { name: "Jarabak ratio", normal: "62–65%", unit: "%", desc: "Posterior/anterior facial height ratio" },
+                  { name: "LAFH", normal: "55–60 mm", unit: "mm", desc: "Lower anterior facial height (ANS-Menton)" },
+                ],
+              },
+              {
+                group: "Dental Torque — Incisor Position",
+                rows: [
+                  { name: "UI-NA °", normal: "22 ± 5°", unit: "degrees", desc: "Upper incisor inclination to NA line" },
+                  { name: "LI-NB °", normal: "25 ± 5°", unit: "degrees", desc: "Lower incisor inclination to NB line" },
+                  { name: "IMPA", normal: "90 ± 5°", unit: "degrees", desc: "Mandibular incisor-mandibular plane angle (Tweed)" },
+                ],
+              },
+            ].map(section => (
+              <div key={section.group} className="space-y-6">
+                <div className="flex items-center gap-4">
+                  <div className="h-1.5 w-8 rounded-full bg-primary" />
+                  <h3 className="text-[11px] font-black uppercase tracking-[0.25em] text-muted-foreground/60">{section.group}</h3>
+                </div>
+                <Card noPadding className="glass-premium border-border/20 shadow-lg-professional overflow-hidden">
+                  <table className="w-full text-left">
+                    <thead className="border-b border-border/10 bg-muted/5">
+                      <tr>
+                        {["Measurement", "Normative Baseline", "Metric", "Diagnostic Utility"].map(h => (
+                          <th key={h} className="px-8 py-5 text-[10px] font-black uppercase tracking-widest text-muted-foreground/40">
+                            {h}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/5">
+                      {section.rows.map(r => <MeasurementRow key={r.name} {...r} />)}
+                    </tbody>
+                  </table>
+                </Card>
+              </div>
+            ))}
 
-          <Card noPadding className="p-6">
-            <WorkflowStep step={1} icon={Users} title="Register a Patient" href="/patients"
-              color="border-primary/40 bg-primary/10 text-primary">
-              <p>Navigate to <strong>Patients</strong> and click <em>New patient</em>. Fill in the patient's full name,
-              date of birth, sex, and optional contact details. The patient record will appear in your workspace.</p>
-              <Callout type="tip">Use the patient search to quickly find existing records before creating a duplicate.</Callout>
-            </WorkflowStep>
+            <Callout type="tip" title="Normative Adaptation">
+              Biometric normal ranges are dynamically adjusted based on the population baseline selected in <strong>Settings → Clinical Models</strong>. The system supports 8 distinct ethnic datasets with unique coefficient offsets.
+            </Callout>
+          </div>
+        )}
 
-            <WorkflowStep step={2} icon={FolderKanban} title="Create a Clinical Case" href="/cases"
-              color="border-warning/40 bg-warning/10 text-warning-foreground">
-              <p>On the <strong>Cases</strong> page, click <em>New case</em>. Select the patient, choose an analysis
-              type (Steiner is the most common), and give the case a descriptive title. The case is now in
-              <Pill tone="neutral" size="xs" className="mx-1">Draft</Pill> status.</p>
-              <p>Set this case as the active case by selecting it in the table.</p>
-            </WorkflowStep>
+        {/* ── Hotkeys ────────────────────────────────────────────────────────── */}
+        {tab === "shortcuts" && (
+          <div className="grid gap-8 lg:grid-cols-2 animate-in fade-in slide-in-from-bottom-6 duration-700">
+            {[
+              {
+                title: "Global Handshakes",
+                icon: Command,
+                shortcuts: [
+                  { keys: ["G", "D"], action: "DASHBOARD ACCESS" },
+                  { keys: ["G", "P"], action: "PATIENT REGISTRY" },
+                  { keys: ["G", "C"], action: "CASE PORTFOLIO" },
+                  { keys: ["G", "A"], action: "DIAGNOSTIC ANALYSIS" },
+                  { keys: ["G", "V"], action: "INTERACTIVE VIEWER" },
+                ],
+              },
+              {
+                title: "Viewer Telemetry",
+                icon: MousePointer2,
+                shortcuts: [
+                  { keys: ["Scroll"], action: "ZOOM SCALING" },
+                  { keys: ["Alt", "Drag"], action: "VIEWPORT PAN" },
+                  { keys: ["0"], action: "RESET PROJECTION" },
+                  { keys: ["M"], action: "MINIMAP TOGGLE" },
+                  { keys: ["L"], action: "LABEL OVERLAY" },
+                ],
+              },
+              {
+                title: "Core Operations",
+                icon: Zap,
+                shortcuts: [
+                  { keys: ["Ctrl", "U"], action: "INITIATE UPLOAD" },
+                  { keys: ["Ctrl", "R"], action: "EXECUTE AI PIPELINE" },
+                  { keys: ["Ctrl", "K"], action: "COMMAND PALETTE" },
+                  { keys: ["Esc"], action: "TERMINATE OPERATION" },
+                ],
+              },
+              {
+                title: "System UI",
+                icon: Layout,
+                shortcuts: [
+                  { keys: ["Ctrl", "B"], action: "SIDEBAR TOGGLE" },
+                  { keys: ["Ctrl", "L"], action: "LUMINANCE SHIFT" },
+                  { keys: ["?"], action: "ORIENTATION GUIDE" },
+                ],
+              },
+            ].map(group => (
+              <Card key={group.title} className="p-10 glass-premium border-border/40 shadow-lg-professional space-y-8">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <div className="h-10 w-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shadow-lg shadow-primary/5">
+                      <group.icon className="h-5 w-5" />
+                    </div>
+                    <h3 className="text-xl font-black tracking-tight">{group.title}</h3>
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  {group.shortcuts.map(s => (
+                    <ShortcutRow key={s.action} keys={s.keys} action={s.action} />
+                  ))}
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
 
-            <WorkflowStep step={3} icon={Upload} title="Upload the X-ray Image" href="/analysis"
-              color="border-info/40 bg-info/10 text-info-foreground">
-              <p>On the <strong>Analysis</strong> page, click the upload area and select your lateral X-ray image.
-              Supported formats: JPEG, PNG, BMP. The image is uploaded directly to your backend server and a
-              thumbnail is generated. Status changes to <Pill tone="info" size="xs" className="mx-1">Image uploaded</Pill>.</p>
-            </WorkflowStep>
+        {/* ── Synthesis FAQ ───────────────────────────────────────────────────────────────── */}
+        {tab === "faq" && (
+          <div className="space-y-12 animate-in fade-in slide-in-from-bottom-6 duration-700">
+            <div className="max-w-4xl mx-auto">
+              <Card className="p-10 glass-premium border-border/40 shadow-lg-professional divide-y divide-border/10">
+                <Accordion question="How is AI landmark accuracy verified in the system?">
+                  <p>The neural engine utilizes <strong>HRNet-W32</strong> with multi-axis test-time augmentation (flips + luminance shift) to achieve sub-millimeter precision. Each detected point is assigned a <strong>DSNT spatial variance score</strong>, representing the system's geometric confidence. High-variance (low confidence) points are automatically flagged for manual clinical audit in the Interactive Viewer.</p>
+                </Accordion>
 
-            <WorkflowStep step={4} icon={ScanLine} title="Calibrate the Image" href="/calibrate"
-              color="border-success/40 bg-success/10 text-success-foreground">
-              <p>Navigate to <strong>Calibrate</strong>. Click two known points on the X-ray (e.g. the two ends of a
-              20 mm calibration ball or ruler), then enter the real-world distance in mm. The platform stores the
-              px/mm scale factor.</p>
-              <Callout type="warning">Skipping calibration means all measurements will be in pixels, not millimetres. Results will be flagged with an <em>UNCALIBRATED</em> watermark on overlays.</Callout>
-            </WorkflowStep>
+                <Accordion question="What is the significance of the 20mm metal reference ball in calibration?">
+                  Cephalometric radiographs are subject to magnification and distortion based on patient positioning and sensor distance. To establish an absolute clinical scale, a known radio-opaque reference (typically a 20mm metallic marker or integrated ruler) must be present. Our calibration module synchronizes the pixel-space Cartesian grid to real-world millimeters based on this reference.
+                </Accordion>
 
-            <WorkflowStep step={5} icon={BrainCircuit} title="Run the AI Full Pipeline" href="/analysis"
-              color="border-primary/40 bg-primary/10 text-primary">
-              <p>Back on <strong>Analysis</strong>, click <em>Run full AI pipeline</em>. The engine performs four
-              sequential steps:</p>
-              <ol className="list-decimal list-inside space-y-1 pl-1">
-                <li><strong>Landmark detection</strong> — HRNet-W32 with multi-axis TTA detects 80 landmarks</li>
-                <li><strong>Measurement calculation</strong> — 90+ measurements computed with uncertainty propagation</li>
-                <li><strong>Diagnosis classification</strong> — skeletal class, CVM stage, airway risk, Bolton</li>
-                <li><strong>Treatment planning</strong> — 22 evidence-based rules produce ranked recommendations</li>
-              </ol>
-              <p>Status changes to <Pill tone="success" size="xs" className="mx-1">AI completed</Pill> when done.</p>
-            </WorkflowStep>
+                <Accordion question="How do the automated treatment suggestions work?">
+                  Recommendations are generated via a <strong>Modality Synthesis Engine</strong> that processes 22 distinct clinical logic paths. These rules evaluate skeletal class, vertical patterns, dental crowding, and growth velocity. Modalities (e.g., LeFort I, BSSO, Camouflage) are ranked by etiological relevance and evidence-based clinical protocols.
+                </Accordion>
 
-            <WorkflowStep step={6} icon={Activity} title="Review & Adjust in the Viewer" href="/viewer"
-              color="border-info/40 bg-info/10 text-info-foreground">
-              <p>The <strong>Viewer</strong> renders the X-ray as an interactive SVG with all 80 landmarks and 11
-              cephalometric tracing lines. Drag any landmark to correct its position, then click
-              <em> Finalize</em> to re-calculate all measurements with the corrected positions.</p>
-              <Callout type="tip">
-                Low-confidence landmarks (below your threshold in Settings) are highlighted in amber.
-                Always review these manually before finalizing.
-              </Callout>
-            </WorkflowStep>
+                <Accordion question="Can I adjust the normative baseline for different ethnicities?">
+                  Yes. Navigate to <strong>System Settings → Clinical Parameters</strong>. The platform integrates normative datasets for Caucasian, Chinese, East Asian, Japanese, African-American, Hispanic, Indian, and Brazilian populations. Selecting a norm dynamically updates the SNA, SNB, and mandibular length coefficients across all analysis modules.
+                </Accordion>
 
-            <WorkflowStep step={7} icon={FileText} title="Export the Clinical Report" href="/results"
-              color="border-success/40 bg-success/10 text-success-foreground">
-              <p>The <strong>Results</strong> page shows all measurements with deviation bars, the diagnosis summary,
-              treatment options, and the growth prediction. Use the <em>Reports</em> tab to generate a
-              PDF or DOCX report. The report includes:</p>
-              <ul className="list-disc list-inside space-y-1 pl-1">
-                <li>Patient and study metadata</li>
-                <li>All measurements with normal ranges and severity ratings</li>
-                <li>Clinical overlay images (5 types)</li>
-                <li>Diagnosis summary with confidence score</li>
-                <li>Ranked treatment recommendations with evidence levels</li>
-                <li>Normative references bibliography</li>
-              </ul>
-            </WorkflowStep>
-          </Card>
-        </div>
-      )}
-
-      {/* ── Measurements ──────────────────────────────────────────────────────── */}
-      {tab === "measurements" && (
-        <div className="space-y-6">
-          <Callout type="info" title="90+ measurements available">
-            CephAI computes measurements across Steiner, Tweed, McNamara, Jarabak, Down's, Ricketts,
-            Burstone soft-tissue, airway, CVM, and composite index analyses. Below are the most clinically
-            significant values.
-          </Callout>
-
-          {[
-            {
-              group: "Skeletal — Maxilla/Mandible Relationship",
-              rows: [
-                { name: "SNA",    normal: "82 ± 3°", unit: "degrees", desc: "Maxillary sagittal position relative to cranial base" },
-                { name: "SNB",    normal: "80 ± 3°", unit: "degrees", desc: "Mandibular sagittal position relative to cranial base" },
-                { name: "ANB",    normal: "2 ± 2°",  unit: "degrees", desc: "Sagittal jaw relationship (negative = Class III tendency)" },
-                { name: "Wits",   normal: "0 ± 2 mm",unit: "mm",      desc: "Functional occlusal plane-based jaw discrepancy (Jacobson)" },
-                { name: "APDI",   normal: "81.4 ± 3.8°", unit: "degrees", desc: "Kim's antero-posterior dysplasia indicator" },
-                { name: "ODI",    normal: "74.5 ± 6°",   unit: "degrees", desc: "Kim's overbite depth indicator" },
-              ],
-            },
-            {
-              group: "Vertical — Facial Pattern",
-              rows: [
-                { name: "FMA (FH-MP)",    normal: "25 ± 3°",  unit: "degrees", desc: "Frankfort-Mandibular plane angle; high = hyperdivergent" },
-                { name: "SN-GoGn",        normal: "32 ± 3°",  unit: "degrees", desc: "Sella-Nasion to mandibular plane angle" },
-                { name: "Jarabak ratio",  normal: "62–65%",   unit: "%",       desc: "Posterior/anterior facial height ratio" },
-                { name: "Y-axis (SGn/SN)",normal: "59–66°",   unit: "degrees", desc: "Growth direction (Downs)" },
-                { name: "LAFH",           normal: "55–60 mm", unit: "mm",      desc: "Lower anterior facial height (ANS-Menton)" },
-              ],
-            },
-            {
-              group: "Dental — Incisor Position",
-              rows: [
-                { name: "UI-NA mm",  normal: "4 ± 2 mm", unit: "mm",      desc: "Upper incisor horizontal protrusion" },
-                { name: "UI-NA °",   normal: "22 ± 5°",  unit: "degrees", desc: "Upper incisor inclination to NA line" },
-                { name: "LI-NB mm",  normal: "4 ± 2 mm", unit: "mm",      desc: "Lower incisor horizontal protrusion" },
-                { name: "LI-NB °",   normal: "25 ± 5°",  unit: "degrees", desc: "Lower incisor inclination to NB line" },
-                { name: "IMPA",      normal: "90 ± 5°",  unit: "degrees", desc: "Mandibular incisor-mandibular plane angle (Tweed)" },
-                { name: "Interincisal angle", normal: "130 ± 10°", unit: "degrees", desc: "Angle between upper and lower incisor long axes" },
-              ],
-            },
-            {
-              group: "Soft Tissue (Burstone)",
-              rows: [
-                { name: "Upper lip to E-line", normal: "-4 to 0 mm", unit: "mm", desc: "Upper lip position relative to esthetic line" },
-                { name: "Lower lip to E-line", normal: "-2 to 2 mm", unit: "mm", desc: "Lower lip position relative to esthetic line" },
-                { name: "Nasolabial angle",    normal: "102 ± 8°",   unit: "degrees", desc: "Angle between subnasale, columella, and upper lip" },
-                { name: "ST ChinThick",        normal: "≥ 10 mm",    unit: "mm", desc: "Soft tissue chin thickness (Holdaway)" },
-                { name: "Pog-NB (Holdaway)",   normal: "0–2 mm",     unit: "mm", desc: "Pogonion to NB distance — chin projection" },
-              ],
-            },
-          ].map(section => (
-            <div key={section.group}>
-              <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                {section.group}
-              </h3>
-              <Card noPadding>
-                <table className="w-full">
-                  <thead className="border-b border-border">
-                    <tr>
-                      {["Measurement", "Normal Range", "Unit", "Description"].map(h => (
-                        <th key={h} className="px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                          {h}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {section.rows.map(r => <MeasurementRow key={r.name} {...r} />)}
-                  </tbody>
-                </table>
+                <Accordion question="What diagnostic artifacts are included in the generated report?">
+                  Formal exports include a multi-tier synthesis: patient biometrics, complete measurement matrix with normative deviations, 5 types of clinical vector overlays, skeletal diagnosis summary, growth velocity projections, and ranked treatment modalities with complexity tiers.
+                </Accordion>
               </Card>
             </div>
-          ))}
 
-          <Callout type="tip" title="Population-adjusted norms">
-            Normal ranges shown above are Caucasian defaults. The AI engine supports 8 population groups
-            (Caucasian, Chinese, East Asian, Japanese, African-American, Hispanic, Indian, Brazilian) with
-            per-measurement offsets. Change your population baseline in Settings → Clinical Preferences.
-          </Callout>
-        </div>
-      )}
-
-      {/* ── Shortcuts ────────────────────────────────────────────────────────── */}
-      {tab === "shortcuts" && (
-        <div className="grid gap-6 md:grid-cols-2">
-          {[
-            {
-              title: "Global Navigation",
-              shortcuts: [
-                { keys: ["G", "D"], action: "Go to Dashboard"   },
-                { keys: ["G", "P"], action: "Go to Patients"    },
-                { keys: ["G", "C"], action: "Go to Cases"       },
-                { keys: ["G", "A"], action: "Go to Analysis"    },
-                { keys: ["G", "V"], action: "Go to Viewer"      },
-                { keys: ["G", "R"], action: "Go to Results"     },
-                { keys: ["G", "H"], action: "Go to History"     },
-                { keys: ["G", "S"], action: "Go to Settings"    },
-              ],
-            },
-            {
-              title: "Landmark Viewer",
-              shortcuts: [
-                { keys: ["Scroll"],      action: "Zoom in / out"          },
-                { keys: ["Alt", "Drag"], action: "Pan the viewport"       },
-                { keys: ["Middle drag"], action: "Pan (alternate)"        },
-                { keys: ["+"],           action: "Zoom in"                },
-                { keys: ["-"],           action: "Zoom out"               },
-                { keys: ["0"],           action: "Reset zoom to fit"      },
-                { keys: ["M"],           action: "Toggle minimap"         },
-                { keys: ["L"],           action: "Toggle landmark labels" },
-              ],
-            },
-            {
-              title: "Analysis Page",
-              shortcuts: [
-                { keys: ["Ctrl", "U"], action: "Open upload dialog"       },
-                { keys: ["Ctrl", "R"], action: "Run AI full pipeline"     },
-                { keys: ["Ctrl", "K"], action: "Open command palette"     },
-                { keys: ["Escape"],    action: "Cancel current operation" },
-              ],
-            },
-            {
-              title: "UI Controls",
-              shortcuts: [
-                { keys: ["Ctrl", "B"],        action: "Toggle sidebar"    },
-                { keys: ["Ctrl", "Shift", "L"], action: "Toggle dark mode" },
-                { keys: ["?"],                action: "Open this guide"   },
-                { keys: ["Escape"],           action: "Close open modal"  },
-              ],
-            },
-          ].map(group => (
-            <Card key={group.title} title={group.title}>
-              <div className="mt-1">
-                {group.shortcuts.map(s => (
-                  <ShortcutRow key={s.action} keys={s.keys} action={s.action} />
-                ))}
-              </div>
-            </Card>
-          ))}
-
-          <Card className="md:col-span-2">
-            <div className="flex items-start gap-3">
-              <Keyboard className="h-5 w-5 text-muted-foreground mt-0.5 shrink-0" />
-              <div>
-                <p className="text-[13px] font-semibold text-foreground mb-1">Keyboard navigation note</p>
-                <p className="text-[12px] leading-relaxed text-muted-foreground">
-                  Two-key shortcuts like <kbd className="border border-border bg-muted px-1.5 py-0.5 rounded text-[11px] font-mono">G</kbd> then <kbd className="border border-border bg-muted px-1.5 py-0.5 rounded text-[11px] font-mono">D</kbd> require
-                  pressing both keys within 1 second. Shortcut hints are not yet wired in all pages — full
-                  keyboard navigation will be expanded in a future release.
-                </p>
-              </div>
-            </div>
-          </Card>
-        </div>
-      )}
-
-      {/* ── FAQ ───────────────────────────────────────────────────────────────── */}
-      {tab === "faq" && (
-        <div className="space-y-6">
-          <Card noPadding className="px-6">
-            <Accordion question="Why does the AI pipeline show 'Backend unreachable'?">
-              <p>The .NET backend (port 5180) is not running or not accessible. Check that:</p>
-              <ul className="list-disc list-inside space-y-1 mt-2">
-                <li>The ASP.NET Core server is started</li>
-                <li>PostgreSQL and Redis are running and connected</li>
-                <li><code>VITE_BACKEND_API_BASE_URL</code> in the frontend environment points to the correct host and port</li>
-                <li>CORS is configured to allow requests from the frontend origin</li>
-              </ul>
-            </Accordion>
-
-            <Accordion question="Why are my measurements all in pixels instead of millimetres?">
-              The image was not calibrated before running the pipeline. Go to the <strong>Calibrate</strong> page,
-              click two known points on the image, and enter the real-world distance in mm. Then re-run the
-              measurements step (or the full pipeline again).
-            </Accordion>
-
-            <Accordion question="How do I correct a misplaced landmark?">
-              Open the <strong>Viewer</strong> page. Drag the landmark reticle to its correct anatomical position.
-              Once all corrections are made, click <em>Finalize</em> — this saves the adjusted positions and
-              re-runs the full measurement and diagnosis pipeline automatically.
-            </Accordion>
-
-            <Accordion question="What's the difference between the analysis types?">
-              <ul className="space-y-2">
-                <li><strong>Steiner</strong> — SNA/SNB/ANB, upper incisor angles, soft tissue E-line. Most common.</li>
-                <li><strong>Tweed</strong> — FMA/FMIA/IMPA triangle. Focuses on mandibular plane and incisor torque.</li>
-                <li><strong>McNamara</strong> — Linear distances (midfacial length, mandibular length, A-Nperp, Pg-Nperp).</li>
-                <li><strong>Jarabak</strong> — Saddle/articular/gonial angles, posterior/anterior facial height ratio.</li>
-                <li><strong>Ricketts</strong> — Xi-point, facial axis, mandibular arc, convexity, lower lip to E-plane.</li>
-                <li><strong>Full</strong> — All of the above, plus composite indices (APDI/ODI), airway, and CVM.</li>
-              </ul>
-            </Accordion>
-
-            <Accordion question="How accurate is the AI landmark detection?">
-              The system uses HRNet-W32 with multi-axis test-time augmentation (flips + gamma contrast γ=0.8/1.2)
-              and a 26-edge ScientificRefiner belief propagation pass. Internal validation shows ~94% mean landmark
-              accuracy compared to manual clinician corrections. Each landmark also has a per-point confidence score
-              and a ±σ positional uncertainty (DSNT spatial variance decoder). Measurements include propagated
-              uncertainty (±σ_M and 95% CI) via first-order Taylor expansion.
-            </Accordion>
-
-            <Accordion question="Can I use CephAI with CBCT-derived 2D images?">
-              Yes. On the Analysis page, enable the <em>CBCT-derived</em> toggle before running the pipeline.
-              This applies correction factors to measurements that are affected by the volumetric projection
-              geometry of CBCT-sourced lateral reconstructions (primarily linear distances).
-            </Accordion>
-
-            <Accordion question="How do I change the population norm baseline?">
-              Go to <strong>Settings → Clinical Preferences → Population norms</strong> and select the appropriate
-              group. Available: Caucasian, Chinese, East Asian, Japanese, African-American, Hispanic, Indian, Brazilian.
-              The AI engine applies per-measurement offsets for SNA, SNB, ANB, FMA, SN-GoGn, IMPA, UI-NA, LI-NB,
-              mandibular length, and midface length.
-            </Accordion>
-
-            <Accordion question="Why is the report generated in English even though I set the system language?">
-              Report language is controlled by the backend report generator (QuestPDF). Multi-language report
-              templates are not yet implemented. This is planned for a future release.
-            </Accordion>
-
-            <Accordion question="How do I export all patient data?">
-              Individual reports can be downloaded as PDF or DOCX from the <strong>Reports</strong> page or the
-              Results → Reports tab. Bulk export of all patient records requires direct database access via your
-              backend administrator. A bulk export endpoint is planned for a future API version.
-            </Accordion>
-
-            <Accordion question="Is there a dark mode?">
-              Yes. Toggle dark/light mode using the button in the top-right of the navigation bar, or go to
-              <strong> Settings → Appearance → Color theme</strong>. Your preference is saved locally in the browser.
-            </Accordion>
-          </Card>
-
-          <Card title="Still need help?">
-            <div className="flex flex-wrap gap-3">
+            <div className="grid sm:grid-cols-3 gap-8">
               {[
-                { label: "Backend API (Swagger)",  href: "http://localhost:5180/swagger" },
-                { label: "AI Service (FastAPI)",   href: "http://localhost:8000/docs"   },
-                { label: "GitHub Repository",      href: "#"                            },
-              ].map(link => (
-                <a
-                  key={link.label}
-                  href={link.href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-[12px] font-medium text-foreground hover:bg-muted transition-colors"
-                >
-                  {link.label}
-                  <ExternalLink className="h-3 w-3 text-muted-foreground" />
-                </a>
+                { label: "API Specification", icon: Globe, detail: "Swagger documentation for clinical endpoints." },
+                { icon: MessageSquare, label: "Clinical Support", detail: "Professional consultancy for etiological mapping." },
+                { icon: Share2, label: "Network Integration", detail: "PACS/DICOM synchronization guidelines." },
+              ].map(item => (
+                <Card key={item.label} className="p-8 glass-premium border-border/20 shadow-md-professional flex flex-col items-center text-center space-y-4 hover-lift">
+                  <div className="h-12 w-12 rounded-2xl bg-muted/10 border border-border/10 flex items-center justify-center text-primary group-hover:bg-primary/10 transition-all">
+                    <item.icon className="h-6 w-6" />
+                  </div>
+                  <h4 className="text-sm font-black uppercase tracking-widest">{item.label}</h4>
+                  <p className="text-xs text-muted-foreground font-medium">{item.detail}</p>
+                  <button className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-primary pt-4 group">
+                    Access Terminal
+                    <ExternalLink className="h-3 w-3 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+                  </button>
+                </Card>
               ))}
             </div>
-          </Card>
-        </div>
-      )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -1,16 +1,16 @@
 import React, {
-  useState, useRef, useEffect, useMemo, useCallback,
+  useState, useRef, useEffect, useMemo,
 } from "react";
 import { useLocation } from "wouter";
 import {
   CheckCircle2, AlertTriangle, ChevronRight, ChevronLeft,
   Move, MousePointer2, ZoomIn, ZoomOut, X, RotateCcw,
   Target, Ruler, Info, Sparkles, ArrowLeft, Save,
-  FlipHorizontal, Sun, Contrast, Eye,
+  FlipHorizontal, Sun, Contrast, Eye, Zap, Maximize2,
 } from "lucide-react";
 import {
   Card, Pill, PrimaryBtn, SecondaryBtn, IconBtn,
-  PageHeader, Field, TextInput,
+  PageHeader, Field, TextInput, Divider,
 } from "@/components/_core/ClinicalComponents";
 import { type CaseRecord, type Landmark, type Point } from "@/lib/mappers";
 import { cn } from "@/lib/utils";
@@ -47,11 +47,6 @@ const STEPS = [
 
 function dist(a: Point, b: Point) {
   return Math.sqrt((b.x - a.x) ** 2 + (b.y - a.y) ** 2);
-}
-
-function perpTick(p: Point, p2: Point, half: number) {
-  const dx = p2.x - p.x, dy = p2.y - p.y, len = Math.sqrt(dx * dx + dy * dy) || 1;
-  return { x1: p.x - dy / len * half, y1: p.y + dx / len * half, x2: p.x + dy / len * half, y2: p.y - dx / len * half };
 }
 
 function qualityLabel(pxPerMm: number): { label: string; tone: "success" | "accent" | "warning"; desc: string } {
@@ -133,412 +128,446 @@ export default function CalibrationPage({
   const hasImage = Boolean(imageUrl);
 
   return (
-    <div className="space-y-5 animate-in fade-in duration-400">
-      <PageHeader
-        eyebrow="Spatial Calibration"
-        title="Image Calibration"
-        description="Define the pixel-to-millimetre scale for accurate clinical measurements on this radiograph."
-        actions={
-          <>
-            {prevCalibrated && (
-              <Pill tone="success" size="sm">
-                Previously calibrated · {activeCase.calibrationDistanceMm} mm ref
-              </Pill>
-            )}
-            <SecondaryBtn onClick={() => navigate("/viewer")} icon={ArrowLeft} className="h-10 px-5">
-              Back to Viewer
-            </SecondaryBtn>
-          </>
-        }
-      />
-
-      {/* ── Step indicator ── */}
-      <div className="flex items-center gap-0">
-        {STEPS.map((s, i) => {
-          const done    = step > s.n;
-          const active  = step === s.n;
-          return (
-            <React.Fragment key={s.n}>
-              <button
-                type="button"
-                onClick={() => {
-                  if (done || (s.n === 2 && canGoStep2) || (s.n === 3 && canGoStep3)) setStep(s.n);
-                }}
-                disabled={!done && !active && !(s.n === 2 && canGoStep2) && !(s.n === 3 && canGoStep3)}
-                className={cn(
-                  "flex items-center gap-3 px-5 py-3 rounded-2xl transition-all text-left",
-                  active  ? "bg-primary/10 border border-primary/30"
-                  : done  ? "hover:bg-muted/30 cursor-pointer"
-                  : "opacity-40 cursor-not-allowed"
-                )}
-              >
-                <div className={cn(
-                  "flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 text-xs font-bold transition-all",
-                  active ? "border-primary bg-primary text-primary-foreground"
-                  : done  ? "border-success bg-success/20 text-success"
-                  : "border-border/50 bg-muted/30 text-muted-foreground"
-                )}>
-                  {done ? <CheckCircle2 className="h-4 w-4" /> : s.n}
-                </div>
-                <div>
-                  <p className={cn("text-sm font-bold leading-tight", active ? "text-foreground" : "text-muted-foreground")}>{s.label}</p>
-                  <p className="text-[10px] text-muted-foreground/60">{s.desc}</p>
-                </div>
-              </button>
-              {i < STEPS.length - 1 && (
-                <ChevronRight className={cn("h-4 w-4 shrink-0 mx-1", step > s.n ? "text-success" : "text-border/60")} />
-              )}
-            </React.Fragment>
-          );
-        })}
+    <div className="min-h-screen bg-background text-foreground selection:bg-primary/30 pb-20 animate-in fade-in duration-700">
+      
+      {/* ── Ambient background ── */}
+      <div className="pointer-events-none fixed inset-0 overflow-hidden">
+        <div className="absolute -top-60 -left-40 w-[800px] h-[800px] rounded-full bg-primary/5 blur-[120px] animate-pulse duration-[12s]" />
+        <div className="absolute bottom-0 -right-40 w-[600px] h-[600px] rounded-full bg-emerald-500/5 blur-[100px] animate-pulse duration-[10s]" />
       </div>
 
-      {/* ── Main layout ── */}
-      <div className="grid gap-4 xl:grid-cols-[1fr_380px]">
+      <div className="relative z-10 space-y-10 p-6 md:p-8 lg:p-10 max-w-[1600px] mx-auto">
+        
+        {/* ── Page header ── */}
+        <div className="flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="h-1.5 w-8 rounded-full bg-gradient-to-r from-primary to-amber-400" />
+              <span className="text-xs font-black uppercase tracking-[0.25em] text-primary/80">
+                Spatial Telemetry
+              </span>
+            </div>
+            <h1 className="text-4xl font-black tracking-tight text-gradient-primary md:text-5xl">
+              Image Calibration
+            </h1>
+            <p className="text-muted-foreground font-medium max-w-2xl leading-relaxed">
+              Define the pixel-to-millimetre scale to enable accurate clinical measurements. Use a physical ruler or known anatomical landmarks.
+            </p>
+          </div>
+          
+          <div className="flex items-center gap-3 shrink-0 bg-card/30 backdrop-blur-md p-2 rounded-2xl border border-border/40 shadow-sm-professional">
+            <SecondaryBtn onClick={() => navigate("/viewer")} icon={ArrowLeft} className="h-11 px-6 font-black uppercase tracking-widest text-[10px] hover-lift">
+              Return to Viewer
+            </SecondaryBtn>
+            {prevCalibrated && (
+              <div className="flex items-center gap-3 px-6 py-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-emerald-500">
+                <CheckCircle2 className="h-4 w-4" />
+                <span className="text-[10px] font-black uppercase tracking-widest">Active Scale: {activeCase.calibrationDistanceMm}mm</span>
+              </div>
+            )}
+          </div>
+        </div>
 
-        {/* ── Canvas ── */}
-        <CalibCanvas
-          imageUrl={imageUrl}
-          pts={pts}
-          setPts={setPts}
-          landmarks={landmarks}
-          step={step}
-          filters={filters}
-          distMm={distMm}
-          pixPerMm={pixPerMm}
-        />
-
-        {/* ── Side panel ── */}
-        <div className="space-y-4">
-
-          {/* Image controls */}
-          <Card>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-3">Image Display</p>
-            <div className="space-y-3">
-              {[
-                { key:"brightness" as const, label:"Brightness", icon:Sun,      min:30, max:220 },
-                { key:"contrast"   as const, label:"Contrast",   icon:Contrast, min:30, max:220 },
-              ].map(f => (
-                <div key={f.key} className="space-y-1">
-                  <div className="flex items-center justify-between text-[10px] font-bold uppercase text-muted-foreground">
-                    <span className="flex items-center gap-1"><f.icon className="h-3 w-3"/>{f.label}</span>
-                    <span className="text-foreground tabular-nums">{filters[f.key]}%</span>
-                  </div>
-                  <input
-                    type="range" min={f.min} max={f.max} value={filters[f.key]}
-                    onChange={e => setFilters(fv => ({...fv, [f.key]:Number(e.target.value)}))}
-                    className="w-full h-1.5 rounded-full bg-muted appearance-none accent-primary cursor-pointer"
-                  />
-                </div>
-              ))}
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-1">
-                  <FlipHorizontal className="h-3 w-3"/>Invert
-                </span>
+        {/* ── Step indicator ── */}
+        <div className="flex flex-wrap items-center justify-center gap-4 bg-card/30 backdrop-blur-xl p-3 rounded-[32px] border border-border/40 shadow-lg-professional w-fit mx-auto">
+          {STEPS.map((s, i) => {
+            const done    = step > s.n;
+            const active  = step === s.n;
+            return (
+              <React.Fragment key={s.n}>
                 <button
                   type="button"
-                  onClick={() => setFilters(f => ({...f, invert:!f.invert}))}
+                  onClick={() => {
+                    if (done || (s.n === 2 && canGoStep2) || (s.n === 3 && canGoStep3)) setStep(s.n);
+                  }}
+                  disabled={!done && !active && !(s.n === 2 && canGoStep2) && !(s.n === 3 && canGoStep3)}
                   className={cn(
-                    "relative h-5 w-9 rounded-full border transition-all",
-                    filters.invert ? "bg-primary border-primary" : "bg-muted/40 border-border/60"
+                    "flex items-center gap-4 px-6 py-4 rounded-[24px] transition-all text-left group",
+                    active ? "bg-primary/10 border border-primary/20 shadow-inner-lg"
+                    : done ? "hover:bg-muted/30 cursor-pointer border border-transparent"
+                    : "opacity-40 cursor-not-allowed border border-transparent"
                   )}
                 >
-                  <span className={cn(
-                    "absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all",
-                    filters.invert ? "left-4" : "left-0.5"
-                  )} />
-                </button>
-              </div>
-            </div>
-          </Card>
-
-          {/* ── Step 1: Place points ── */}
-          {step === 1 && (
-            <Card className="space-y-4">
-              <div className="flex items-start gap-3">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                  <Target className="h-4 w-4" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold">Place Two Reference Points</h3>
-                  <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
-                    Click on any two identifiable locations whose real-world distance you know precisely — a ruler, 
-                    known anatomical landmarks, or a calibration marker.
-                  </p>
-                </div>
-              </div>
-
-              {/* Point status */}
-              <div className="grid grid-cols-2 gap-2">
-                {[0, 1].map(i => (
-                  <div key={i} className={cn(
-                    "rounded-xl border p-3 transition-all",
-                    pts.length > i ? "border-primary/40 bg-primary/5" : "border-border/50 bg-muted/10"
+                  <div className={cn(
+                    "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border-2 text-sm font-black transition-all",
+                    active ? "border-primary bg-primary text-primary-foreground shadow-lg shadow-primary/20"
+                    : done ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-500"
+                    : "border-border/50 bg-muted/30 text-muted-foreground"
                   )}>
-                    <div className="flex items-center gap-2 mb-1">
-                      <div className={cn(
-                        "h-5 w-5 rounded-full border-2 flex items-center justify-center text-[9px] font-bold",
-                        pts.length > i ? "border-primary bg-primary text-primary-foreground" : "border-border/50 text-muted-foreground"
-                      )}>
-                        {pts.length > i ? "✓" : i + 1}
-                      </div>
-                      <span className={cn("text-xs font-bold", pts.length > i ? "text-primary" : "text-muted-foreground")}>
-                        Ref {i + 1}
-                      </span>
+                    {done ? <CheckCircle2 className="h-5 w-5" /> : s.n}
+                  </div>
+                  <div className="hidden sm:block">
+                    <p className={cn("text-xs font-black uppercase tracking-widest leading-tight", active ? "text-foreground" : "text-muted-foreground")}>{s.label}</p>
+                    <p className="text-[10px] text-muted-foreground/50 font-medium mt-1">{s.desc}</p>
+                  </div>
+                </button>
+                {i < STEPS.length - 1 && (
+                  <div className={cn("h-px w-6 bg-border/20 hidden md:block", done && "bg-emerald-500/30")} />
+                )}
+              </React.Fragment>
+            );
+          })}
+        </div>
+
+        {/* ── Main layout ── */}
+        <div className="grid gap-10 xl:grid-cols-[1fr_420px]">
+
+          {/* ── Canvas ── */}
+          <CalibCanvas
+            imageUrl={imageUrl}
+            pts={pts}
+            setPts={setPts}
+            landmarks={landmarks}
+            step={step}
+            filters={filters}
+            distMm={distMm}
+            pixPerMm={pixPerMm}
+          />
+
+          {/* ── Side panel ── */}
+          <div className="space-y-8">
+
+            {/* Image controls */}
+            <Card className="p-8 glass-premium shadow-md-professional border-border/40">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="h-8 w-8 rounded-lg bg-primary/5 flex items-center justify-center text-primary border border-primary/10">
+                  <Sun className="h-4 w-4" />
+                </div>
+                <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Radiograph Fidelity</span>
+              </div>
+              <div className="space-y-6">
+                {[
+                  { key:"brightness" as const, label:"Exposure", icon:Sun,      min:30, max:220 },
+                  { key:"contrast"   as const, label:"Clarity",   icon:Contrast, min:30, max:220 },
+                ].map(f => (
+                  <div key={f.key} className="space-y-3">
+                    <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-widest text-muted-foreground/60">
+                      <span className="flex items-center gap-2">{f.label}</span>
+                      <span className="text-foreground tabular-nums">{filters[f.key]}%</span>
                     </div>
-                    {pts[i] ? (
-                      <p className="text-[9px] font-mono text-muted-foreground">
-                        {Math.round(pts[i].x)}, {Math.round(pts[i].y)} px
-                      </p>
-                    ) : (
-                      <p className="text-[9px] text-muted-foreground/50 italic">Click on canvas</p>
-                    )}
+                    <input
+                      type="range" min={f.min} max={f.max} value={filters[f.key]}
+                      onChange={e => setFilters(fv => ({...fv, [f.key]:Number(e.target.value)}))}
+                      className="w-full h-1.5 rounded-full bg-muted appearance-none accent-primary cursor-pointer"
+                    />
                   </div>
                 ))}
+                <div className="flex items-center justify-between pt-4 border-t border-border/10">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/60 flex items-center gap-2">
+                    <FlipHorizontal className="h-4 w-4"/>Negative Inversion
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setFilters(f => ({...f, invert:!f.invert}))}
+                    className={cn(
+                      "relative h-6 w-11 rounded-full border-2 transition-all",
+                      filters.invert ? "bg-primary border-primary" : "bg-muted/40 border-border/60"
+                    )}
+                  >
+                    <span className={cn(
+                      "absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-lg transition-all",
+                      filters.invert ? "left-5" : "left-0.5"
+                    )} />
+                  </button>
+                </div>
               </div>
+            </Card>
 
-              {pts.length === 2 && (
-                <div className="rounded-xl border border-success/30 bg-success/5 p-3 flex items-center gap-2">
-                  <CheckCircle2 className="h-4 w-4 text-success shrink-0" />
+            {/* ── Step 1: Place points ── */}
+            {step === 1 && (
+              <Card className="p-8 glass-premium shadow-md-professional border-border/40 space-y-8">
+                <div className="flex items-start gap-4">
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary border border-primary/20 shadow-xl shadow-primary/10">
+                    <Target className="h-6 w-6" />
+                  </div>
                   <div>
-                    <p className="text-xs font-bold text-success">Both points placed</p>
-                    <p className="text-[10px] text-muted-foreground">
-                      Span: {dist(pts[0], pts[1]).toFixed(0)} px · Drag points to refine
+                    <h3 className="text-lg font-black tracking-tight leading-tight">Place Reference Points</h3>
+                    <p className="text-xs text-muted-foreground mt-2 font-medium leading-relaxed">
+                      Anchor two points on the radiograph to define the clinical scale. Use a metallic ruler or anatomical markers.
                     </p>
                   </div>
                 </div>
-              )}
 
-              {/* Tips */}
-              <div className="rounded-xl border border-border/40 bg-muted/10 p-3 space-y-2">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Tips</p>
-                <ul className="space-y-1 text-[10px] text-muted-foreground leading-relaxed">
-                  <li>• <strong>Longer reference lines</strong> give more accurate calibration</li>
-                  <li>• Points snap to nearby AI landmarks (shown in blue)</li>
-                  <li>• Drag placed points to reposition them precisely</li>
-                  <li>• Zoom in for precise point placement</li>
-                </ul>
-              </div>
-
-              {pts.length > 0 && (
-                <button type="button" onClick={handleReset}
-                  className="text-[10px] font-bold text-destructive/60 hover:text-destructive transition-colors flex items-center gap-1">
-                  <RotateCcw className="h-3 w-3" /> Reset all points
-                </button>
-              )}
-            </Card>
-          )}
-
-          {/* ── Step 2: Set distance ── */}
-          {step === 2 && (
-            <Card className="space-y-4">
-              <div className="flex items-start gap-3">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                  <Ruler className="h-4 w-4" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold">Enter True Distance</h3>
-                  <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
-                    What is the real-world distance between the two reference points you placed?
-                  </p>
-                </div>
-              </div>
-
-              <Field label="Distance (mm)">
-                <TextInput
-                  type="number"
-                  value={distMm}
-                  onChange={setDistMm}
-                  min={1}
-                  placeholder="e.g. 100"
-                />
-              </Field>
-
-              {/* Preset distances */}
-              <div>
-                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">Common References</p>
-                <div className="space-y-1.5">
-                  {PRESET_DISTANCES.map(p => (
-                    <button
-                      key={p.label}
-                      type="button"
-                      onClick={() => setDistMm(String(p.mm))}
-                      className={cn(
-                        "w-full flex items-start gap-3 rounded-xl border px-3 py-2.5 text-left transition-all",
-                        distMm === String(p.mm)
-                          ? "border-primary/40 bg-primary/5"
-                          : "border-border/40 bg-muted/10 hover:border-primary/20 hover:bg-muted/20"
+                <div className="grid grid-cols-2 gap-4">
+                  {[0, 1].map(i => (
+                    <div key={i} className={cn(
+                      "rounded-2xl border p-5 transition-all duration-500",
+                      pts.length > i ? "border-primary/40 bg-primary/5 shadow-inner-lg" : "border-border/40 bg-muted/10 opacity-60"
+                    )}>
+                      <div className="flex items-center gap-3 mb-3">
+                        <div className={cn(
+                          "h-6 w-6 rounded-lg border-2 flex items-center justify-center text-[10px] font-black",
+                          pts.length > i ? "border-primary bg-primary text-primary-foreground shadow-md" : "border-border/50 text-muted-foreground"
+                        )}>
+                          {pts.length > i ? "✓" : i + 1}
+                        </div>
+                        <span className={cn("text-[10px] font-black uppercase tracking-widest", pts.length > i ? "text-primary" : "text-muted-foreground")}>
+                          Ref Point {i + 1}
+                        </span>
+                      </div>
+                      {pts[i] ? (
+                        <p className="text-sm font-black tabular-nums text-foreground tracking-tight">
+                          {Math.round(pts[i].x)}, {Math.round(pts[i].y)} <span className="text-[10px] opacity-40 uppercase ml-1">px</span>
+                        </p>
+                      ) : (
+                        <p className="text-[10px] text-muted-foreground/40 font-bold italic uppercase tracking-widest">Awaiting Capture</p>
                       )}
-                    >
-                      <div className={cn(
-                        "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[8px] font-bold mt-0.5",
-                        distMm === String(p.mm) ? "border-primary bg-primary text-primary-foreground" : "border-border/50"
-                      )}>
-                        {distMm === String(p.mm) ? "✓" : ""}
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-xs font-bold leading-tight">{p.label}</p>
-                        <p className="text-[9px] text-muted-foreground/70 mt-0.5 leading-relaxed">{p.note}</p>
-                      </div>
-                      <span className="text-xs font-bold text-muted-foreground shrink-0 ml-auto">{p.mm} mm</span>
-                    </button>
+                    </div>
                   ))}
                 </div>
-              </div>
 
-              {/* Live preview */}
-              {pixPerMm && (
-                <div className="rounded-xl border border-border/40 bg-muted/10 p-3 space-y-1">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Preview</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="rounded-lg bg-muted/20 p-2 text-center">
-                      <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest mb-0.5">px / mm</p>
-                      <p className="text-base font-bold tabular-nums">{pixPerMm.toFixed(3)}</p>
-                    </div>
-                    <div className="rounded-lg bg-muted/20 p-2 text-center">
-                      <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest mb-0.5">mm / px</p>
-                      <p className="text-base font-bold tabular-nums">{(1 / pixPerMm).toFixed(4)}</p>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </Card>
-          )}
-
-          {/* ── Step 3: Confirm ── */}
-          {step === 3 && (
-            <Card className="space-y-4">
-              <div className="flex items-start gap-3">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-success/10 text-success">
-                  <Sparkles className="h-4 w-4" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold">Confirm Calibration</h3>
-                  <p className="text-xs text-muted-foreground mt-0.5">Review the spatial scale before saving.</p>
-                </div>
-              </div>
-
-              {pixPerMm && quality && (
-                <div className="space-y-3">
-                  {/* Summary grid */}
-                  <div className="grid grid-cols-2 gap-2">
-                    {[
-                      { label:"Reference span",  value:`${dist(pts[0],pts[1]).toFixed(0)} px` },
-                      { label:"True distance",   value:`${distMm} mm`                         },
-                      { label:"Pixel density",   value:`${pixPerMm.toFixed(3)} px/mm`         },
-                      { label:"Spatial res.",    value:`${(1/pixPerMm).toFixed(4)} mm/px`      },
-                    ].map(row => (
-                      <div key={row.label} className="rounded-xl border border-border/40 bg-muted/10 p-3">
-                        <p className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground mb-1">{row.label}</p>
-                        <p className="text-sm font-bold tabular-nums">{row.value}</p>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Quality indicator */}
-                  <div className={cn(
-                    "rounded-xl border p-3 flex items-start gap-3",
-                    quality.tone === "success" ? "border-success/30 bg-success/5"
-                    : quality.tone === "accent" ? "border-primary/30 bg-primary/5"
-                    : "border-warning/30 bg-warning/5"
-                  )}>
-                    <div className={cn(
-                      "flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-xs font-bold",
-                      quality.tone === "success" ? "bg-success/20 text-success"
-                      : quality.tone === "accent" ? "bg-primary/20 text-primary"
-                      : "bg-warning/20 text-warning"
-                    )}>
-                      <Eye className="h-4 w-4" />
+                {pts.length === 2 && (
+                  <div className="rounded-[24px] border border-emerald-500/20 bg-emerald-500/5 p-5 flex items-start gap-4 animate-in zoom-in-95 duration-500">
+                    <div className="h-10 w-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-500 shadow-sm">
+                      <CheckCircle2 className="h-5 w-5" />
                     </div>
                     <div>
-                      <div className="flex items-center gap-2 mb-1">
-                        <p className="text-xs font-bold">Quality: {quality.label}</p>
-                        <Pill tone={quality.tone} size="xs">{pixPerMm.toFixed(2)} px/mm</Pill>
-                      </div>
-                      <p className="text-[10px] text-muted-foreground leading-relaxed">{quality.desc}</p>
+                      <p className="text-xs font-black uppercase tracking-widest text-emerald-600">Points Synchronized</p>
+                      <p className="text-[11px] text-muted-foreground font-medium mt-1 leading-relaxed">
+                        Reference span captured at <span className="text-foreground font-black">{dist(pts[0], pts[1]).toFixed(0)} pixels</span>. Proceed to scale input.
+                      </p>
                     </div>
                   </div>
+                )}
 
-                  {/* Example measurement preview */}
-                  <div className="rounded-xl border border-border/40 bg-muted/10 p-3">
-                    <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">
-                      Measurement preview
+                <div className="p-6 rounded-[24px] border border-border/40 bg-muted/10 space-y-4">
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Calibration Logic</p>
+                  <ul className="space-y-3">
+                    {[
+                      { icon: Maximize2, text: "Longer reference lines increase geometric precision." },
+                      { icon: Zap, text: "Points automatically snap to nearby AI landmarks." },
+                      { icon: MousePointer2, text: "Drag points on canvas for sub-pixel refinement." },
+                    ].map((tip, i) => (
+                      <li key={i} className="flex items-start gap-3 text-[11px] text-muted-foreground font-medium leading-relaxed">
+                        <tip.icon className="h-3.5 w-3.5 text-primary/40 shrink-0 mt-0.5" />
+                        {tip.text}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                {pts.length > 0 && (
+                  <button type="button" onClick={handleReset}
+                    className="w-full h-11 rounded-xl border border-rose-500/10 text-rose-500/40 hover:text-rose-500 hover:bg-rose-500/5 transition-all text-[10px] font-black uppercase tracking-widest flex items-center justify-center gap-2 group">
+                    <RotateCcw className="h-3.5 w-3.5 group-hover:rotate-[-120deg] transition-transform duration-500" /> 
+                    Purge Point Data
+                  </button>
+                )}
+              </Card>
+            )}
+
+            {/* ── Step 2: Set distance ── */}
+            {step === 2 && (
+              <Card className="p-8 glass-premium shadow-md-professional border-border/40 space-y-8">
+                <div className="flex items-start gap-4">
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary border border-primary/20 shadow-xl shadow-primary/10">
+                    <Ruler className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-black tracking-tight leading-tight">Define Physical Scale</h3>
+                    <p className="text-xs text-muted-foreground mt-2 font-medium leading-relaxed">
+                      Enter the absolute real-world length between the selected points to synchronize the digital grid.
                     </p>
-                    <div className="space-y-1">
-                      {[50, 100, 150].map(px => (
-                        <div key={px} className="flex items-center justify-between text-xs">
-                          <span className="text-muted-foreground font-mono">{px} px</span>
-                          <span className="h-px flex-1 mx-3 border-t border-dashed border-border/40" />
-                          <span className="font-bold">{(px / pixPerMm).toFixed(2)} mm</span>
+                  </div>
+                </div>
+
+                <div className="relative">
+                   <div className="absolute left-5 top-1/2 -translate-y-1/2 text-primary">
+                    <Ruler className="h-5 w-5" />
+                  </div>
+                  <TextInput
+                    type="number"
+                    value={distMm}
+                    onChange={setDistMm}
+                    min={1}
+                    placeholder="Enter millimeters..."
+                    className="pl-14 h-16 text-xl font-black tabular-nums rounded-[24px] border-border/40 bg-muted/10 focus:ring-primary/20"
+                  />
+                  <div className="absolute right-5 top-1/2 -translate-y-1/2 text-[10px] font-black uppercase tracking-widest text-muted-foreground/40">
+                    mm
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Standard Templates</p>
+                  <div className="grid gap-2">
+                    {PRESET_DISTANCES.slice(0, 4).map(p => (
+                      <button
+                        key={p.label}
+                        type="button"
+                        onClick={() => setDistMm(String(p.mm))}
+                        className={cn(
+                          "w-full flex items-center justify-between rounded-2xl border px-5 py-4 text-left transition-all duration-300",
+                          distMm === String(p.mm)
+                            ? "border-primary/40 bg-primary/5 shadow-inner-lg"
+                            : "border-border/40 bg-muted/10 hover:border-primary/20 hover:bg-muted/20"
+                        )}
+                      >
+                        <div className="flex items-center gap-4">
+                          <div className={cn(
+                            "h-5 w-5 shrink-0 rounded-lg border-2 flex items-center justify-center transition-all",
+                            distMm === String(p.mm) ? "border-primary bg-primary shadow-md" : "border-border/50"
+                          )}>
+                            {distMm === String(p.mm) && <CheckCircle2 className="h-3.5 w-3.5 text-white" />}
+                          </div>
+                          <div>
+                            <p className="text-xs font-black uppercase tracking-tight">{p.label}</p>
+                            <p className="text-[9px] text-muted-foreground/60 font-medium mt-0.5">{p.note}</p>
+                          </div>
+                        </div>
+                        <span className="text-sm font-black tabular-nums text-foreground/80">{p.mm}mm</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {pixPerMm && (
+                  <div className="p-6 rounded-[24px] border border-border/40 bg-muted/20 space-y-4">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/40">Scale Telemetry</p>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <p className="text-xl font-black tabular-nums tracking-tighter">{pixPerMm.toFixed(3)}</p>
+                        <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">px / mm</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-xl font-black tabular-nums tracking-tighter">{(1 / pixPerMm).toFixed(4)}</p>
+                        <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">mm / px</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </Card>
+            )}
+
+            {/* ── Step 3: Confirm ── */}
+            {step === 3 && (
+              <Card className="p-8 glass-premium shadow-md-professional border-border/40 space-y-8">
+                <div className="flex items-start gap-4">
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 shadow-xl shadow-emerald-500/10">
+                    <Sparkles className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-black tracking-tight leading-tight">Calibration Summary</h3>
+                    <p className="text-xs text-muted-foreground mt-2 font-medium leading-relaxed">
+                      Review the calculated spatial resolution before committing to the clinical database.
+                    </p>
+                  </div>
+                </div>
+
+                {pixPerMm && quality && (
+                  <div className="space-y-6">
+                    <div className="grid grid-cols-2 gap-3">
+                      {[
+                        { label:"Geometric Span", value:`${dist(pts[0],pts[1]).toFixed(0)} px` },
+                        { label:"Reference Scale", value:`${distMm} mm` },
+                      ].map(row => (
+                        <div key={row.label} className="rounded-2xl border border-border/40 bg-muted/10 p-5">
+                          <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/40 mb-2">{row.label}</p>
+                          <p className="text-base font-black tabular-nums tracking-tight">{row.value}</p>
                         </div>
                       ))}
                     </div>
+
+                    <div className={cn(
+                      "rounded-[32px] border p-6 flex items-start gap-5 transition-all duration-700",
+                      quality.tone === "success" ? "border-emerald-500/20 bg-emerald-500/5"
+                      : quality.tone === "accent" ? "border-primary/20 bg-primary/5"
+                      : "border-amber-500/20 bg-amber-500/5"
+                    )}>
+                      <div className={cn(
+                        "flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border shadow-xl transition-all",
+                        quality.tone === "success" ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-500 shadow-emerald-500/10"
+                        : quality.tone === "accent" ? "bg-primary/10 border-primary/20 text-primary shadow-primary/10"
+                        : "bg-amber-500/10 border-amber-500/20 text-amber-500 shadow-amber-500/10"
+                      )}>
+                        <Eye className="h-6 w-6" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-3 mb-2">
+                          <p className="text-sm font-black tracking-tight">Resolution: {quality.label}</p>
+                          <Pill tone={quality.tone} size="xs" className="font-black">{pixPerMm.toFixed(2)} PX/MM</Pill>
+                        </div>
+                        <p className="text-xs text-muted-foreground font-medium leading-relaxed opacity-70">{quality.desc}</p>
+                      </div>
+                    </div>
+
+                    <div className="p-6 rounded-[24px] border border-border/40 bg-muted/10">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/40 mb-4">Sample Projection</p>
+                      <div className="space-y-3">
+                        {[50, 100].map(px => (
+                          <div key={px} className="flex items-center justify-between text-xs">
+                            <span className="text-muted-foreground font-mono opacity-40">{px} PX</span>
+                            <div className="h-px flex-1 mx-4 border-t border-dashed border-border/40" />
+                            <span className="font-black tabular-nums text-foreground">{(px / pixPerMm).toFixed(2)} MM</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
 
-              {prevCalibrated && (
-                <div className="rounded-xl border border-warning/30 bg-warning/5 p-3 flex items-start gap-2">
-                  <AlertTriangle className="h-4 w-4 text-warning shrink-0 mt-0.5" />
-                  <p className="text-xs text-warning/90 leading-relaxed">
-                    This will replace the existing calibration ({activeCase.calibrationDistanceMm} mm reference).
-                  </p>
-                </div>
-              )}
-            </Card>
-          )}
+                {prevCalibrated && (
+                  <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-5 flex items-start gap-3">
+                    <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+                    <p className="text-xs text-muted-foreground font-medium leading-relaxed">
+                      Saving will overwrite the existing <span className="font-black text-amber-500">{activeCase.calibrationDistanceMm}mm</span> reference model.
+                    </p>
+                  </div>
+                )}
+              </Card>
+            )}
 
-          {/* ── Navigation buttons ── */}
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={goBack}
-              className="flex items-center gap-2 rounded-xl border border-border/50 bg-muted/20 px-4 h-11 text-sm font-bold text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-all"
-            >
-              <ChevronLeft className="h-4 w-4" />
-              {step === 1 ? "Back to Viewer" : "Previous"}
-            </button>
-
-            {step < 3 ? (
+            {/* ── Navigation buttons ── */}
+            <div className="flex items-center gap-4">
               <button
                 type="button"
-                onClick={goNext}
-                disabled={step === 1 ? !canGoStep2 : !canGoStep3}
-                className={cn(
-                  "flex-1 flex items-center justify-center gap-2 h-11 rounded-xl font-bold text-sm transition-all",
-                  (step === 1 ? canGoStep2 : canGoStep3)
-                    ? "bg-primary text-primary-foreground shadow-lg shadow-primary/20 hover:bg-primary/90"
-                    : "bg-muted/30 text-muted-foreground cursor-not-allowed opacity-50"
-                )}
+                onClick={goBack}
+                className="flex items-center gap-3 rounded-[20px] border border-border/40 bg-muted/10 px-6 h-14 text-xs font-black uppercase tracking-widest text-muted-foreground hover:text-foreground hover:bg-muted/20 transition-all group"
               >
-                Continue
-                <ChevronRight className="h-4 w-4" />
+                <ChevronLeft className="h-4 w-4 group-hover:-translate-x-1 transition-transform" />
+                {step === 1 ? "Back" : "Previous"}
               </button>
-            ) : (
-              <PrimaryBtn
-                onClick={handleSave}
-                icon={Save}
-                disabled={isSaving || !canGoStep3}
-                className="flex-1 h-11"
-              >
-                {isSaving ? "Saving…" : "Save Calibration"}
-              </PrimaryBtn>
-            )}
-          </div>
 
-          {/* No image warning */}
-          {!hasImage && (
-            <div className="rounded-xl border border-warning/30 bg-warning/5 p-4 flex items-start gap-3">
-              <AlertTriangle className="h-5 w-5 text-warning shrink-0 mt-0.5" />
-              <div>
-                <p className="text-sm font-bold text-warning">No image loaded</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Upload a radiograph in the Analysis page before calibrating.
-                </p>
-              </div>
+              {step < 3 ? (
+                <button
+                  type="button"
+                  onClick={goNext}
+                  disabled={step === 1 ? !canGoStep2 : !canGoStep3}
+                  className={cn(
+                    "flex-1 flex items-center justify-center gap-3 h-14 rounded-[20px] font-black text-xs uppercase tracking-widest transition-all group",
+                    (step === 1 ? canGoStep2 : canGoStep3)
+                      ? "bg-primary text-primary-foreground shadow-xl shadow-primary/20 hover:scale-[1.02] active:scale-[0.98]"
+                      : "bg-muted/30 text-muted-foreground cursor-not-allowed opacity-50 border border-border/10"
+                  )}
+                >
+                  Continue Flow
+                  <ChevronRight className="h-4 w-4 group-hover:translate-x-1 transition-transform" />
+                </button>
+              ) : (
+                <PrimaryBtn
+                  onClick={handleSave}
+                  icon={Save}
+                  disabled={isSaving || !canGoStep3}
+                  className="flex-1 h-14 rounded-[20px] shadow-xl shadow-primary/20 font-black text-xs uppercase tracking-widest"
+                >
+                  {isSaving ? "Synchronizing..." : "Apply Scale"}
+                </PrimaryBtn>
+              )}
             </div>
-          )}
 
+            {!hasImage && (
+              <div className="rounded-2xl border border-rose-500/20 bg-rose-500/5 p-6 flex items-start gap-4">
+                <AlertTriangle className="h-6 w-6 text-rose-500 shrink-0 mt-0.5 animate-pulse" />
+                <div>
+                  <p className="text-sm font-black text-rose-500">Image Asset Missing</p>
+                  <p className="text-xs text-muted-foreground mt-1 font-medium leading-relaxed">
+                    Upload a clinical radiograph in the analysis orchestration module before initializing calibration.
+                  </p>
+                </div>
+              </div>
+            )}
+
+          </div>
         </div>
       </div>
     </div>
@@ -569,7 +598,6 @@ function CalibCanvas({ imageUrl, pts, setPts, landmarks, step, filters, distMm, 
   const [cursorPt, setCursorPt]   = useState<Point | null>(null);
   const [snapCode, setSnapCode]   = useState<string | null>(null);
 
-  // Auto-fit when image changes
   useEffect(() => { setZoom(1); setPan({ x: 0, y: 0 }); }, [imageUrl]);
 
   function svgPt(e: React.PointerEvent | React.WheelEvent): Point {
@@ -609,24 +637,19 @@ function CalibCanvas({ imageUrl, pts, setPts, landmarks, step, filters, distMm, 
   }
 
   function handlePointerDown(e: React.PointerEvent) {
-    // Pan on alt/middle/pan drag
     if (e.altKey || e.button === 1) {
       (e.currentTarget as Element).setPointerCapture(e.pointerId);
       setIsPanning(true); setLastPanPt({ x: e.clientX, y: e.clientY });
       return;
     }
-
-    // Only place/interact in step 1
     if (step !== 1) {
       (e.currentTarget as Element).setPointerCapture(e.pointerId);
       setIsPanning(true); setLastPanPt({ x: e.clientX, y: e.clientY });
       return;
     }
-
     const raw  = svgPt(e);
     const snap = nearestLandmark(raw, 24 / zoom);
     const pt   = snap ? { x: snap.x, y: snap.y } : raw;
-
     const updated = pts.length >= 2 ? [pt] : [...pts, pt];
     setPts(updated);
   }
@@ -634,10 +657,8 @@ function CalibCanvas({ imageUrl, pts, setPts, landmarks, step, filters, distMm, 
   function handlePointerMove(e: React.PointerEvent) {
     const raw = svgPt(e);
     setCursorPt(raw);
-
     const snap = nearestLandmark(raw, 24 / zoom);
     setSnapCode(snap?.code ?? null);
-
     if (isPanning && lastPanPt) {
       const svg = svgRef.current; if (!svg) return;
       const r = svg.getBoundingClientRect();
@@ -647,7 +668,6 @@ function CalibCanvas({ imageUrl, pts, setPts, landmarks, step, filters, distMm, 
       setLastPanPt({ x: e.clientX, y: e.clientY });
       return;
     }
-
     if (draggingIdx !== null) {
       const snap = nearestLandmark(raw, 24 / zoom);
       const pt = snap ? { x: snap.x, y: snap.y } : raw;
@@ -677,69 +697,57 @@ function CalibCanvas({ imageUrl, pts, setPts, landmarks, step, filters, distMm, 
   const midPt  = pts.length === 2 ? { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 } : null;
 
   return (
-    <Card noPadding className="relative overflow-hidden bg-[#07070e] border-border/20 shadow-2xl">
+    <Card noPadding className="relative overflow-hidden bg-[#07070e] border-border/20 shadow-2xl-professional rounded-[40px] group/canvas">
 
       {/* Zoom controls */}
-      <div className="absolute right-4 bottom-14 z-20">
-        <div className="flex flex-col rounded-xl border border-white/10 bg-black/80 backdrop-blur-md p-1 shadow-2xl gap-0.5">
+      <div className="absolute right-6 bottom-16 z-20 transition-all duration-500 opacity-0 group-hover/canvas:opacity-100 translate-y-4 group-hover/canvas:translate-y-0">
+        <div className="flex flex-col rounded-[20px] border border-white/10 bg-black/60 backdrop-blur-xl p-1.5 shadow-2xl gap-1">
           <button type="button" onClick={() => applyZoom(1.3, { x: 500, y: 360 })}
-            className="h-9 w-9 flex items-center justify-center text-white/40 hover:text-white hover:bg-white/10 rounded-lg transition-all">
-            <ZoomIn className="h-3.5 w-3.5" />
+            className="h-10 w-10 flex items-center justify-center text-white/40 hover:text-white hover:bg-primary/20 rounded-xl transition-all">
+            <ZoomIn className="h-4 w-4" />
           </button>
-          <div className="h-px bg-white/5 mx-1.5" />
           <button type="button" onClick={() => { if (zoom <= 1) { setZoom(1); setPan({ x: 0, y: 0 }); } else applyZoom(1 / 1.3, { x: 500, y: 360 }); }}
-            className="h-9 w-9 flex items-center justify-center text-white/40 hover:text-white hover:bg-white/10 rounded-lg transition-all">
-            <ZoomOut className="h-3.5 w-3.5" />
+            className="h-10 w-10 flex items-center justify-center text-white/40 hover:text-white hover:bg-primary/20 rounded-xl transition-all">
+            <ZoomOut className="h-4 w-4" />
           </button>
-          <div className="h-px bg-white/5 mx-1.5" />
+          <div className="h-px bg-white/5 mx-2" />
           <button type="button" onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}
-            className="h-8 w-9 flex items-center justify-center text-[8px] font-bold text-white/25 hover:text-white transition-colors">
+            className="h-10 w-10 flex items-center justify-center text-[9px] font-black text-white/20 hover:text-white transition-colors">
             FIT
           </button>
         </div>
       </div>
 
       {/* Top indicator */}
-      <div className="absolute top-0 inset-x-0 z-10 flex items-center justify-between px-4 py-2.5 bg-gradient-to-b from-black/85 to-transparent pointer-events-none">
-        <div className="flex items-center gap-2">
+      <div className="absolute top-0 inset-x-0 z-10 flex items-center justify-between px-8 py-6 bg-gradient-to-b from-black/80 via-black/40 to-transparent pointer-events-none">
+        <div className="flex items-center gap-4">
           <div className={cn(
-            "flex items-center gap-2 px-3 py-1.5 rounded-full border text-[9px] font-bold uppercase tracking-widest backdrop-blur shadow",
-            step === 1 ? "bg-primary/25 border-primary/50 text-primary"
-            : step === 2 ? "bg-muted/60 border-white/10 text-white/70"
-            : "bg-success/25 border-success/50 text-success"
+            "flex items-center gap-3 px-4 py-2 rounded-full border text-[10px] font-black uppercase tracking-widest backdrop-blur-xl shadow-lg transition-all duration-700",
+            step === 1 ? "bg-primary/20 border-primary/40 text-primary"
+            : step === 2 ? "bg-white/10 border-white/20 text-white/60"
+            : "bg-emerald-500/20 border-emerald-500/40 text-emerald-500"
           )}>
             <div className={cn("h-1.5 w-1.5 rounded-full",
-              step === 1 ? "bg-primary animate-pulse" : step === 2 ? "bg-white/40" : "bg-success"
+              step === 1 ? "bg-primary animate-pulse shadow-[0_0_8px_rgba(var(--primary),0.8)]" : step === 2 ? "bg-white/40" : "bg-emerald-500"
             )} />
-            {step === 1 ? `${pts.length}/2 points placed` : step === 2 ? "View reference span" : "Calibration ready"}
+            {step === 1 ? `${pts.length}/2 Captured` : step === 2 ? "Metric Synchronization" : "Telemetry Ready"}
           </div>
           {zoom !== 1 && (
-            <div className="flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-primary/20 backdrop-blur border border-primary/40 text-[9px] font-bold text-primary">
-              <ZoomIn className="h-2.5 w-2.5" />{Math.round(zoom * 100)}%
+            <div className="flex items-center gap-2 px-3 py-2 rounded-full bg-white/5 backdrop-blur-xl border border-white/10 text-[10px] font-black text-white/40 shadow-lg">
+              <Maximize2 className="h-3 w-3" />{Math.round(zoom * 100)}%
             </div>
           )}
         </div>
-        <div className="flex items-center gap-2 text-[9px] font-mono text-white/30">
+        <div className="flex items-center gap-4 text-[10px] font-mono text-white/20">
           {cursorPt && (
-            <span className="px-2 py-1 rounded bg-black/50">{Math.round(cursorPt.x)}, {Math.round(cursorPt.y)}</span>
+            <span className="bg-black/40 px-3 py-1.5 rounded-lg border border-white/5">{Math.round(cursorPt.x)}, {Math.round(cursorPt.y)}</span>
           )}
-          {snapCode && <span className="text-yellow-400/70 px-2 py-1 rounded bg-black/50">⊕ snap: {snapCode}</span>}
+          {snapCode && <span className="text-primary/60 bg-primary/10 px-3 py-1.5 rounded-lg border border-primary/20">⊕ SNAP: {snapCode}</span>}
         </div>
       </div>
 
-      {/* Instructions overlay when no image */}
-      {!imageUrl && (
-        <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
-          <div className="text-center">
-            <Target className="h-10 w-10 text-white/10 mx-auto mb-3" />
-            <p className="text-white/20 font-bold text-lg">No Image Loaded</p>
-            <p className="text-white/10 text-sm mt-1">Upload a radiograph first</p>
-          </div>
-        </div>
-      )}
-
       {/* Main SVG */}
-      <div className="aspect-[1000/720] min-h-[520px]">
+      <div className="aspect-[1000/720] min-h-[580px]">
         <svg
           ref={svgRef}
           viewBox="0 0 1000 720"
@@ -755,11 +763,16 @@ function CalibCanvas({ imageUrl, pts, setPts, landmarks, step, filters, distMm, 
           onWheel={handleWheel}
           onDoubleClick={handleDoubleClick}
         >
+          <defs>
+            <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stopColor="var(--primary)" stopOpacity="0.4" />
+              <stop offset="100%" stopColor="var(--primary)" stopOpacity="0" />
+            </radialGradient>
+          </defs>
+          
           <rect width="1000" height="720" fill="#07070e" />
 
           <g transform={`translate(${pan.x},${pan.y}) scale(${zoom})`}>
-
-            {/* X-ray image */}
             {imageUrl && (
               <image
                 href={imageUrl} x="0" y="0" width="1000" height="720"
@@ -768,172 +781,56 @@ function CalibCanvas({ imageUrl, pts, setPts, landmarks, step, filters, distMm, 
               />
             )}
 
-            {/* Landmark dots for reference/snapping — faded */}
+            {/* Snap markers */}
             {landmarks.map(lm => {
               const isSnap = lm.code === snapCode;
               return (
-                <g key={lm.code} opacity={isSnap ? 1 : 0.25}>
-                  <circle cx={lm.x} cy={lm.y} r={isSnap ? 14 : 0} fill="none"
-                    stroke="#60a5fa" strokeWidth="1.5" strokeDasharray="3 2" className={isSnap?"animate-pulse":""} />
-                  <circle cx={lm.x} cy={lm.y} r="3" fill="#60a5fa" stroke="#000" strokeWidth="1" />
-                  {isSnap && (
-                    <g transform={`translate(${lm.x + 14},${lm.y - 20})`}>
-                      <rect x="-2" y="-9" width={lm.code.length * 7 + 10} height="14" rx="4" fill="rgba(0,0,0,0.9)" />
-                      <text x={(lm.code.length * 7 + 10) / 2 - 2} y="1.5" fill="#60a5fa" fontSize="9"
-                        fontWeight="bold" textAnchor="middle" fontFamily="system-ui">{lm.code}</text>
-                    </g>
-                  )}
+                <g key={lm.code} opacity={isSnap ? 1 : 0.15}>
+                  {isSnap && <circle cx={lm.x} cy={lm.y} r="20" fill="url(#glow)" className="animate-pulse" />}
+                  <circle cx={lm.x} cy={lm.y} r={isSnap ? 12 : 0} fill="none"
+                    stroke="var(--primary)" strokeWidth="1.5" strokeDasharray="4 3" />
+                  <circle cx={lm.x} cy={lm.y} r="3" fill="var(--primary)" stroke="#000" strokeWidth="1" />
                 </g>
               );
             })}
 
-            {/* Calibration ruler line */}
+            {/* Calibration UI */}
             {pts.length === 2 && pxDist && midPt && (
-              <g>
-                {/* Shadow glow */}
+              <g className="animate-in fade-in duration-1000">
                 <line x1={pts[0].x} y1={pts[0].y} x2={pts[1].x} y2={pts[1].y}
-                  stroke="#f59e0b" strokeWidth="12" strokeOpacity="0.06" />
-                {/* Main line */}
+                  stroke="var(--primary)" strokeWidth="16" strokeOpacity="0.05" />
                 <line x1={pts[0].x} y1={pts[0].y} x2={pts[1].x} y2={pts[1].y}
-                  stroke="#f59e0b" strokeWidth="2.5" strokeOpacity="0.9"
-                  strokeDasharray={step > 1 ? undefined : "12 6"} />
-                {/* Tick marks */}
-                {[perpTick(pts[0], pts[1], 16), perpTick(pts[1], pts[0], 16)].map((t, i) => (
-                  <line key={i} x1={t.x1} y1={t.y1} x2={t.x2} y2={t.y2}
-                    stroke="#f59e0b" strokeWidth="2.5" strokeOpacity="0.9" />
+                  stroke="var(--primary)" strokeWidth="2" strokeOpacity="0.8"
+                  strokeDasharray={step > 1 ? undefined : "10 5"} />
+                
+                {pts.map((p, i) => (
+                  <g key={i} onPointerDown={e => { e.stopPropagation(); setDraggingIdx(i); }}>
+                    <circle cx={p.x} cy={p.y} r="24" fill="transparent" className="cursor-pointer" />
+                    <circle cx={p.x} cy={p.y} r="10" fill="var(--primary)" stroke="#fff" strokeWidth="2.5" className="shadow-lg shadow-black/50" />
+                    <circle cx={p.x} cy={p.y} r="4" fill="#000" />
+                  </g>
                 ))}
-                {/* Sub-ticks */}
-                {Array.from({ length: Math.max(0, Math.floor(pxDist / 40) - 1) }).map((_, ti) => {
-                  const frac = (ti + 1) / Math.floor(pxDist / 40);
-                  const tx = pts[0].x + (pts[1].x - pts[0].x) * frac;
-                  const ty = pts[0].y + (pts[1].y - pts[0].y) * frac;
-                  const tp = perpTick({ x: tx, y: ty }, pts[1], 6);
-                  return <line key={ti} x1={tp.x1} y1={tp.y1} x2={tp.x2} y2={tp.y2}
-                    stroke="#f59e0b" strokeWidth="1.2" strokeOpacity="0.4" />;
-                })}
-                {/* Label */}
-                <g transform={`translate(${midPt.x},${midPt.y})`}>
-                  <rect x="-52" y="-32" width="104" height="57" rx="12"
-                    fill="rgba(0,0,0,0.92)" stroke="#f59e0b" strokeWidth="1.5" />
-                  <text x="0" y="-10" fill="#f59e0b" fontSize="15" fontWeight="bold"
-                    textAnchor="middle" fontFamily="system-ui">
-                    {distMm ? `${distMm} mm` : "? mm"}
-                  </text>
-                  <text x="0" y="9" fill="rgba(245,158,11,0.6)" fontSize="9"
-                    textAnchor="middle" fontFamily="system-ui">
-                    {pxDist.toFixed(0)} px
-                  </text>
-                  {pixPerMm && (
-                    <text x="0" y="20" fill="rgba(245,158,11,0.8)" fontSize="9" fontWeight="bold"
-                      textAnchor="middle" fontFamily="system-ui">
-                      {pixPerMm.toFixed(3)} px/mm
-                    </text>
-                  )}
-                </g>
-              </g>
-            )}
 
-            {/* Reference point markers */}
-            {pts.map((pt, i) => (
-              <g
-                key={i}
-                onPointerDown={e => {
-                  if (step !== 1) return;
-                  e.stopPropagation();
-                  (e.currentTarget as Element).setPointerCapture(e.pointerId);
-                  setDraggingIdx(i);
-                }}
-                className={step === 1 ? "cursor-move" : "cursor-default"}
-              >
-                {/* Outer glow ring */}
-                <circle cx={pt.x} cy={pt.y} r="28" fill="rgba(245,158,11,0.05)"
-                  stroke="#f59e0b" strokeWidth="0.5" strokeDasharray="4 3" />
-                {/* Inner ring */}
-                <circle cx={pt.x} cy={pt.y} r="14" fill="rgba(245,158,11,0.15)"
-                  stroke="#f59e0b" strokeWidth="2.5" />
-                {/* Center */}
-                <circle cx={pt.x} cy={pt.y} r="4" fill="#f59e0b" />
-                {/* Crosshair arms */}
-                {[[-18, 0, -7, 0], [7, 0, 18, 0], [0, -18, 0, -7], [0, 7, 0, 18]].map(([x1, y1, x2, y2], ci) => (
-                  <line key={ci} x1={pt.x + x1} y1={pt.y + y1} x2={pt.x + x2} y2={pt.y + y2}
-                    stroke="#f59e0b" strokeWidth="2" strokeOpacity="0.6" />
-                ))}
-                {/* Label badge */}
-                <g transform={`translate(${pt.x + 22},${pt.y - 22})`}>
-                  <rect x="-2" y="-10" width="44" height="14" rx="5"
-                    fill="rgba(0,0,0,0.92)" stroke="#f59e0b" strokeWidth="0.8" />
-                  <text x="20" y="1.5" fill="#f59e0b" fontSize="9" fontWeight="bold"
-                    textAnchor="middle" fontFamily="system-ui">
-                    REF {i + 1}
-                  </text>
-                </g>
-                {step === 1 && (
-                  <text x={pt.x} y={pt.y + 36} fill="rgba(245,158,11,0.4)" fontSize="7"
-                    textAnchor="middle" fontFamily="system-ui">drag to move</text>
+                {midPt && (
+                  <g transform={`translate(${midPt.x},${midPt.y})`}>
+                    <rect x="-45" y="-35" width="90" height="24" rx="12" fill="rgba(0,0,0,0.8)" stroke="rgba(255,255,255,0.1)" strokeWidth="1" />
+                    <text y="-19" textAnchor="middle" fill="#fff" fontSize="11" fontWeight="black" fontFamily="system-ui" className="tabular-nums">
+                      {distMm ? `${distMm}mm` : `${pxDist.toFixed(0)}px`}
+                    </text>
+                  </g>
                 )}
               </g>
-            ))}
-
-            {/* Live cursor indicator for step 1 */}
-            {step === 1 && pts.length < 2 && cursorPt && !snapCode && (
-              <g opacity="0.5" pointerEvents="none">
-                <circle cx={cursorPt.x} cy={cursorPt.y} r="12" fill="none"
-                  stroke="#f59e0b" strokeWidth="1.5" strokeDasharray="3 3" />
-                <circle cx={cursorPt.x} cy={cursorPt.y} r="2.5" fill="#f59e0b" />
-              </g>
             )}
 
+            {/* Single point placement */}
+            {pts.length === 1 && (
+              <g>
+                <circle cx={pts[0].x} cy={pts[0].y} r="24" fill="rgba(var(--primary),0.1)" className="animate-pulse" />
+                <circle cx={pts[0].x} cy={pts[0].y} r="6" fill="var(--primary)" stroke="#fff" strokeWidth="2" />
+              </g>
+            )}
           </g>
-
-          {/* Minimap */}
-          {zoom > 1.5 && (
-            <g transform="translate(838,556)">
-              <rect width="150" height="108" rx="10"
-                fill="rgba(0,0,0,0.85)" stroke="rgba(255,255,255,0.08)" strokeWidth="1" />
-              <text x="8" y="13" fill="rgba(255,255,255,0.22)" fontSize="7"
-                fontFamily="system-ui" fontWeight="bold">MINIMAP</text>
-              {pts.map((pt, i) => (
-                <circle key={i}
-                  cx={9 + (pt.x / 1000) * 132} cy={18 + (pt.y / 720) * 82}
-                  r="3.5" fill="#f59e0b" stroke="#000" strokeWidth="1" />
-              ))}
-              {(() => {
-                const vLeft = -pan.x / zoom, vTop = -pan.y / zoom;
-                const rx = 9 + Math.max(0, vLeft / 1000 * 132);
-                const ry = 18 + Math.max(0, vTop / 720 * 82);
-                const rw = Math.min(132 - Math.max(0, vLeft / 1000 * 132), (1000 / zoom) / 1000 * 132);
-                const rh = Math.min(82 - Math.max(0, vTop / 720 * 82), (720 / zoom) / 720 * 82);
-                return (
-                  <rect x={rx} y={ry} width={Math.max(4, rw)} height={Math.max(3, rh)}
-                    fill="rgba(96,165,250,0.08)" stroke="rgba(96,165,250,0.7)"
-                    strokeWidth="1" rx="2" />
-                );
-              })()}
-            </g>
-          )}
         </svg>
-      </div>
-
-      {/* Status bar */}
-      <div className="border-t border-white/5 bg-black/70 px-4 py-1.5 flex items-center justify-between text-[9px] font-mono text-white/30">
-        <span className="flex items-center gap-4">
-          {cursorPt && (
-            <>
-              <span>X: <span className="text-white/60">{Math.round(cursorPt.x)}</span></span>
-              <span>Y: <span className="text-white/60">{Math.round(cursorPt.y)}</span></span>
-            </>
-          )}
-          {pxDist && <span className="text-yellow-400/60">span: {pxDist.toFixed(0)} px</span>}
-          {pixPerMm && <span className="text-success/60">{pixPerMm.toFixed(3)} px/mm</span>}
-          <span className="text-white/20 italic hidden lg:block">
-            {step === 1 ? "Click to place points · Alt+drag to pan · Scroll to zoom · Double-click to zoom 2×"
-             : "Alt+drag to pan · Scroll to zoom"}
-          </span>
-        </span>
-        <span className="flex items-center gap-3">
-          <span>{landmarks.length} AI pts</span>
-          <span>Zoom <span className="text-white/50">{Math.round(zoom * 100)}%</span></span>
-        </span>
       </div>
     </Card>
   );

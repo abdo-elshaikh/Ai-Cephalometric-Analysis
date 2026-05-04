@@ -1,33 +1,12 @@
 import React, { useState } from "react";
 import {
-  FolderKanban,
-  Plus,
-  Filter,
-  ChevronRight,
-  Clock3,
-  LayoutGrid,
-  List,
-  Target,
-  BrainCircuit,
-  ImageIcon,
-  Ruler,
-  CheckCircle2,
-  CircleDot,
-  ScanLine,
-  Upload,
-  BarChart3,
-  Microscope,
-  type LucideIcon,
+  FolderKanban, Plus, Filter, ChevronRight, Clock3, LayoutGrid, List,
+  Target, BrainCircuit, ImageIcon, Ruler, CheckCircle2, CircleDot,
+  ScanLine, Upload, BarChart3, Microscope, Zap, Search, ArrowRight,
+  TrendingUp, Sparkles, FileText, Calendar,
 } from "lucide-react";
 import {
-  Card,
-  Pill,
-  PrimaryBtn,
-  SecondaryBtn,
-  IconBtn,
-  PageHeader,
-  SearchInput,
-  Divider,
+  Card, Pill, PrimaryBtn, SecondaryBtn, IconBtn, PageHeader, SearchInput, Divider, TextInput,
 } from "@/components/_core/ClinicalComponents";
 import { statusTone, completionForCase } from "@/lib/clinical-utils";
 import { type CaseRecord, type Patient } from "@/lib/mappers";
@@ -43,27 +22,27 @@ function studyTypeTone(type: string): "accent" | "info" | "warning" {
 }
 
 function aiStatusDisplay(status: string) {
-  if (status === "completed") return { label: "AI Done", color: "bg-success" };
-  if (status === "processing") return { label: "Processing", color: "bg-warning animate-pulse" };
-  return { label: "Pending", color: "bg-muted-foreground/30" };
+  if (status === "completed") return { label: "AI Synchronized", color: "bg-emerald-500", icon: BrainCircuit };
+  if (status === "processing") return { label: "Processing Data", color: "bg-amber-500 animate-pulse", icon: Zap };
+  return { label: "Engine Idle", color: "bg-muted-foreground/30", icon: CircleDot };
 }
 
 function pipelineSteps(c: CaseRecord) {
   return [
-    { key: "image",   done: Boolean(c.imageName),                                              icon: ImageIcon  },
-    { key: "cal",     done: Boolean(c.calibrated),                                             icon: Ruler      },
-    { key: "ai",      done: c.aiStatus === "completed",                                        icon: BrainCircuit },
-    { key: "review",  done: ["Reviewing","Reviewed","Report ready"].includes(c.status),        icon: CheckCircle2 },
+    { key: "image",   done: Boolean(c.imageName),   icon: ImageIcon  },
+    { key: "cal",     done: Boolean(c.calibrated),  icon: Ruler      },
+    { key: "ai",      done: c.aiStatus === "completed", icon: BrainCircuit },
+    { key: "review",  done: ["Reviewing","Reviewed","Report ready"].includes(c.status), icon: CheckCircle2 },
   ];
 }
 
-function getSmartAction(c: CaseRecord): { label: string; href: string; icon: LucideIcon; tone: "primary" | "secondary" } {
+function getSmartAction(c: CaseRecord): { label: string; href: string; icon: any; tone: "primary" | "secondary" } {
   if (!c.imageName) return { label: "Upload Image", href: "/analysis", icon: Upload, tone: "primary" };
-  if (!c.calibrated) return { label: "Calibrate", href: "/viewer", icon: Ruler, tone: "primary" };
+  if (!c.calibrated) return { label: "Calibrate Scale", href: "/viewer", icon: Ruler, tone: "primary" };
   if (c.aiStatus !== "completed") return { label: "Run AI Analysis", href: "/analysis", icon: BrainCircuit, tone: "primary" };
-  if (["AI completed", "Reviewing"].includes(c.status)) return { label: "Open Viewer", href: "/viewer", icon: ScanLine, tone: "primary" };
-  if (["Reviewed", "Report ready"].includes(c.status)) return { label: "View Results", href: "/results", icon: BarChart3, tone: "primary" };
-  return { label: "Open Workflow", href: "/analysis", icon: Target, tone: "secondary" };
+  if (["AI completed", "Reviewing"].includes(c.status)) return { label: "Launch Viewer", href: "/viewer", icon: ScanLine, tone: "primary" };
+  if (["Reviewed", "Report ready"].includes(c.status)) return { label: "View Diagnostics", href: "/results", icon: BarChart3, tone: "primary" };
+  return { label: "Open Workspace", href: "/analysis", icon: Target, tone: "secondary" };
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -77,11 +56,7 @@ interface CasesPageProps {
 }
 
 export default function CasesPage({
-  patients,
-  cases,
-  activeCaseId,
-  setActiveCaseId,
-  onCreateCase,
+  patients, cases, activeCaseId, setActiveCaseId, onCreateCase,
 }: CasesPageProps) {
   const [, navigate] = useLocation();
   const [query, setQuery] = useState("");
@@ -90,11 +65,11 @@ export default function CasesPage({
   const [view, setView] = useState<"grid" | "list">("grid");
 
   const FILTER_GROUPS: { label: string; statuses: string[] | null; count: number }[] = [
-    { label: "All",        statuses: null,                                                      count: cases.length },
-    { label: "Draft",      statuses: ["Draft"],                                                 count: cases.filter(c => c.status === "Draft").length },
-    { label: "In Progress",statuses: ["Image uploaded","Calibrated","AI completed"],            count: cases.filter(c => ["Image uploaded","Calibrated","AI completed"].includes(c.status)).length },
-    { label: "Reviewing",  statuses: ["Reviewing","Reviewed"],                                  count: cases.filter(c => ["Reviewing","Reviewed"].includes(c.status)).length },
-    { label: "Complete",   statuses: ["Report ready"],                                          count: cases.filter(c => c.status === "Report ready").length },
+    { label: "All Studies", statuses: null, count: cases.length },
+    { label: "Drafts", statuses: ["Draft"], count: cases.filter(c => c.status === "Draft").length },
+    { label: "Analysis Phase", statuses: ["Image uploaded","Calibrated","AI completed"], count: cases.filter(c => ["Image uploaded","Calibrated","AI completed"].includes(c.status)).length },
+    { label: "Clinical Review", statuses: ["Reviewing","Reviewed"], count: cases.filter(c => ["Reviewing","Reviewed"].includes(c.status)).length },
+    { label: "Finalized", statuses: ["Report ready"], count: cases.filter(c => c.status === "Report ready").length },
   ];
 
   const sortedCases = [...cases].sort((a, b) => {
@@ -113,99 +88,120 @@ export default function CasesPage({
   });
 
   return (
-    <div className="space-y-8 animate-in fade-in duration-500">
-      <PageHeader
-        eyebrow="Clinical Portfolio"
-        title="Diagnostic Worklist"
-        description="Monitor the progress of ongoing studies, from initial intake to final report generation."
-        actions={
-          <PrimaryBtn onClick={onCreateCase} icon={Plus}>
-            New clinical case
-          </PrimaryBtn>
-        }
-      />
+    <div className="min-h-screen bg-background text-foreground selection:bg-primary/30 pb-20 animate-in fade-in duration-700">
+      
+      {/* ── Ambient background ── */}
+      <div className="pointer-events-none fixed inset-0 overflow-hidden">
+        <div className="absolute -top-60 -left-40 w-[800px] h-[800px] rounded-full bg-primary/5 blur-[120px] animate-pulse duration-[12s]" />
+        <div className="absolute bottom-0 -right-40 w-[600px] h-[600px] rounded-full bg-sky-500/5 blur-[100px] animate-pulse duration-[10s]" />
+      </div>
 
-      <Card noPadding className="overflow-visible border-border/40">
-        {/* Toolbar */}
-        <div className="flex flex-col gap-3 p-4 border-b border-border/40 bg-muted/5">
-          {/* Row 1: Search + view controls */}
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <SearchInput
-              value={query}
-              onChange={setQuery}
-              placeholder="Search cases, patients…"
-              className="flex-1 max-w-sm"
-            />
-            <div className="flex items-center gap-2 shrink-0">
-              {/* Sort */}
-              <div className="flex items-center gap-1.5 rounded-md border border-border/60 bg-background px-2.5 h-9">
-                <Filter className="h-3 w-3 text-muted-foreground shrink-0" />
-                <select
-                  value={sort}
-                  onChange={e => setSort(e.target.value as typeof sort)}
-                  className="bg-transparent text-[11px] font-semibold uppercase tracking-wider outline-none cursor-pointer text-muted-foreground hover:text-foreground pr-1"
+      <div className="relative z-10 space-y-10 p-6 md:p-8 lg:p-10 max-w-[1600px] mx-auto">
+        
+        {/* ── Page header ── */}
+        <div className="flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="h-1.5 w-8 rounded-full bg-gradient-to-r from-primary to-sky-400" />
+              <span className="text-xs font-black uppercase tracking-[0.25em] text-primary/80">
+                Clinical Workflow
+              </span>
+            </div>
+            <h1 className="text-4xl font-black tracking-tight text-gradient-primary md:text-5xl">
+              Diagnostic Portfolio
+            </h1>
+            <p className="text-muted-foreground font-medium max-w-2xl leading-relaxed">
+              Track and manage all cephalometric analysis studies. Navigate through active diagnostic cycles and review historical reports.
+            </p>
+          </div>
+          
+          <div className="flex items-center gap-3 shrink-0 bg-card/30 backdrop-blur-md p-2 rounded-2xl border border-border/40 shadow-sm-professional">
+             <div className="flex rounded-xl border border-border/60 bg-muted/20 p-0.5">
+              <IconBtn
+                icon={LayoutGrid}
+                label="Grid view"
+                onClick={() => setView("grid")}
+                size="sm"
+                active={view === "grid"}
+              />
+              <IconBtn
+                icon={List}
+                label="List view"
+                onClick={() => setView("list")}
+                size="sm"
+                active={view === "list"}
+              />
+            </div>
+            <PrimaryBtn onClick={onCreateCase} icon={Plus} className="h-11 px-8 font-black uppercase tracking-widest text-[10px] shadow-lg shadow-primary/20 hover-lift">
+              New Study
+            </PrimaryBtn>
+          </div>
+        </div>
+
+        {/* ── Filter Bar ── */}
+        <div className="flex flex-col gap-6">
+           <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
+            <div className="relative flex-1 max-w-xl group">
+              <Search className="absolute left-5 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground/40 group-focus-within:text-primary transition-colors" />
+              <TextInput
+                value={query}
+                onChange={setQuery}
+                placeholder="Search patient name, study ID, or protocol..."
+                className="pl-14 h-14 rounded-2xl border-border/40 bg-card/40 backdrop-blur-md focus:ring-primary/20 shadow-sm"
+              />
+            </div>
+
+            <div className="flex items-center gap-3 bg-card/30 backdrop-blur-md p-1.5 rounded-2xl border border-border/40 shadow-sm">
+              <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/40 px-4">Sort</span>
+              {[
+                { id: "newest", label: "Recent" },
+                { id: "az",     label: "A-Z" },
+                { id: "status", label: "Status" },
+              ].map(s => (
+                <button
+                  key={s.id}
+                  onClick={() => setSort(s.id as any)}
+                  className={cn(
+                    "h-9 px-5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all",
+                    sort === s.id ? "bg-primary text-primary-foreground shadow-lg shadow-primary/20" : "text-muted-foreground/60 hover:text-foreground"
+                  )}
                 >
-                  <option value="newest">Newest</option>
-                  <option value="oldest">Oldest</option>
-                  <option value="az">A → Z</option>
-                  <option value="status">Status</option>
-                </select>
-              </div>
-              <Divider className="h-4 w-px bg-border/40" />
-              <div className="flex rounded-md border border-border/60 bg-muted/20 p-0.5">
-                <IconBtn
-                  icon={LayoutGrid}
-                  label="Grid view"
-                  onClick={() => setView("grid")}
-                  size="sm"
-                  active={view === "grid"}
-                />
-                <IconBtn
-                  icon={List}
-                  label="List view"
-                  onClick={() => setView("list")}
-                  size="sm"
-                  active={view === "list"}
-                />
-              </div>
+                  {s.label}
+                </button>
+              ))}
             </div>
           </div>
 
-          {/* Row 2: Filter chips + count */}
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-3 flex-wrap bg-muted/20 p-2 rounded-[24px] border border-border/20 backdrop-blur-sm">
             {FILTER_GROUPS.map(group => {
               const isActive = filterGroup === group.label;
               return (
                 <button
                   key={group.label}
-                  type="button"
                   onClick={() => setFilterGroup(group.label)}
                   className={cn(
-                    "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-semibold border transition-all duration-150",
+                    "flex items-center gap-3 px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border",
                     isActive
-                      ? "bg-primary text-primary-foreground border-primary shadow-sm"
-                      : "border-border/60 bg-background text-muted-foreground hover:border-border hover:text-foreground hover:bg-muted/40"
+                      ? "bg-background border-border/40 shadow-sm text-primary"
+                      : "border-transparent text-muted-foreground/60 hover:text-foreground hover:bg-background/40"
                   )}
                 >
                   {group.label}
                   <span className={cn(
-                    "flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[9px] font-bold tabular-nums",
-                    isActive ? "bg-white/20" : "bg-muted text-muted-foreground"
+                    "px-2 py-0.5 rounded-lg font-black tabular-nums border transition-colors",
+                    isActive ? "bg-primary/10 border-primary/20 text-primary" : "bg-muted/40 border-border/20 text-muted-foreground/40"
                   )}>
                     {group.count}
                   </span>
                 </button>
               );
             })}
-            <span className="ml-auto text-[11px] text-muted-foreground shrink-0">
-              {filtered.length} result{filtered.length !== 1 ? "s" : ""}
-            </span>
           </div>
         </div>
 
-        {/* Grid */}
+        {/* ── Main Content ── */}
         {view === "grid" ? (
-          <div className="grid gap-5 p-6 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {filtered.map(c => {
               const p = patients.find(x => x.id === c.patientId);
               const progress = completionForCase(c);
@@ -213,239 +209,195 @@ export default function CasesPage({
               const ai = aiStatusDisplay(c.aiStatus);
               const steps = pipelineSteps(c);
               const smartAction = getSmartAction(c);
-              const SmartIcon = smartAction.icon;
-
+              
               return (
                 <Card
                   key={c.id}
-                  className={cn(
-                    "group relative overflow-hidden transition-all hover:shadow-lg cursor-pointer p-5",
-                    isActive
-                      ? "border-primary/40 ring-1 ring-primary/20 bg-primary/[0.01]"
-                      : "border-border/40 hover:border-border/70"
-                  )}
                   onClick={() => setActiveCaseId(c.id)}
+                  className={cn(
+                    "group relative p-0 overflow-hidden glass-premium hover-glow transition-all duration-700 hover-lift shadow-lg-professional flex flex-col h-[460px]",
+                    isActive ? "border-primary/40 ring-1 ring-primary/20 shadow-primary/10 bg-primary/[0.02]" : "border-border/40"
+                  )}
                 >
-                  {/* Status + type row */}
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="space-y-1.5">
-                      <div className="flex items-center gap-1.5">
-                        <Pill tone={statusTone(c.status)} size="xs">{c.status}</Pill>
-                        <Pill tone={studyTypeTone(c.type)} size="xs">{c.type}</Pill>
+                  <div className="p-8 space-y-6 flex-1 flex flex-col">
+                    {/* Header: Type + Status */}
+                    <div className="flex items-start justify-between">
+                      <div className="flex gap-2">
+                         <Pill tone={studyTypeTone(c.type)} size="xs" className="font-black uppercase tracking-widest">{c.type}</Pill>
+                         <Pill tone={statusTone(c.status)} size="xs" className="font-black uppercase tracking-widest">{c.status}</Pill>
                       </div>
-                      <h3 className="font-bold text-base leading-tight">{c.title}</h3>
+                      <div className={cn("h-10 w-10 rounded-xl border border-border/40 flex items-center justify-center text-muted-foreground group-hover:border-primary/40 group-hover:text-primary transition-all", isActive && "bg-primary/10 text-primary border-primary/20")}>
+                        <FileText className="h-5 w-5" />
+                      </div>
                     </div>
-                    <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-border/40 bg-muted/30 text-muted-foreground shrink-0">
-                      <ScanLine className="h-4 w-4" />
-                    </div>
-                  </div>
 
-                  {/* Patient + date */}
-                  <div className="space-y-1.5 mb-4">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-muted-foreground">Patient</span>
-                      <span className="font-semibold">{p ? `${p.firstName} ${p.lastName}` : "—"}</span>
+                    <div className="space-y-1">
+                      <h3 className="text-xl font-black tracking-tight leading-tight group-hover:text-primary transition-colors">{c.title}</h3>
+                      <p className="text-sm text-muted-foreground font-medium">{p ? `${p.firstName} ${p.lastName}` : "Unassigned Patient"}</p>
                     </div>
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-muted-foreground flex items-center gap-1">
-                        <Clock3 className="h-3 w-3" /> Modified
-                      </span>
-                      <span className="text-muted-foreground">{c.updatedAt || c.date || "—"}</span>
-                    </div>
-                  </div>
 
-                  {/* Pipeline steps */}
-                  <div className="flex items-center gap-1.5 mb-4">
-                    {steps.map(step => {
-                      const Icon = step.icon;
-                      return (
-                        <div
-                          key={step.key}
-                          className={cn(
-                            "flex h-6 w-6 items-center justify-center rounded-lg border transition-all",
-                            step.done
-                              ? "border-success/30 bg-success/10 text-success-foreground"
-                              : "border-border/40 bg-muted/20 text-muted-foreground/30"
-                          )}
-                          title={step.key}
-                        >
-                          <Icon className="h-3 w-3" />
+                    <Divider className="opacity-10" />
+
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/40">Diagnostic Pipeline</span>
+                        <div className="flex items-center gap-1.5">
+                          <ai.icon className={cn("h-3 w-3", ai.color.includes("emerald") ? "text-emerald-500" : "text-amber-500")} />
+                          <span className={cn("text-[9px] font-black uppercase tracking-widest", ai.color.includes("emerald") ? "text-emerald-500" : "text-amber-500")}>{ai.label}</span>
                         </div>
-                      );
-                    })}
-                    <div className="ml-auto flex items-center gap-1">
-                      <div className={cn("h-1.5 w-1.5 rounded-full", ai.color)} />
-                      <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-                        {ai.label}
-                      </span>
+                      </div>
+                      <div className="flex gap-2">
+                        {steps.map((step, idx) => {
+                          const Icon = step.icon;
+                          return (
+                            <div
+                              key={idx}
+                              className={cn(
+                                "flex-1 h-9 rounded-xl border flex items-center justify-center transition-all duration-500",
+                                step.done ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-500 shadow-sm shadow-emerald-500/5" : "bg-muted/10 border-border/20 text-muted-foreground/20"
+                              )}
+                              title={step.key}
+                            >
+                              <Icon className="h-4 w-4" />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="space-y-2 mt-auto">
+                      <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-widest text-muted-foreground/40">
+                        <span>Readiness</span>
+                        <span className="text-foreground">{progress}%</span>
+                      </div>
+                      <div className="h-2 w-full rounded-full bg-muted/40 overflow-hidden relative">
+                        <div
+                          className="absolute inset-y-0 left-0 bg-primary rounded-full transition-all duration-1000 shadow-sm"
+                          style={{ width: `${progress}%` }}
+                        />
+                        <div className="absolute inset-0 loading-sheen opacity-20" />
+                      </div>
                     </div>
                   </div>
 
-                  {/* Progress bar */}
-                  <div className="space-y-1.5 mb-4">
-                    <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-                      <span>Readiness</span>
-                      <span className="text-primary">{progress}%</span>
-                    </div>
-                    <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
-                      <div
-                        className="h-full rounded-full bg-primary transition-all duration-700"
-                        style={{ width: `${progress}%` }}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Smart actions */}
-                  <div className="flex gap-2">
-                    <PrimaryBtn
-                      onClick={(e: React.MouseEvent) => {
+                  <div className="px-8 py-6 border-t border-border/20 bg-muted/10 group-hover:bg-muted/20 transition-colors mt-auto">
+                    <button
+                      onClick={(e) => {
                         e.stopPropagation();
                         setActiveCaseId(c.id);
                         navigate(smartAction.href);
                       }}
-                      icon={SmartIcon}
-                      className="flex-1 h-9 text-xs justify-center"
+                      className="w-full h-11 rounded-2xl bg-background border border-border/40 flex items-center justify-between px-6 group/btn hover:border-primary/40 transition-all"
                     >
-                      {smartAction.label}
-                    </PrimaryBtn>
-                    {/* Secondary: quick access to analysis intake */}
-                    {smartAction.href !== "/analysis" && (
-                      <button
-                        type="button"
-                        onClick={(e: React.MouseEvent) => {
-                          e.stopPropagation();
-                          setActiveCaseId(c.id);
-                          navigate("/analysis");
-                        }}
-                        title="Analysis intake"
-                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border/60 bg-muted/20 text-muted-foreground hover:border-primary/30 hover:text-primary hover:bg-primary/5 transition-all"
-                      >
-                        <Microscope className="h-3.5 w-3.5" />
-                      </button>
-                    )}
+                      <div className="flex items-center gap-3">
+                        <smartAction.icon className="h-4 w-4 text-primary opacity-60 group-hover/btn:opacity-100 group-hover/btn:scale-110 transition-all" />
+                        <span className="text-[10px] font-black uppercase tracking-widest text-foreground/70 group-hover/btn:text-primary transition-colors">{smartAction.label}</span>
+                      </div>
+                      <ArrowRight className="h-4 w-4 text-muted-foreground/30 group-hover/btn:text-primary group-hover/btn:translate-x-1 transition-all" />
+                    </button>
+                    <div className="flex items-center justify-center gap-2 mt-4 text-[10px] text-muted-foreground/40 font-black uppercase tracking-widest">
+                       <Calendar className="h-3 w-3" />
+                       Modified {c.updatedAt || c.date || "---"}
+                    </div>
                   </div>
                 </Card>
               );
             })}
           </div>
         ) : (
-          /* List */
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead>
-                <tr className="border-b border-border/40 bg-muted/10 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-                  {["Study Title", "Patient", "Type", "Status", "Pipeline", "Completion", "Next Step", ""].map(h => (
-                    <th key={h} className="px-5 py-3.5">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/20">
-                {filtered.map(c => {
-                  const p = patients.find(x => x.id === c.patientId);
-                  const isActive = activeCaseId === c.id;
-                  const steps = pipelineSteps(c);
-                  const smartAction = getSmartAction(c);
-                  const SmartIcon = smartAction.icon;
-                  return (
-                    <tr
-                      key={c.id}
-                      onClick={() => setActiveCaseId(c.id)}
-                      className={cn(
-                        "hover:bg-muted/20 cursor-pointer transition-colors group",
-                        isActive && "bg-primary/[0.03]"
-                      )}
-                    >
-                      <td className="px-5 py-3.5">
-                        <div className="flex items-center gap-2">
-                          <div className={cn("h-2 w-2 rounded-full shrink-0", isActive ? "bg-primary" : "bg-transparent")} />
-                          <span className="font-bold">{c.title}</span>
-                        </div>
-                      </td>
-                      <td className="px-5 py-3.5 text-xs text-muted-foreground">
-                        {p ? `${p.firstName} ${p.lastName}` : "—"}
-                      </td>
-                      <td className="px-5 py-3.5">
-                        <Pill tone={studyTypeTone(c.type)} size="xs">{c.type}</Pill>
-                      </td>
-                      <td className="px-5 py-3.5">
-                        <Pill tone={statusTone(c.status)} size="xs">{c.status}</Pill>
-                      </td>
-                      <td className="px-5 py-3.5">
-                        <div className="flex items-center gap-1">
-                          {steps.map(step => {
-                            const Icon = step.done ? CheckCircle2 : CircleDot;
-                            return (
-                              <Icon
-                                key={step.key}
-                                className={cn(
-                                  "h-3.5 w-3.5",
-                                  step.done ? "text-success" : "text-muted-foreground/30"
-                                )}
-                              />
-                            );
-                          })}
-                        </div>
-                      </td>
-                      <td className="px-5 py-3.5">
-                        <div className="flex items-center gap-2">
-                          <div className="h-1.5 w-16 rounded-full bg-muted overflow-hidden">
-                            <div
-                              className="h-full bg-primary transition-all"
-                              style={{ width: `${completionForCase(c)}%` }}
-                            />
+          /* List View */
+          <Card className="p-0 glass-premium border-border/40 shadow-lg-professional overflow-hidden">
+             <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="border-b border-border/20 bg-muted/10 text-[10px] font-black uppercase tracking-widest text-muted-foreground/60">
+                    <th className="px-8 py-5">Case / Protocol</th>
+                    <th className="px-8 py-5">Patient Name</th>
+                    <th className="px-8 py-5">Workflow State</th>
+                    <th className="px-8 py-5">Completion</th>
+                    <th className="px-8 py-5 text-right">Contextual Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/10">
+                  {filtered.map(c => {
+                    const p = patients.find(x => x.id === c.patientId);
+                    const isActive = activeCaseId === c.id;
+                    const smartAction = getSmartAction(c);
+                    return (
+                      <tr
+                        key={c.id}
+                        onClick={() => setActiveCaseId(c.id)}
+                        className={cn(
+                          "group hover:bg-muted/10 cursor-pointer transition-all",
+                          isActive && "bg-primary/[0.03]"
+                        )}
+                      >
+                        <td className="px-8 py-6">
+                          <div className="flex items-center gap-4">
+                            <div className={cn("h-10 w-10 rounded-xl flex items-center justify-center border transition-all", isActive ? "bg-primary/10 border-primary/20 text-primary" : "bg-muted/20 border-border/40 text-muted-foreground group-hover:border-primary/20 group-hover:text-primary")}>
+                              <FileText className="h-5 w-5" />
+                            </div>
+                            <div>
+                              <p className="font-black text-foreground group-hover:text-primary transition-colors">{c.title}</p>
+                              <div className="flex gap-2 mt-1">
+                                <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/40">{c.type} PROTOCOL</span>
+                                <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/20">|</span>
+                                <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/40">{c.date}</span>
+                              </div>
+                            </div>
                           </div>
-                          <span className="text-[10px] font-bold text-muted-foreground tabular-nums">
-                            {completionForCase(c)}%
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-5 py-3.5">
-                        <button
-                          type="button"
-                          onClick={e => { e.stopPropagation(); setActiveCaseId(c.id); navigate(smartAction.href); }}
-                          className="flex items-center gap-1.5 h-7 px-2.5 rounded-lg border border-border/60 bg-muted/20 text-[10px] font-bold uppercase tracking-wider text-muted-foreground hover:border-primary/30 hover:text-primary hover:bg-primary/5 transition-all"
-                        >
-                          <SmartIcon className="h-3 w-3" />
-                          {smartAction.label}
-                        </button>
-                      </td>
-                      <td className="px-5 py-3.5">
-                        <IconBtn
-                          icon={ChevronRight}
-                          label="Open"
-                          onClick={() => navigate("/analysis")}
-                          size="sm"
-                          className="opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all"
-                        />
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                        </td>
+                        <td className="px-8 py-6">
+                           <p className="text-sm font-bold text-foreground/80">{p ? `${p.firstName} ${p.lastName}` : "---"}</p>
+                           <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/40 mt-1">Surgical Record</p>
+                        </td>
+                        <td className="px-8 py-6">
+                           <Pill tone={statusTone(c.status)} size="xs" className="font-black uppercase tracking-widest">{c.status}</Pill>
+                        </td>
+                        <td className="px-8 py-6">
+                          <div className="flex items-center gap-4">
+                            <div className="h-1.5 w-24 rounded-full bg-muted/40 overflow-hidden relative">
+                              <div className="absolute inset-y-0 left-0 bg-primary transition-all duration-1000" style={{ width: `${completionForCase(c)}%` }} />
+                            </div>
+                            <span className="text-[10px] font-black tabular-nums text-foreground/60">{completionForCase(c)}%</span>
+                          </div>
+                        </td>
+                        <td className="px-8 py-6 text-right">
+                           <button
+                              onClick={(e) => { e.stopPropagation(); setActiveCaseId(c.id); navigate(smartAction.href); }}
+                              className="inline-flex items-center gap-3 h-10 px-6 rounded-xl border border-border/60 bg-muted/20 text-[10px] font-black uppercase tracking-widest text-muted-foreground hover:border-primary/30 hover:text-primary hover:bg-primary/5 transition-all"
+                            >
+                              <smartAction.icon className="h-3.5 w-3.5" />
+                              {smartAction.label}
+                            </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </Card>
         )}
 
-        {/* Empty */}
+        {/* Empty State */}
         {filtered.length === 0 && (
-          <div className="py-20 text-center">
-            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-muted/30 mx-auto mb-4">
-              <FolderKanban className="h-8 w-8 text-muted-foreground/30" />
+          <div className="py-32 text-center">
+            <div className="flex h-24 w-24 items-center justify-center rounded-[32px] bg-muted/10 border-2 border-dashed border-border/20 mx-auto mb-8 shadow-inner-lg">
+              <FolderKanban className="h-10 w-10 text-muted-foreground/20" />
             </div>
-            <h3 className="text-lg font-bold">
-              {cases.length ? "No studies found" : "No studies yet"}
-            </h3>
-            <p className="text-sm text-muted-foreground mt-2 max-w-sm mx-auto">
+            <h3 className="text-2xl font-black tracking-tight mb-3">Portfolio Empty</h3>
+            <p className="text-sm text-muted-foreground max-w-sm mx-auto font-medium leading-relaxed">
               {cases.length
-                ? "Try adjusting your search or status filter."
-                : "Create your first clinical case to begin the cephalometric workflow."}
+                ? "Your search parameters returned no matching clinical studies. Try broader query terms."
+                : "Initialize your first clinical analysis study to begin the diagnostic orchestration cycle."}
             </p>
-            <PrimaryBtn onClick={onCreateCase} icon={Plus} className="mt-6">
-              Create study
+            <PrimaryBtn onClick={onCreateCase} icon={Plus} className="mt-10 h-12 px-10 font-black uppercase tracking-widest text-[10px] shadow-xl shadow-primary/20">
+              Initialize Case
             </PrimaryBtn>
           </div>
         )}
-      </Card>
+      </div>
     </div>
   );
 }

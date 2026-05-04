@@ -12,9 +12,9 @@ namespace CephAnalysis.Infrastructure.Services;
 /// <summary>
 /// Generates a clinical-grade cephalometric PDF report.
 ///
-/// The layout follows a modern diagnostic report pattern: compact header,
-/// executive summary, patient/study context, image review, AI findings,
-/// measurement deviations, treatment recommendations, references, and sign-off.
+/// Design system: refined slate/teal palette, generous whitespace, tight typographic
+/// hierarchy. Sections use a left-accent bar motif; tables use alternating-row
+/// micro-contrast; status chips are pill-shaped with semibold labels.
 /// </summary>
 public sealed class QuestPdfReportGenerator(
     IStorageService storage,
@@ -25,30 +25,63 @@ public sealed class QuestPdfReportGenerator(
     private readonly IImageOverlayService _imageOverlayService = imageOverlayService;
     private readonly ILogger<QuestPdfReportGenerator> _logger = logger;
 
-    private static class Palette
+    // ─── Design tokens ────────────────────────────────────────────────────────
+
+    private static class T
     {
-        public const string Ink = "#101828";
-        public const string InkSoft = "#344054";
-        public const string Muted = "#667085";
-        public const string Faint = "#98A2B3";
-        public const string Paper = "#FFFFFF";
-        public const string Page = "#F3F6F8";
-        public const string Panel = "#F8FAFC";
-        public const string Border = "#D9E2EA";
-        public const string BorderSoft = "#E7EEF5";
-        public const string Brand = "#0F766E";
-        public const string BrandDark = "#0B3B3A";
-        public const string BrandSoft = "#CCFBF1";
-        public const string Navy = "#0B1220";
-        public const string Navy2 = "#111C2E";
+        // Neutrals
+        public const string Ink = "#0D1117";   // near-black body text
+        public const string InkSoft = "#2D3748";   // secondary body
+        public const string Muted = "#718096";   // captions / labels
+        public const string Faint = "#A0AEC0";   // de-emphasised detail
+        public const string White = "#FFFFFF";
+
+        // Surfaces
+        public const string Canvas = "#F7F9FC";   // page background
+        public const string Surface = "#FFFFFF";   // card face
+        public const string SurfaceAlt = "#F0F4F8";   // alternating table rows / info blocks
+        public const string Border = "#DDE3EC";   // card / table borders
+        public const string BorderSoft = "#ECF0F5";   // subtle dividers
+
+        // Brand — teal
+        public const string Teal = "#0D9488";   // primary accent
+        public const string TealDark = "#0F5B57";   // header/dark surfaces
+        public const string TealLight = "#CCFBF1";   // badge fill
+        public const string TealXLight = "#E6FFFA";   // light tints
+
+        // Header
+        public const string HeaderBg = "#0A1628";   // deep charcoal-navy
+        public const string HeaderSub = "#112240";   // subheader row
+        public const string HeaderText = "#E2E8F0";   // header body text
+        public const string HeaderDim = "#64748B";   // header de-emphasised
+
+        // Semantic
+        public const string Green = "#059669";
+        public const string GreenLight = "#D1FAE5";
+        public const string Amber = "#D97706";
+        public const string AmberLight = "#FEF3C7";
+        public const string Red = "#DC2626";
+        public const string RedLight = "#FEE2E2";
         public const string Blue = "#2563EB";
         public const string Cyan = "#0891B2";
-        public const string Green = "#059669";
-        public const string Amber = "#D97706";
-        public const string Red = "#DC2626";
+        public const string CyanLight = "#CFFAFE";
         public const string Violet = "#7C3AED";
-        public const string White = "#FFFFFF";
+        public const string VioletLight = "#EDE9FE";
     }
+
+    private static class Scale
+    {
+        public const float Tiny = 6.5f;
+        public const float Caption = 7.2f;
+        public const float Small = 7.8f;
+        public const float Body = 8.8f;
+        public const float BodyLg = 9.5f;
+        public const float Sub = 10.5f;
+        public const float Heading = 12.5f;
+        public const float Hero = 17f;
+    }
+
+    // ─── Supporting types ─────────────────────────────────────────────────────
 
     private sealed class ReportContext
     {
@@ -59,6 +92,8 @@ public sealed class QuestPdfReportGenerator(
     private sealed record ReportAssets(byte[]? OriginalXray, byte[]? OverlayXray);
 
     private readonly record struct NormReference(decimal Mean, decimal Sd, string Source);
+
+    // ─── Reference data ───────────────────────────────────────────────────────
 
     private static readonly IReadOnlyDictionary<string, string> CategoryReferences =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -102,6 +137,8 @@ public sealed class QuestPdfReportGenerator(
             ["GonialAngle"] = new(130.0m, 7.0m, "Jarabak"),
         };
 
+    // ─── Entry point ──────────────────────────────────────────────────────────
+
     public async Task<byte[]> GeneratePdfReportAsync(
         AnalysisSession session,
         GenerateReportRequest request,
@@ -119,11 +156,11 @@ public sealed class QuestPdfReportGenerator(
             {
                 page.Size(PageSizes.A4);
                 page.Margin(0);
-                page.PageColor(Palette.Page);
+                page.PageColor(T.Canvas);
                 page.DefaultTextStyle(x => x
-                    .FontFamily("Arial")
-                    .FontSize(8.8f)
-                    .FontColor(Palette.Ink));
+                    .FontFamily("Georgia")
+                    .FontSize(Scale.Body)
+                    .FontColor(T.Ink));
 
                 page.Header().Element(c => ComposeHeader(c, session, request, generatedAt, isDraft));
                 page.Content().Element(c => ComposeContent(c, new ReportContext(), session, request, assets, generatedAt, isDraft));
@@ -136,12 +173,15 @@ public sealed class QuestPdfReportGenerator(
         return stream.ToArray();
     }
 
+    // ─── Asset loading ────────────────────────────────────────────────────────
+
     private async Task<ReportAssets> LoadReportAssetsAsync(
         AnalysisSession session,
         GenerateReportRequest request,
         CancellationToken ct)
     {
-        if (!request.IncludesXray || session.XRayImage is null || string.IsNullOrWhiteSpace(session.XRayImage.StorageUrl))
+        if (!request.IncludesXray || session.XRayImage is null ||
+            string.IsNullOrWhiteSpace(session.XRayImage.StorageUrl))
         {
             return new ReportAssets(null, null);
         }
@@ -162,13 +202,12 @@ public sealed class QuestPdfReportGenerator(
 
                 if (!string.IsNullOrWhiteSpace(session.ResultImageUrl))
                 {
-                    try
-                    {
-                        overlayStream = await _storage.DownloadFileAsync(session.ResultImageUrl, ct);
-                    }
+                    try { overlayStream = await _storage.DownloadFileAsync(session.ResultImageUrl, ct); }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning(ex, "Report overlay snapshot download failed for session {SessionId}. A live overlay will be generated.", session.Id);
+                        _logger.LogWarning(ex,
+                            "Overlay snapshot download failed for session {SessionId}; generating live overlay.",
+                            session.Id);
                     }
                 }
 
@@ -188,11 +227,14 @@ public sealed class QuestPdfReportGenerator(
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Unable to prepare X-ray assets for report generation. SessionId={SessionId}", session.Id);
+            _logger.LogError(ex,
+                "Unable to prepare X-ray assets for report. SessionId={SessionId}", session.Id);
         }
 
         return new ReportAssets(original, overlay);
     }
+
+    // ─── Header ───────────────────────────────────────────────────────────────
 
     private static void ComposeHeader(
         IContainer container,
@@ -206,69 +248,102 @@ public sealed class QuestPdfReportGenerator(
         var mrn = EmptyToDash(patient?.MedicalRecordNo);
         var confidence = FormatPercent(session.Diagnosis?.ConfidenceScore, "Pending");
 
-        container.Column(column =>
+        container.Column(col =>
         {
-            column.Item()
-                .Background(Palette.Navy)
-                .PaddingHorizontal(24)
-                .PaddingVertical(13)
+            // ── Top bar ────────────────────────────────────────────────────
+            col.Item()
+                .Background(T.HeaderBg)
+                .PaddingHorizontal(26)
+                .PaddingVertical(14)
                 .Row(row =>
                 {
-                    row.RelativeItem(1.1f).Column(left =>
+                    // Logo / brand
+                    row.RelativeItem(1.2f).Column(left =>
                     {
-                        left.Item().Text("CephAI")
-                            .FontSize(20)
+                        left.Item().Row(r =>
+                        {
+                            r.AutoItem()
+                                .Width(3)
+                                .Background(T.Teal);
+
+                            r.AutoItem().PaddingLeft(9).Column(brand =>
+                            {
+                                brand.Item()
+                                    .Text("CephAI")
+                                    .FontFamily("Arial")
+                                    .FontSize(19)
+                                    .Bold()
+                                    .FontColor(T.White)
+                                    .LetterSpacing(0.02f);
+
+                                brand.Item()
+                                    .Text("Advanced Cephalometric Intelligence")
+                                    .FontSize(Scale.Caption)
+                                    .FontColor(T.TealLight)
+                                    .LetterSpacing(0.04f);
+                            });
+                        });
+                    });
+
+                    // Report title block
+                    row.RelativeItem(1.6f).AlignCenter().Column(center =>
+                    {
+                        center.Item().AlignCenter()
+                            .Text("CLINICAL CEPHALOMETRIC REPORT")
+                            .FontFamily("Arial")
+                            .FontSize(Scale.Sub)
                             .Bold()
-                            .FontColor(Palette.White)
-                            .LetterSpacing(0.04f);
+                            .FontColor(T.White)
+                            .LetterSpacing(0.1f);
 
-                        left.Item().PaddingTop(2).Text("Advanced cephalometric intelligence")
-                            .FontSize(7.4f)
-                            .FontColor("#A7F3D0")
-                            .LetterSpacing(0.08f);
+                        center.Item().PaddingTop(5).AlignCenter()
+                            .Text($"{session.AnalysisType} Analysis  ·  {request.Language.ToUpperInvariant()}")
+                            .FontSize(Scale.Caption)
+                            .FontColor(T.TealLight)
+                            .LetterSpacing(0.06f);
                     });
 
-                    row.RelativeItem(1.5f).AlignCenter().Column(center =>
+                    // Meta / badges
+                    row.RelativeItem(1.2f).AlignRight().Column(right =>
                     {
-                        center.Item().AlignCenter().Text("CLINICAL CEPHALOMETRIC REPORT")
-                            .FontSize(11.5f)
-                            .SemiBold()
-                            .FontColor(Palette.White)
-                            .LetterSpacing(0.07f);
+                        right.Item().AlignRight()
+                            .Text($"Generated {generatedAt:dd MMM yyyy}  ·  {generatedAt:HH:mm} UTC")
+                            .FontSize(Scale.Caption)
+                            .FontColor(T.HeaderDim);
 
-                        center.Item().PaddingTop(4).AlignCenter().Text($"{session.AnalysisType} analysis - {request.Language.ToUpperInvariant()}")
-                            .FontSize(7.4f)
-                            .FontColor("#CFFAFE");
-                    });
-
-                    row.RelativeItem(1.1f).AlignRight().Column(right =>
-                    {
-                        right.Item().AlignRight().Text($"Generated {generatedAt:dd MMM yyyy HH:mm} UTC")
-                            .FontSize(7.2f)
-                            .FontColor("#CBD5E1");
-
-                        right.Item().PaddingTop(5).AlignRight().Row(badges =>
+                        right.Item().PaddingTop(6).AlignRight().Row(badges =>
                         {
                             badges.RelativeItem();
-                            badges.AutoItem().Element(c => ComposeBadge(c, isDraft ? "DRAFT" : "FINAL", isDraft ? Palette.Amber : Palette.Green));
-                            badges.AutoItem().PaddingLeft(4).Element(c => ComposeBadge(c, $"AI {confidence}", Palette.Cyan));
+                            badges.AutoItem()
+                                .Element(c => ComposePill(c,
+                                    isDraft ? "DRAFT" : "FINAL",
+                                    isDraft ? T.Amber : T.Green,
+                                    isDraft ? T.AmberLight : T.GreenLight,
+                                    light: false));
+                            badges.AutoItem().PaddingLeft(5)
+                                .Element(c => ComposePill(c,
+                                    $"AI  {confidence}",
+                                    T.Teal, T.TealLight, light: false));
                         });
                     });
                 });
 
-            column.Item()
-                .Background(Palette.Navy2)
-                .PaddingHorizontal(24)
+            // ── Patient meta strip ─────────────────────────────────────────
+            col.Item()
+                .Background(T.HeaderSub)
+                .PaddingHorizontal(26)
                 .PaddingVertical(7)
                 .Row(row =>
                 {
                     HeaderMeta(row, "Patient", patientName);
                     HeaderMeta(row, "MRN", mrn);
                     HeaderMeta(row, "Session", session.Id.ToString("N")[..10].ToUpperInvariant());
-                    HeaderMeta(row, "Model", EmptyToDash(session.ModelVersion));
+                    HeaderMeta(row, "AI Model", EmptyToDash(session.ModelVersion));
                 });
         });
     }
+
+    // ─── Content scaffold ─────────────────────────────────────────────────────
 
     private static void ComposeContent(
         IContainer container,
@@ -279,55 +354,49 @@ public sealed class QuestPdfReportGenerator(
         DateTime generatedAt,
         bool isDraft)
     {
-        container.PaddingHorizontal(22).PaddingTop(15).PaddingBottom(13).Column(column =>
+        container.PaddingHorizontal(24).PaddingTop(16).PaddingBottom(14).Column(col =>
         {
-            column.Spacing(13);
+            col.Spacing(14);
 
-            column.Item().Element(c => ComposeExecutiveSummary(c, session, generatedAt, isDraft));
+            col.Item().Element(c => ComposeExecutiveSummary(c, session, generatedAt, isDraft));
 
-            ComposeSection(column, context, "Patient and Study Profile", "Intake context",
+            Section(col, context, "Patient & Study Profile", "Intake context",
                 c => ComposePatientStudyProfile(c, session));
 
             if (request.IncludesXray)
             {
-                ComposeSection(column, context, "Image Review", "Radiograph and landmark overlay",
+                Section(col, context, "Image Review", "Radiograph and landmark overlay",
                     c => ComposeImageReview(c, session, assets, request.IncludesLandmarkOverlay));
-            }
-
-            if (request.IncludesLandmarkOverlay && session.Landmarks.Count > 0)
-            {
-                ComposeSection(column, context, "Landmark Quality Control", "AI detection confidence",
-                    c => ComposeLandmarkQuality(c, session));
             }
 
             if (session.Diagnosis is not null)
             {
-                ComposeSection(column, context, "Diagnosis", "Clinical classification",
+                Section(col, context, "Clinical Diagnosis", "AI classification",
                     c => ComposeDiagnosis(c, session.Diagnosis));
 
-                ComposeSection(column, context, "Growth and Risk Signals", "Decision support",
+                Section(col, context, "Growth & Risk Signals", "Decision support",
                     c => ComposeGrowthAndRisk(c, session));
             }
 
             if (session.Diagnosis?.BoltonResult is not null)
             {
-                ComposeSection(column, context, "Bolton Tooth-Size Analysis", "Inter-arch proportionality",
+                Section(col, context, "Bolton Tooth-Size Analysis", "Inter-arch proportionality",
                     c => ComposeBolton(c, session.Diagnosis.BoltonResult));
             }
 
             if (request.IncludesMeasurements && session.Measurements.Count > 0)
             {
-                ComposeSection(column, context, "Measurement Analysis", "Norms, deviations, and severity",
+                Section(col, context, "Measurement Analysis", "Norms, deviations and severity",
                     c => ComposeMeasurements(c, session.Measurements, session.AnalysisType));
             }
 
             if (request.IncludesTreatmentPlan && session.Diagnosis?.TreatmentPlans.Count > 0)
             {
-                ComposeSection(column, context, "Treatment Planning", "Ranked recommendations",
+                Section(col, context, "Treatment Planning", "Ranked recommendations",
                     c => ComposeTreatmentPlans(c, session.Diagnosis.TreatmentPlans));
             }
 
-            ComposeSection(column, context, "Clinical Governance", "Review, limitations, and sign-off",
+            Section(col, context, "Clinical Governance", "Review, limitations and sign-off",
                 c => ComposeGovernance(c, session, request));
 
             var usedCategories = session.Measurements
@@ -339,70 +408,13 @@ public sealed class QuestPdfReportGenerator(
 
             if (usedCategories.Count > 0)
             {
-                ComposeSection(column, context, "Normative References", "Literature sources for reported norms",
+                Section(col, context, "Normative References", "Literature sources",
                     c => ComposeNormativeReferences(c, usedCategories));
             }
         });
     }
 
-    private static void ComposeNormativeReferences(IContainer container, IReadOnlyList<string> usedCategories)
-    {
-        container.Column(col =>
-        {
-            col.Spacing(5);
-
-            col.Item().Text("All measurement norms referenced in this report are derived from the following peer-reviewed literature and protocol sources.")
-                .FontSize(8.2f)
-                .FontColor(Palette.Muted)
-                .LineHeight(1.35f);
-
-            col.Item().PaddingTop(4).Column(refs =>
-            {
-                refs.Spacing(4);
-
-                foreach (var cat in usedCategories.OrderBy(c => c, StringComparer.OrdinalIgnoreCase))
-                {
-                    if (!CategoryReferences.TryGetValue(cat, out var citation)) continue;
-
-                    refs.Item().Row(row =>
-                    {
-                        row.ConstantItem(5)
-                            .Height(5)
-                            .AlignMiddle()
-                            .Background(Palette.Brand);
-
-                        row.RelativeItem()
-                            .PaddingLeft(8)
-                            .Column(entry =>
-                            {
-                                entry.Item().Text(cat)
-                                    .FontSize(7.8f)
-                                    .Bold()
-                                    .FontColor(Palette.Navy);
-
-                                entry.Item().PaddingTop(1).Text(citation)
-                                    .FontSize(7.5f)
-                                    .Italic()
-                                    .FontColor(Palette.InkSoft)
-                                    .LineHeight(1.3f);
-                            });
-                    });
-                }
-            });
-
-            col.Item().PaddingTop(6)
-                .Background(Palette.Panel)
-                .Border(0.5f)
-                .BorderColor(Palette.BorderSoft)
-                .Padding(8)
-                .Text("This report was generated using the CephAI automated cephalometric analysis platform. " +
-                      "All measurements and classifications are produced by AI-assisted analysis and must be reviewed " +
-                      "and validated by a licensed clinician prior to use in diagnosis or treatment planning.")
-                .FontSize(7.5f)
-                .FontColor(Palette.Muted)
-                .LineHeight(1.35f);
-        });
-    }
+    // ─── Executive summary ────────────────────────────────────────────────────
 
     private static void ComposeExecutiveSummary(
         IContainer container,
@@ -415,62 +427,97 @@ public sealed class QuestPdfReportGenerator(
         var image = session.XRayImage;
         var confidence = diagnosis?.ConfidenceScore;
         var abnormalCount = session.Measurements.Count(m => m.Status != MeasurementStatus.Normal);
-        var lowConfidenceCount = session.Landmarks.Count(l => l.ConfidenceScore.HasValue && l.ConfidenceScore.Value < 0.75m);
+        var lowConfidenceCount = session.Landmarks.Count(l => l.ConfidenceScore is < 0.75m);
 
         container
-            .Background(Palette.Paper)
-            .Border(0.75f)
-            .BorderColor(Palette.Border)
-            .Padding(14)
-            .Column(column =>
+            .Background(T.Surface)
+            .Border(0.8f).BorderColor(T.Border)
+            .Padding(16)
+            .Column(col =>
             {
-                column.Spacing(12);
+                col.Spacing(14);
 
-                column.Item().Row(row =>
+                // ── Summary prose row ──────────────────────────────────────
+                col.Item().Row(row =>
                 {
-                    row.RelativeItem(1.8f).Column(left =>
+                    row.RelativeItem(1.9f).Column(left =>
                     {
-                        left.Item().Text("Executive Summary")
-                            .FontSize(16)
+                        left.Item()
+                            .Text("Executive Summary")
+                            .FontFamily("Arial")
+                            .FontSize(Scale.Hero)
                             .Bold()
-                            .FontColor(Palette.Navy)
-                            .LetterSpacing(-0.02f);
+                            .FontColor(T.Ink);
 
-                        left.Item().PaddingTop(5).Text(ComposeSummarySentence(session))
-                            .FontSize(9.2f)
-                            .LineHeight(1.35f)
-                            .FontColor(Palette.InkSoft);
+                        left.Item().PaddingTop(6)
+                            .Text(ComposeSummarySentence(session))
+                            .FontSize(Scale.BodyLg)
+                            .LineHeight(1.45f)
+                            .FontColor(T.InkSoft);
 
-                        left.Item().PaddingTop(8).Row(flags =>
+                        left.Item().PaddingTop(10).Row(flags =>
                         {
-                            flags.AutoItem().Element(c => ComposeBadge(c, diagnosis?.SkeletalClass.ToString() ?? "Diagnosis pending", ToneForSkeletal(diagnosis?.SkeletalClass)));
-                            flags.AutoItem().PaddingLeft(5).Element(c => ComposeBadge(c, diagnosis?.VerticalPattern.ToString() ?? "Vertical pending", ToneForVertical(diagnosis?.VerticalPattern)));
-                            flags.AutoItem().PaddingLeft(5).Element(c => ComposeBadge(c, isDraft ? "Needs clinician review" : "Clinician finalized", isDraft ? Palette.Amber : Palette.Green));
+                            flags.AutoItem().Element(c => ComposePill(c,
+                                diagnosis?.SkeletalClass.ToString() ?? "Diagnosis Pending",
+                                ToneForSkeletal(diagnosis?.SkeletalClass),
+                                ToneLightForSkeletal(diagnosis?.SkeletalClass)));
+
+                            flags.AutoItem().PaddingLeft(6).Element(c => ComposePill(c,
+                                diagnosis?.VerticalPattern.ToString() ?? "Vertical Pending",
+                                ToneForVertical(diagnosis?.VerticalPattern),
+                                ToneLightForVertical(diagnosis?.VerticalPattern)));
+
+                            flags.AutoItem().PaddingLeft(6).Element(c => ComposePill(c,
+                                isDraft ? "Awaiting Review" : "Clinician Finalised",
+                                isDraft ? T.Amber : T.Green,
+                                isDraft ? T.AmberLight : T.GreenLight));
                         });
                     });
 
-                    row.RelativeItem(1.1f).PaddingLeft(12).Column(right =>
+                    row.RelativeItem(1.05f).PaddingLeft(14).Column(right =>
                     {
-                        right.Spacing(6);
-                        ComposeMiniStat(right, "Patient", patient?.FullName ?? "Unknown", EmptyToDash(patient?.MedicalRecordNo));
-                        ComposeMiniStat(right, "Generated", generatedAt.ToString("dd MMM yyyy"), $"{generatedAt:HH:mm} UTC");
-                        ComposeMiniStat(right, "Image", image?.IsCalibrated == true ? "Calibrated" : "Uncalibrated", FormatDimensions(image));
+                        right.Spacing(5);
+                        MiniStat(right, "Patient", patient?.FullName ?? "Unknown", EmptyToDash(patient?.MedicalRecordNo));
+                        MiniStat(right, "Generated", generatedAt.ToString("dd MMM yyyy"), $"{generatedAt:HH:mm} UTC");
+                        MiniStat(right, "Image", image?.IsCalibrated == true ? "Calibrated" : "Uncalibrated", FormatDimensions(image));
                     });
                 });
 
-                column.Item().Row(row =>
-                {
-                    var abnormalTone = abnormalCount == 0 ? Palette.Green : abnormalCount <= 3 ? Palette.Amber : Palette.Red;
-                    var landmarkTone = lowConfidenceCount == 0 ? Palette.Brand : lowConfidenceCount <= 2 ? Palette.Amber : Palette.Red;
-                    MetricCard(row.RelativeItem(), "AI Confidence", FormatPercent(confidence, "Pending"), ConfidenceTone(confidence), "Diagnosis confidence");
-                    MetricCard(row.RelativeItem(), "Risk Signals", abnormalCount.ToString(), abnormalTone, $"{abnormalCount}/{session.Measurements.Count} outside normal");
-                    MetricCard(row.RelativeItem(), "Landmarks", session.Landmarks.Count.ToString(), landmarkTone, $"{lowConfidenceCount} low confidence");
-                    MetricCard(row.RelativeItem(), "Runtime", FormatDuration(session.TotalDurationMs ?? session.InferenceDurationMs), Palette.Violet, EmptyToDash(session.ModelVersion));
-                });
+                // ── KPI strip ──────────────────────────────────────────────
+                col.Item()
+                    .Background(T.SurfaceAlt)
+                    .Border(0.5f).BorderColor(T.BorderSoft)
+                    .Padding(2)
+                    .Row(row =>
+                    {
+                        var abnormalTone = abnormalCount == 0 ? T.Green : abnormalCount <= 3 ? T.Amber : T.Red;
+                        var landmarkTone = lowConfidenceCount == 0 ? T.Teal : lowConfidenceCount <= 2 ? T.Amber : T.Red;
+
+                        KpiCard(row.RelativeItem(), "AI Confidence",
+                            FormatPercent(confidence, "—"), ConfidenceTone(confidence),
+                            "Diagnostic confidence score");
+
+                        KpiDivider(row);
+                        KpiCard(row.RelativeItem(), "Risk Signals",
+                            abnormalCount.ToString(), abnormalTone,
+                            $"{abnormalCount} of {session.Measurements.Count} outside normal");
+
+                        KpiDivider(row);
+                        KpiCard(row.RelativeItem(), "Landmarks",
+                            session.Landmarks.Count.ToString(), landmarkTone,
+                            $"{lowConfidenceCount} low confidence");
+
+                        KpiDivider(row);
+                        KpiCard(row.RelativeItem(), "Runtime",
+                            FormatDuration(session.TotalDurationMs ?? session.InferenceDurationMs),
+                            T.Violet, EmptyToDash(session.ModelVersion));
+                    });
             });
     }
 
-    private static void ComposeSection(
+    // ─── Section shell ────────────────────────────────────────────────────────
+
+    private static void Section(
         ColumnDescriptor column,
         ReportContext context,
         string title,
@@ -480,44 +527,50 @@ public sealed class QuestPdfReportGenerator(
         var number = context.NextSection();
 
         column.Item()
-            .Background(Palette.Paper)
-            .Border(0.75f)
-            .BorderColor(Palette.Border)
-            .Padding(13)
-            .Column(section =>
+            .Background(T.Surface)
+            .Border(0.8f).BorderColor(T.Border)
+            .Column(sec =>
             {
-                section.Spacing(10);
-                section.Item().Row(row =>
-                {
-                    row.ConstantItem(27)
-                        .Height(24)
-                        .Background(Palette.Navy)
-                        .AlignCenter()
-                        .AlignMiddle()
-                        .Text(number.ToString("00"))
-                        .FontSize(8)
-                        .Bold()
-                        .FontColor(Palette.White);
-
-                    row.RelativeItem().PaddingLeft(8).Column(head =>
+                // Section header
+                sec.Item()
+                    .BorderBottom(0.7f).BorderColor(T.BorderSoft)
+                    .PaddingHorizontal(14).PaddingVertical(11)
+                    .Row(row =>
                     {
-                        head.Item().Text(eyebrow.ToUpperInvariant())
-                            .FontSize(6.8f)
-                            .SemiBold()
-                            .FontColor(Palette.Brand)
-                            .LetterSpacing(0.08f);
-
-                        head.Item().PaddingTop(2).Text(title)
-                            .FontSize(12)
+                        // Number chip
+                        row.ConstantItem(26).Height(26)
+                            .Background(T.Teal)
+                            .AlignCenter().AlignMiddle()
+                            .Text(number.ToString("00"))
+                            .FontFamily("Arial")
+                            .FontSize(Scale.Small)
                             .Bold()
-                            .FontColor(Palette.Navy);
-                    });
-                });
+                            .FontColor(T.White);
 
-                section.Item().LineHorizontal(0.7f).LineColor(Palette.BorderSoft);
-                section.Item().Element(content);
+                        row.RelativeItem().PaddingLeft(10).Column(head =>
+                        {
+                            head.Item()
+                                .Text(eyebrow.ToUpperInvariant())
+                                .FontSize(Scale.Tiny)
+                                .Bold()
+                                .FontColor(T.Teal)
+                                .LetterSpacing(0.10f);
+
+                            head.Item().PaddingTop(2)
+                                .Text(title)
+                                .FontFamily("Arial")
+                                .FontSize(Scale.Heading)
+                                .Bold()
+                                .FontColor(T.Ink);
+                        });
+                    });
+
+                // Body
+                sec.Item().Padding(14).Element(content);
             });
     }
+
+    // ─── Patient / study profile ──────────────────────────────────────────────
 
     private static void ComposePatientStudyProfile(IContainer container, AnalysisSession session)
     {
@@ -525,59 +578,63 @@ public sealed class QuestPdfReportGenerator(
         var study = session.XRayImage?.Study;
         var image = session.XRayImage;
 
-        container.Column(column =>
+        container.Column(col =>
         {
-            column.Spacing(10);
+            col.Spacing(10);
 
-            column.Item().Row(row =>
+            col.Item().Row(row =>
             {
-                row.RelativeItem().Element(c => ComposeInfoCard(c, "Patient", new[]
+                row.RelativeItem().Element(c => InfoCard(c, "Patient", new[]
                 {
-                    ("Name", patient?.FullName ?? "Unknown"),
-                    ("Medical record", EmptyToDash(patient?.MedicalRecordNo)),
-                    ("Age / Gender", patient is null ? "-" : $"{patient.Age} years / {patient.Gender}"),
-                    ("Contact", EmptyToDash(patient?.ContactNumber ?? patient?.Phone ?? patient?.Email)),
+                    ("Name",           patient?.FullName ?? "Unknown"),
+                    ("Medical Record", EmptyToDash(patient?.MedicalRecordNo)),
+                    ("Age / Gender",   patient is null ? "-" : $"{patient.Age} yrs  /  {patient.Gender}"),
+                    ("Contact",        EmptyToDash(patient?.ContactNumber ?? patient?.Phone ?? patient?.Email)),
                 }));
 
-                row.RelativeItem().PaddingLeft(9).Element(c => ComposeInfoCard(c, "Study", new[]
+                row.RelativeItem().PaddingLeft(9).Element(c => InfoCard(c, "Study", new[]
                 {
-                    ("Study date", study?.StudyDate == default ? "-" : study?.StudyDate.ToString("dd MMM yyyy") ?? "-"),
-                    ("Study type", study?.StudyType.ToString() ?? "-"),
-                    ("Case title", EmptyToDash(study?.Title)),
-                    ("Status", study?.Status.ToString() ?? "-"),
+                    ("Study Date",  study?.StudyDate == default ? "-" : study.StudyDate.ToString("dd MMM yyyy")),
+                    ("Study Type",  study?.StudyType.ToString() ?? "-"),
+                    ("Case Title",  EmptyToDash(study?.Title)),
+                    ("Status",      study?.Status.ToString() ?? "-"),
                 }));
 
-                row.RelativeItem().PaddingLeft(9).Element(c => ComposeInfoCard(c, "Image", new[]
+                row.RelativeItem().PaddingLeft(9).Element(c => InfoCard(c, "Image", new[]
                 {
-                    ("File", EmptyToDash(image?.FileName)),
-                    ("Format", image?.FileFormat.ToString() ?? "-"),
-                    ("Dimensions", FormatDimensions(image)),
+                    ("File",        EmptyToDash(image?.FileName)),
+                    ("Format",      image?.FileFormat.ToString() ?? "-"),
+                    ("Dimensions",  FormatDimensions(image)),
                     ("Calibration", image?.IsCalibrated == true ? $"{image.PixelSpacingMm:0.###} mm/px" : "Not calibrated"),
                 }));
             });
 
             if (!string.IsNullOrWhiteSpace(study?.ClinicalNotes) || !string.IsNullOrWhiteSpace(patient?.Notes))
             {
-                column.Item()
-                    .Background(Palette.Panel)
-                    .Border(0.5f)
-                    .BorderColor(Palette.BorderSoft)
-                    .Padding(9)
+                col.Item()
+                    .Background(T.SurfaceAlt)
+                    .BorderLeft(3).BorderColor(T.Teal)
+                    .PaddingLeft(12).PaddingRight(10).PaddingVertical(9)
                     .Column(notes =>
                     {
-                        notes.Item().Text("Clinical notes")
-                            .FontSize(7.5f)
+                        notes.Item()
+                            .Text("CLINICAL NOTES")
+                            .FontSize(Scale.Tiny)
                             .Bold()
-                            .FontColor(Palette.Muted);
+                            .FontColor(T.Teal)
+                            .LetterSpacing(0.08f);
 
-                        notes.Item().PaddingTop(3).Text(EmptyToDash(study?.ClinicalNotes ?? patient?.Notes))
-                            .FontSize(8.4f)
-                            .LineHeight(1.35f)
-                            .FontColor(Palette.InkSoft);
+                        notes.Item().PaddingTop(4)
+                            .Text(EmptyToDash(study?.ClinicalNotes ?? patient?.Notes))
+                            .FontSize(Scale.Body)
+                            .LineHeight(1.45f)
+                            .FontColor(T.InkSoft);
                     });
             }
         });
     }
+
+    // ─── Image review ─────────────────────────────────────────────────────────
 
     private static void ComposeImageReview(
         IContainer container,
@@ -587,248 +644,268 @@ public sealed class QuestPdfReportGenerator(
     {
         if (assets.OriginalXray is null)
         {
-            ComposeEmptyState(container, "The radiograph could not be embedded in this report. The stored file may be unavailable or in an unsupported image format.");
+            EmptyState(container,
+                "The radiograph could not be embedded. The stored file may be unavailable or in an unsupported format.");
             return;
         }
 
-        container.Column(column =>
+        container.Column(col =>
         {
-            column.Spacing(8);
+            col.Spacing(9);
 
             if (includeOverlay && assets.OverlayXray is not null)
             {
-                column.Item().Row(row =>
+                col.Item().Row(row =>
                 {
-                    row.RelativeItem().Element(c => ComposeImageCard(c, "Original radiograph", assets.OriginalXray));
-                    row.RelativeItem().PaddingLeft(10).Element(c => ComposeImageCard(c, "AI tracing overlay", assets.OverlayXray));
+                    row.RelativeItem().Element(c => ImageCard(c, "Original Radiograph", assets.OriginalXray));
+                    row.RelativeItem().PaddingLeft(10).Element(c => ImageCard(c, "AI Tracing Overlay", assets.OverlayXray));
                 });
             }
             else
             {
-                column.Item().Element(c => ComposeImageCard(c, "Radiograph", assets.OriginalXray, 310));
+                col.Item().Element(c => ImageCard(c, "Radiograph", assets.OriginalXray, 315));
             }
 
-            column.Item()
-                .Background(Palette.Panel)
+            col.Item()
+                .Background(T.SurfaceAlt)
                 .Padding(8)
-                .Text($"Image QA: {session.Landmarks.Count} landmarks, {session.Measurements.Count} measurements, calibration {(session.XRayImage?.IsCalibrated == true ? "available" : "not available")}. Manual review remains required before clinical use.")
-                .FontSize(7.8f)
-                .FontColor(Palette.Muted);
+                .Text($"Image QA — {session.Landmarks.Count} landmarks detected  ·  " +
+                      $"{session.Measurements.Count} measurements computed  ·  " +
+                      $"Calibration {(session.XRayImage?.IsCalibrated == true ? "available" : "not available")}. " +
+                      "Manual review required before clinical use.")
+                .FontSize(Scale.Small)
+                .FontColor(T.Muted)
+                .LineHeight(1.35f);
         });
     }
 
-    private static void ComposeLandmarkQuality(IContainer container, AnalysisSession session)
-    {
-        var landmarks = session.Landmarks
-            .OrderBy(l => l.ConfidenceScore ?? 1m)
-            .ThenBy(l => l.LandmarkCode)
-            .ToList();
-
-        container.Column(column =>
-        {
-            column.Spacing(8);
-
-            decimal? averageConfidence = landmarks.Count == 0
-                ? null
-                : landmarks
-                    .Where(l => l.ConfidenceScore.HasValue)
-                    .Select(l => l.ConfidenceScore!.Value)
-                    .DefaultIfEmpty(0m)
-                    .Average();
-
-            column.Item().Row(row =>
-            {
-                MetricCard(row.RelativeItem(), "Average Confidence", averageConfidence.HasValue ? $"{averageConfidence:P0}" : "Pending", ConfidenceTone(averageConfidence), "Mean landmark score");
-                MetricCard(row.RelativeItem(), "Manual Edits", landmarks.Count(l => l.IsManuallyAdjusted).ToString(), Palette.Amber, "Clinician adjusted");
-                MetricCard(row.RelativeItem(), "AI Detected", landmarks.Count(l => l.IsAiDetected).ToString(), Palette.Brand, "Source landmarks");
-            });
-
-            column.Item().Table(table =>
-            {
-                table.ColumnsDefinition(columns =>
-                {
-                    columns.RelativeColumn(0.8f);
-                    columns.RelativeColumn(2.1f);
-                    columns.RelativeColumn(1.2f);
-                    columns.RelativeColumn(1.3f);
-                    columns.RelativeColumn(1.1f);
-                    columns.RelativeColumn(1.1f);
-                });
-
-                TableHeader(table, ["Code", "Landmark", "Confidence", "Error", "Source", "Review"]);
-
-                var rowIndex = 0;
-                foreach (var landmark in landmarks)
-                {
-                    var background = rowIndex++ % 2 == 0 ? Palette.White : Palette.Panel;
-                    TableCell(table, landmark.LandmarkCode, background, true);
-                    TableCell(table, EmptyToDash(landmark.LandmarkName), background);
-                    TableCell(table, FormatPercent(landmark.ConfidenceScore, "-"), background, false, ConfidenceTone(landmark.ConfidenceScore), alignRight: true);
-                    TableCell(table, $"{landmark.ExpectedErrorMm:0.0} mm", background, false, Palette.Muted, alignRight: true);
-                    TableCell(table, landmark.IsAiDetected ? "AI" : "Manual", background);
-                    TableCell(table, landmark.IsManuallyAdjusted ? "Adjusted" : "Accepted", background, false, landmark.IsManuallyAdjusted ? Palette.Amber : Palette.Green);
-                }
-            });
-        });
-    }
+    // ─── Diagnosis ────────────────────────────────────────────────────────────
 
     private static void ComposeDiagnosis(IContainer container, Diagnosis diagnosis)
     {
-        container.Column(column =>
+        container.Column(col =>
         {
-            column.Spacing(10);
+            col.Spacing(10);
 
-            column.Item().Row(row =>
+            // Diagnostic cards row
+            col.Item().Row(row =>
             {
-                DiagnosticCard(row.RelativeItem(), "Skeletal", $"{diagnosis.SkeletalClass} ({diagnosis.SkeletalType})", ToneForSkeletal(diagnosis.SkeletalClass), "Corrected ANB: " + (diagnosis.CorrectedAnb?.ToString("0.0") ?? diagnosis.AnbUsed.ToString("0.0")));
-                DiagnosticCard(row.RelativeItem(), "Vertical", diagnosis.VerticalPattern.ToString(), ToneForVertical(diagnosis.VerticalPattern), "Growth: " + EmptyToDash(diagnosis.GrowthTendency));
-                DiagnosticCard(row.RelativeItem(), "Profile", diagnosis.SoftTissueProfile.ToString(), Palette.Cyan, "Soft tissue balance");
-                DiagnosticCard(row.RelativeItem(), "Confidence", FormatPercent(diagnosis.ConfidenceScore, "Pending"), ConfidenceTone(diagnosis.ConfidenceScore), diagnosis.AnbRotationCorrected ? "Rotation corrected" : "Raw ANB");
+                DiagCard(row.RelativeItem(), "Skeletal",
+                    $"{diagnosis.SkeletalClass}  ({diagnosis.SkeletalType})",
+                    ToneForSkeletal(diagnosis.SkeletalClass),
+                    "Corrected ANB: " + (diagnosis.CorrectedAnb?.ToString("0.0") ?? diagnosis.AnbUsed.ToString("0.0")));
+
+                DiagCard(row.RelativeItem(), "Vertical",
+                    diagnosis.VerticalPattern.ToString(),
+                    ToneForVertical(diagnosis.VerticalPattern),
+                    "Growth: " + EmptyToDash(diagnosis.GrowthTendency));
+
+                DiagCard(row.RelativeItem(), "Profile",
+                    diagnosis.SoftTissueProfile.ToString(),
+                    T.Cyan, "Soft tissue balance");
+
+                DiagCard(row.RelativeItem(), "Confidence",
+                    FormatPercent(diagnosis.ConfidenceScore, "Pending"),
+                    ConfidenceTone(diagnosis.ConfidenceScore),
+                    diagnosis.AnbRotationCorrected ? "Rotation corrected" : "Raw ANB");
             });
 
-            column.Item().Background(Palette.Panel).Padding(10).Column(summary =>
-            {
-                summary.Item().Text("AI clinical impression")
-                    .FontSize(7.5f)
-                    .Bold()
-                    .FontColor(Palette.Muted)
-                    .LetterSpacing(0.05f);
-
-                summary.Item().PaddingTop(4).Text(EmptyToDash(diagnosis.SummaryText ?? BuildFallbackDiagnosisSummary(diagnosis)))
-                    .FontSize(9)
-                    .LineHeight(1.4f)
-                    .FontColor(Palette.InkSoft);
-
-                var notes = diagnosis.ClinicalNotes?.Where(x => !string.IsNullOrWhiteSpace(x)).ToList() ?? [];
-                if (notes.Count > 0)
+            // Impression block
+            col.Item()
+                .Background(T.SurfaceAlt)
+                .BorderLeft(3).BorderColor(T.Teal)
+                .PaddingLeft(12).PaddingRight(10).PaddingVertical(10)
+                .Column(imp =>
                 {
-                    summary.Item().PaddingTop(6).Column(nColumn =>
+                    imp.Item()
+                        .Text("AI CLINICAL IMPRESSION")
+                        .FontSize(Scale.Tiny)
+                        .Bold()
+                        .FontColor(T.Teal)
+                        .LetterSpacing(0.08f);
+
+                    imp.Item().PaddingTop(5)
+                        .Text(EmptyToDash(diagnosis.SummaryText ?? BuildFallbackDiagnosisSummary(diagnosis)))
+                        .FontSize(Scale.BodyLg)
+                        .LineHeight(1.5f)
+                        .FontColor(T.InkSoft);
+
+                    var notes = diagnosis.ClinicalNotes?.Where(x => !string.IsNullOrWhiteSpace(x)).ToList() ?? [];
+                    if (notes.Count > 0)
                     {
-                        foreach (var note in notes)
+                        imp.Item().PaddingTop(7).Column(nCol =>
                         {
-                            nColumn.Item().Row(r =>
+                            foreach (var note in notes)
                             {
-                                r.ConstantItem(10).Text("•").FontSize(8).FontColor(Palette.Brand);
-                                r.RelativeItem().Text(note).FontSize(7.8f).Italic().FontColor(Palette.Brand);
-                            });
-                        }
-                    });
-                }
-            });
+                                nCol.Item().PaddingTop(3).Row(r =>
+                                {
+                                    r.ConstantItem(12).Text("›")
+                                        .FontSize(Scale.Body)
+                                        .Bold()
+                                        .FontColor(T.Teal);
 
-            column.Item().Row(row =>
+                                    r.RelativeItem()
+                                        .Text(note)
+                                        .FontSize(Scale.Small)
+                                        .Italic()
+                                        .FontColor(T.InkSoft);
+                                });
+                            }
+                        });
+                    }
+                });
+
+            // Detail cards
+            col.Item().Row(row =>
             {
-                row.RelativeItem().Element(c => ComposeInfoCard(c, "Jaw and incisor position", new[]
+                row.RelativeItem().Element(c => InfoCard(c, "Jaw & Incisor Position", new[]
                 {
-                    ("Maxilla", diagnosis.MaxillaryPosition.ToString()),
-                    ("Mandible", diagnosis.MandibularPosition.ToString()),
-                    ("Upper incisor", diagnosis.UpperIncisorInclination.ToString()),
-                    ("Lower incisor", diagnosis.LowerIncisorInclination.ToString()),
+                    ("Maxilla",        diagnosis.MaxillaryPosition.ToString()),
+                    ("Mandible",       diagnosis.MandibularPosition.ToString()),
+                    ("Upper incisor",  diagnosis.UpperIncisorInclination.ToString()),
+                    ("Lower incisor",  diagnosis.LowerIncisorInclination.ToString()),
                 }));
 
-                row.RelativeItem().PaddingLeft(9).Element(c => ComposeInfoCard(c, "Occlusion and soft tissue", new[]
+                row.RelativeItem().PaddingLeft(9).Element(c => InfoCard(c, "Occlusion & Soft Tissue", new[]
                 {
-                    ("Overjet", diagnosis.OverjetMm.HasValue ? $"{diagnosis.OverjetMm:0.0} mm - {diagnosis.OverjetClassification}" : "-"),
-                    ("Overbite", diagnosis.OverbitesMm.HasValue ? $"{diagnosis.OverbitesMm:0.0} mm - {diagnosis.OverbiteClassification}" : "-"),
-                    ("Kim's APDI", EmptyToDash(diagnosis.ApdiClassification)),
-                    ("Kim's ODI", EmptyToDash(diagnosis.OdiClassification)),
+                    ("Overjet",   diagnosis.OverjetMm.HasValue ? $"{diagnosis.OverjetMm:0.0} mm — {diagnosis.OverjetClassification}"  : "-"),
+                    ("Overbite",  diagnosis.OverbitesMm.HasValue ? $"{diagnosis.OverbitesMm:0.0} mm — {diagnosis.OverbiteClassification}" : "-"),
+                    ("Kim APDI",  EmptyToDash(diagnosis.ApdiClassification)),
+                    ("Kim ODI",   EmptyToDash(diagnosis.OdiClassification)),
                 }));
             });
 
+            // Warnings
             var warnings = diagnosis.Warnings?.Where(x => !string.IsNullOrWhiteSpace(x)).ToList() ?? [];
             if (warnings.Count > 0)
             {
-                column.Item().Background("#FFF7ED").Border(0.5f).BorderColor("#FDBA74").Padding(9).Column(w =>
-                {
-                    w.Item().Text("Warnings requiring review")
-                        .FontSize(7.5f)
-                        .Bold()
-                        .FontColor(Palette.Amber);
-
-                    foreach (var warning in warnings.Take(6))
+                col.Item()
+                    .Background(T.AmberLight)
+                    .BorderLeft(3).BorderColor(T.Amber)
+                    .PaddingLeft(12).PaddingRight(10).PaddingVertical(9)
+                    .Column(w =>
                     {
-                        w.Item().PaddingTop(3).Text("- " + warning)
-                            .FontSize(8.2f)
-                            .FontColor(Palette.InkSoft);
-                    }
-                });
+                        w.Item()
+                            .Text("ITEMS REQUIRING REVIEW")
+                            .FontSize(Scale.Tiny)
+                            .Bold()
+                            .FontColor(T.Amber)
+                            .LetterSpacing(0.08f);
+
+                        foreach (var warning in warnings.Take(6))
+                        {
+                            w.Item().PaddingTop(4).Row(r =>
+                            {
+                                r.ConstantItem(12)
+                                    .Text("!")
+                                    .FontSize(Scale.Small)
+                                    .Bold()
+                                    .FontColor(T.Amber);
+
+                                r.RelativeItem()
+                                    .Text(warning)
+                                    .FontSize(Scale.Body)
+                                    .FontColor(T.InkSoft);
+                            });
+                        }
+                    });
             }
         });
     }
+
+    // ─── Growth & risk ────────────────────────────────────────────────────────
 
     private static void ComposeGrowthAndRisk(IContainer container, AnalysisSession session)
     {
         var diagnosis = session.Diagnosis;
         var signals = session.Measurements
-            .Where(m => IsRiskSignal(m))
+            .Where(IsRiskSignal)
             .OrderByDescending(m => Math.Abs(GetZScore(m)))
             .Take(6)
             .ToList();
 
         container.Row(row =>
         {
+            // Growth tendency column
             row.RelativeItem().Column(left =>
             {
                 left.Spacing(7);
-                left.Item().Text("Growth tendency")
-                    .FontSize(10)
+
+                left.Item()
+                    .Text("Growth Tendency")
+                    .FontFamily("Arial")
+                    .FontSize(Scale.Sub)
                     .Bold()
-                    .FontColor(Palette.Navy);
+                    .FontColor(T.Ink);
 
-                left.Item().Background(Palette.Panel).Padding(10).Text(EmptyToDash(diagnosis?.GrowthTendency ?? diagnosis?.OdiNote ?? "No growth pattern note was returned by the AI service."))
-                    .FontSize(8.8f)
-                    .LineHeight(1.35f)
-                    .FontColor(Palette.InkSoft);
+                left.Item()
+                    .Background(T.SurfaceAlt)
+                    .BorderLeft(3).BorderColor(T.Teal)
+                    .PaddingLeft(10).PaddingRight(9).PaddingVertical(9)
+                    .Text(EmptyToDash(diagnosis?.GrowthTendency ?? diagnosis?.OdiNote ??
+                          "No growth pattern note was returned by the AI service."))
+                    .FontSize(Scale.Body)
+                    .LineHeight(1.45f)
+                    .FontColor(T.InkSoft);
 
-                left.Item().Element(c => ComposeInfoCard(c, "Timing", new[]
+                left.Item().Element(c => InfoCard(c, "Session Timing", new[]
                 {
-                    ("Queued", session.QueuedAt.ToString("dd MMM yyyy HH:mm")),
-                    ("Started", session.StartedAt?.ToString("dd MMM yyyy HH:mm") ?? "-"),
-                    ("Completed", session.CompletedAt?.ToString("dd MMM yyyy HH:mm") ?? "-"),
+                    ("Queued",    session.QueuedAt.ToString("dd MMM yyyy  HH:mm")),
+                    ("Started",   session.StartedAt?.ToString("dd MMM yyyy  HH:mm") ?? "-"),
+                    ("Completed", session.CompletedAt?.ToString("dd MMM yyyy  HH:mm") ?? "-"),
                     ("Inference", FormatDuration(session.InferenceDurationMs)),
                 }));
             });
 
-            row.RelativeItem().PaddingLeft(10).Column(right =>
+            // Priority signals column
+            row.RelativeItem().PaddingLeft(12).Column(right =>
             {
                 right.Spacing(7);
-                right.Item().Text("Priority signals")
-                    .FontSize(10)
+
+                right.Item()
+                    .Text("Priority Signals")
+                    .FontFamily("Arial")
+                    .FontSize(Scale.Sub)
                     .Bold()
-                    .FontColor(Palette.Navy);
+                    .FontColor(T.Ink);
 
                 if (signals.Count == 0)
                 {
-                    right.Item().Element(c => ComposeEmptyState(c, "No high-priority measurement deviations were detected in the available dataset."));
+                    right.Item().Element(c => EmptyState(c,
+                        "No high-priority measurement deviations detected in the available dataset."));
                 }
                 else
                 {
                     foreach (var signal in signals)
                     {
+                        var tone = ToneForMeasurement(signal);
+
                         right.Item()
-                            .Background(Palette.Panel)
-                            .BorderLeft(3)
-                            .BorderColor(ToneForMeasurement(signal))
-                            .PaddingHorizontal(8)
-                            .PaddingVertical(6)
+                            .Background(T.Surface)
+                            .Border(0.5f).BorderColor(T.BorderSoft)
+                            .BorderLeft(3).BorderColor(tone)
+                            .PaddingLeft(10).PaddingRight(9).PaddingVertical(7)
                             .Row(item =>
                             {
-                                item.RelativeItem().Column(text =>
+                                item.RelativeItem().Column(txt =>
                                 {
-                                    text.Item().Text(signal.MeasurementName)
-                                        .FontSize(8.3f)
+                                    txt.Item()
+                                        .Text(signal.MeasurementName)
+                                        .FontSize(Scale.Body)
                                         .Bold()
-                                        .FontColor(Palette.Ink);
+                                        .FontColor(T.Ink);
 
-                                    text.Item().Text($"{signal.Status} - {ComputeSeverity(signal)}")
-                                        .FontSize(7.2f)
-                                        .FontColor(Palette.Muted);
+                                    txt.Item()
+                                        .Text($"{signal.Status}  ·  {ComputeSeverity(signal)}")
+                                        .FontSize(Scale.Caption)
+                                        .FontColor(T.Muted);
                                 });
 
-                                item.ConstantItem(55).AlignRight().Text(FormatMeasurementValue(signal))
-                                    .FontSize(8.5f)
+                                item.ConstantItem(60).AlignRight().AlignMiddle()
+                                    .Text(FormatMeasurementValue(signal))
+                                    .FontSize(Scale.Body)
                                     .Bold()
-                                    .FontColor(ToneForMeasurement(signal));
+                                    .FontColor(tone);
                             });
                     }
                 }
@@ -836,24 +913,39 @@ public sealed class QuestPdfReportGenerator(
         });
     }
 
+    // ─── Bolton ───────────────────────────────────────────────────────────────
+
     private static void ComposeBolton(IContainer container, BoltonResult bolton)
     {
-        container.Column(column =>
+        container.Column(col =>
         {
-            column.Spacing(8);
+            col.Spacing(9);
 
-            column.Item().Row(row =>
+            col.Item().Row(row =>
             {
-                MetricCard(row.RelativeItem(), "Anterior Ratio", bolton.AnteriorRatio.HasValue ? $"{bolton.AnteriorRatio:0.0}%" : "-", BoltonTone(bolton.AnteriorFinding), EmptyToDash(bolton.AnteriorFinding));
-                MetricCard(row.RelativeItem(), "Overall Ratio", bolton.OverallRatio.HasValue ? $"{bolton.OverallRatio:0.0}%" : "-", BoltonTone(bolton.OverallFinding), EmptyToDash(bolton.OverallFinding));
+                KpiCard(row.RelativeItem(), "Anterior Ratio",
+                    bolton.AnteriorRatio.HasValue ? $"{bolton.AnteriorRatio:0.0}%" : "—",
+                    BoltonTone(bolton.AnteriorFinding), EmptyToDash(bolton.AnteriorFinding));
+
+                KpiDivider(row);
+
+                KpiCard(row.RelativeItem(), "Overall Ratio",
+                    bolton.OverallRatio.HasValue ? $"{bolton.OverallRatio:0.0}%" : "—",
+                    BoltonTone(bolton.OverallFinding), EmptyToDash(bolton.OverallFinding));
             });
 
-            column.Item().Text("Reference: anterior Bolton ratio 77.2 +/- 1.65%; overall Bolton ratio 91.3 +/- 1.91%. Discrepancies should be interpreted with arch form, tooth anatomy, restorations, and planned mechanics.")
-                .FontSize(7.8f)
+            col.Item()
+                .Background(T.SurfaceAlt)
+                .Padding(8)
+                .Text("Reference — Anterior Bolton ratio 77.2 ± 1.65 %;  Overall Bolton ratio 91.3 ± 1.91 %. " +
+                      "Discrepancies should be interpreted alongside arch form, tooth anatomy, restorations, and planned mechanics.")
+                .FontSize(Scale.Small)
                 .LineHeight(1.35f)
-                .FontColor(Palette.Muted);
+                .FontColor(T.Muted);
         });
     }
+
+    // ─── Measurements ─────────────────────────────────────────────────────────
 
     private static void ComposeMeasurements(
         IContainer container,
@@ -866,9 +958,9 @@ public sealed class QuestPdfReportGenerator(
             .ThenBy(g => g.Key?.ToString() ?? "General")
             .ToList();
 
-        container.Column(column =>
+        container.Column(col =>
         {
-            column.Spacing(12);
+            col.Spacing(14);
 
             foreach (var group in groups)
             {
@@ -876,153 +968,188 @@ public sealed class QuestPdfReportGenerator(
                 var isPrimary = group.Key == priority;
                 var abnormal = group.Count(m => m.Status != MeasurementStatus.Normal);
 
-                column.Item().Column(groupColumn =>
+                col.Item().Column(gc =>
                 {
-                    groupColumn.Spacing(6);
+                    gc.Spacing(6);
 
-                    groupColumn.Item().Row(header =>
+                    // Category header row
+                    gc.Item().Row(hdr =>
                     {
-                        header.RelativeItem().Text(categoryName.ToUpperInvariant() + " ANALYSIS")
-                            .FontSize(8.6f)
+                        hdr.AutoItem()
+                            .Width(3)
+                            .Background(isPrimary ? T.Teal : T.Faint);
+
+                        hdr.RelativeItem().PaddingLeft(8)
+                            .Text(categoryName.ToUpperInvariant() + " ANALYSIS")
+                            .FontFamily("Arial")
+                            .FontSize(Scale.Small)
                             .Bold()
-                            .FontColor(isPrimary ? Palette.Brand : Palette.Navy)
+                            .FontColor(isPrimary ? T.Teal : T.InkSoft)
                             .LetterSpacing(0.05f);
 
-                        header.AutoItem().Element(c => ComposeBadge(c, isPrimary ? "Selected protocol" : $"{abnormal} deviations", isPrimary ? Palette.Brand : abnormal > 0 ? Palette.Amber : Palette.Green));
+                        hdr.AutoItem().Element(c => ComposePill(c,
+                            isPrimary ? "Selected Protocol" : $"{abnormal} Deviations",
+                            isPrimary ? T.Teal : abnormal > 0 ? T.Amber : T.Green,
+                            isPrimary ? T.TealLight : abnormal > 0 ? T.AmberLight : T.GreenLight));
                     });
 
-                    groupColumn.Item().Table(table =>
+                    // Table
+                    gc.Item().Table(table =>
                     {
-                        table.ColumnsDefinition(columns =>
+                        table.ColumnsDefinition(cols =>
                         {
-                            columns.RelativeColumn(2.5f);
-                            columns.RelativeColumn(1.0f);
-                            columns.RelativeColumn(1.7f);
-                            columns.RelativeColumn(2.1f);
-                            columns.RelativeColumn(1.1f);
-                            columns.RelativeColumn(1.1f);
+                            cols.RelativeColumn(2.6f);  // Measurement
+                            cols.RelativeColumn(1.0f);  // Value
+                            cols.RelativeColumn(1.8f);  // Norm
+                            cols.RelativeColumn(2.2f);  // Deviation bar
+                            cols.RelativeColumn(1.1f);  // Status
+                            cols.RelativeColumn(1.0f);  // Severity
                         });
 
-                        TableHeader(table, ["Measurement", "Value", "Norm", "Deviation", "Status", "Severity"]);
+                        // Header
+                        TableRow(table, ["Measurement", "Value", "Norm (±SD)", "Deviation", "Status", "Severity"], header: true);
 
-                        var rowIndex = 0;
-                        foreach (var measurement in group.OrderBy(m => m.MeasurementName))
+                        var rowIdx = 0;
+                        foreach (var m in group.OrderBy(m => m.MeasurementName))
                         {
-                            var background = rowIndex++ % 2 == 0 ? Palette.White : Palette.Panel;
-                            TableCell(table, measurement.MeasurementName, background, true);
-                            TableCell(table, FormatMeasurementValue(measurement), background, false, Palette.Ink, alignRight: true);
-                            TableCell(table, FormatNorm(measurement), background, false, Palette.Muted, alignCenter: true);
+                            var bg = rowIdx++ % 2 == 0 ? T.White : T.SurfaceAlt;
+
+                            Cell(table, m.MeasurementName, bg, bold: true);
+                            Cell(table, FormatMeasurementValue(m), bg, color: T.Ink, alignRight: true);
+                            Cell(table, FormatNorm(m), bg, color: T.Muted, alignCenter: true);
 
                             table.Cell()
-                                .Background(background)
-                                .PaddingHorizontal(5)
-                                .PaddingVertical(4)
-                                .Element(c => ComposeDeviationBar(c, measurement));
+                                .Background(bg)
+                                .PaddingHorizontal(6)
+                                .PaddingVertical(5)
+                                .Element(c => DeviationBar(c, m));
 
-                            TableCell(table, measurement.Status.ToString(), background, false, ToneForMeasurement(measurement), alignCenter: true);
-                            TableCell(table, ComputeSeverity(measurement), background, false, SeverityTone(measurement), alignCenter: true);
+                            Cell(table, m.Status.ToString(), bg, color: ToneForMeasurement(m), alignCenter: true);
+                            Cell(table, ComputeSeverity(m), bg, color: SeverityTone(m), alignCenter: true);
                         }
                     });
 
                     if (CategoryReferences.TryGetValue(categoryName, out var reference))
                     {
-                        groupColumn.Item().Text("Reference: " + reference)
-                            .FontSize(6.8f)
+                        gc.Item()
+                            .Text("Reference — " + reference)
+                            .FontSize(Scale.Tiny)
                             .Italic()
-                            .FontColor(Palette.Faint);
+                            .FontColor(T.Faint);
                     }
                 });
             }
         });
     }
 
+    // ─── Treatment plans ─────────────────────────────────────────────────────
+
     private static void ComposeTreatmentPlans(IContainer container, IEnumerable<TreatmentPlan> plans)
     {
-        var orderedPlans = plans
+        var ordered = plans
             .OrderByDescending(p => p.IsPrimary)
             .ThenBy(p => p.PlanIndex)
             .ToList();
 
-        container.Column(column =>
+        container.Column(col =>
         {
-            column.Spacing(9);
+            col.Spacing(10);
 
-            foreach (var plan in orderedPlans)
+            foreach (var plan in ordered)
             {
-                var tone = plan.IsPrimary ? Palette.Brand : Palette.Navy2;
+                var accentColor = plan.IsPrimary ? T.Teal : T.Faint;
 
-                column.Item()
-                    .Background(Palette.Panel)
-                    .Border(0.6f)
-                    .BorderColor(plan.IsPrimary ? Palette.Brand : Palette.BorderSoft)
-                    .BorderLeft(4)
-                    .BorderColor(tone)
-                    .Padding(10)
+                col.Item()
+                    .Background(T.Surface)
+                    .Border(0.7f).BorderColor(plan.IsPrimary ? T.Teal : T.Border)
+                    .BorderLeft(3).BorderColor(accentColor)
+                    .Padding(12)
                     .Column(card =>
                     {
-                        card.Spacing(6);
+                        card.Spacing(7);
 
+                        // Plan title row
                         card.Item().Row(row =>
                         {
                             row.RelativeItem().Column(title =>
                             {
-                                title.Item().Text(plan.TreatmentName)
-                                    .FontSize(10.2f)
+                                title.Item()
+                                    .Text(plan.TreatmentName)
+                                    .FontFamily("Arial")
+                                    .FontSize(Scale.Sub)
                                     .Bold()
-                                    .FontColor(Palette.Navy);
+                                    .FontColor(T.Ink);
 
-                                title.Item().PaddingTop(2).Text($"{plan.TreatmentType} - {plan.Source}")
-                                    .FontSize(7.4f)
-                                    .FontColor(Palette.Muted);
+                                title.Item().PaddingTop(2)
+                                    .Text($"{plan.TreatmentType}  ·  {plan.Source}")
+                                    .FontSize(Scale.Caption)
+                                    .FontColor(T.Muted);
                             });
 
-                            row.AutoItem().Element(c => ComposeBadge(c, plan.IsPrimary ? "Primary" : "Alternative", tone));
-                            row.AutoItem().PaddingLeft(5).Element(c => ComposeBadge(c, FormatPercent(plan.ConfidenceScore, "Confidence n/a"), ConfidenceTone(plan.ConfidenceScore)));
+                            row.AutoItem().Element(c => ComposePill(c,
+                                plan.IsPrimary ? "Primary" : "Alternative",
+                                accentColor,
+                                plan.IsPrimary ? T.TealLight : T.BorderSoft));
+
+                            row.AutoItem().PaddingLeft(5).Element(c => ComposePill(c,
+                                FormatPercent(plan.ConfidenceScore, "Confidence n/a"),
+                                ConfidenceTone(plan.ConfidenceScore),
+                                T.SurfaceAlt));
                         });
 
-                        card.Item().Text(EmptyToDash(plan.Description))
-                            .FontSize(8.6f)
-                            .LineHeight(1.35f)
-                            .FontColor(Palette.InkSoft);
+                        // Description
+                        card.Item()
+                            .Text(EmptyToDash(plan.Description))
+                            .FontSize(Scale.Body)
+                            .LineHeight(1.45f)
+                            .FontColor(T.InkSoft);
 
+                        // Rationale / risks
                         if (!string.IsNullOrWhiteSpace(plan.Rationale) || !string.IsNullOrWhiteSpace(plan.Risks))
                         {
                             card.Item().Row(details =>
                             {
-                                details.RelativeItem().Element(c => ComposeSmallNarrative(c, "Rationale", plan.Rationale));
-                                details.RelativeItem().PaddingLeft(8).Element(c => ComposeSmallNarrative(c, "Risks / notes", plan.Risks));
+                                details.RelativeItem().Element(c => SmallNarrative(c, "Rationale", plan.Rationale));
+                                details.RelativeItem().PaddingLeft(8).Element(c => SmallNarrative(c, "Risks / Notes", plan.Risks));
                             });
                         }
 
+                        // Footer meta
                         card.Item().Row(meta =>
                         {
-                            meta.RelativeItem().Column(metaColumn =>
+                            meta.RelativeItem().Column(mc =>
                             {
-                                metaColumn.Item().Text(plan.EstimatedDurationMonths.HasValue ? $"Estimated duration: {plan.EstimatedDurationMonths} months" : "Estimated duration: not specified")
-                                    .FontSize(7.4f)
-                                    .FontColor(Palette.Muted);
+                                mc.Item()
+                                    .Text(plan.EstimatedDurationMonths.HasValue
+                                        ? $"Estimated duration: {plan.EstimatedDurationMonths} months"
+                                        : "Estimated duration: not specified")
+                                    .FontSize(Scale.Caption)
+                                    .FontColor(T.Muted);
 
                                 if (!string.IsNullOrWhiteSpace(plan.RetentionRecommendation))
                                 {
-                                    metaColumn.Item().PaddingTop(2).Text("Retention: " + plan.RetentionRecommendation)
-                                        .FontSize(7.1f)
-                                        .FontColor(Palette.InkSoft);
+                                    mc.Item().PaddingTop(2)
+                                        .Text("Retention: " + plan.RetentionRecommendation)
+                                        .FontSize(Scale.Caption)
+                                        .FontColor(T.InkSoft);
                                 }
                             });
 
-                            meta.RelativeItem().AlignRight().Column(evColumn =>
+                            meta.RelativeItem().AlignRight().Column(ev =>
                             {
-                                evColumn.Item().AlignRight().Text("Evidence: " + EmptyToDash(plan.EvidenceReference))
-                                    .FontSize(7.1f)
+                                ev.Item().AlignRight()
+                                    .Text("Evidence: " + EmptyToDash(plan.EvidenceReference))
+                                    .FontSize(Scale.Caption)
                                     .Italic()
-                                    .FontColor(Palette.Faint);
+                                    .FontColor(T.Faint);
 
                                 if (!string.IsNullOrWhiteSpace(plan.EvidenceLevel))
                                 {
-                                    evColumn.Item().AlignRight().PaddingTop(2).Text("Evidence Level: " + plan.EvidenceLevel)
-                                        .FontSize(7.1f)
+                                    ev.Item().AlignRight().PaddingTop(2)
+                                        .Text("Level: " + plan.EvidenceLevel)
+                                        .FontSize(Scale.Caption)
                                         .Bold()
-                                        .FontColor(Palette.Brand);
+                                        .FontColor(T.Teal);
                                 }
                             });
                         });
@@ -1031,311 +1158,434 @@ public sealed class QuestPdfReportGenerator(
         });
     }
 
+    // ─── Governance ───────────────────────────────────────────────────────────
+
     private static void ComposeGovernance(
         IContainer container,
         AnalysisSession session,
         GenerateReportRequest request)
     {
-        container.Column(column =>
+        container.Column(col =>
         {
-            column.Spacing(10);
+            col.Spacing(10);
 
-            column.Item().Row(row =>
+            col.Item().Row(row =>
             {
-                row.RelativeItem().Element(c => ComposeInfoCard(c, "Included sections", new[]
+                row.RelativeItem().Element(c => InfoCard(c, "Included Sections", new[]
                 {
-                    ("X-ray", request.IncludesXray ? "Included" : "Excluded"),
-                    ("Overlay", request.IncludesLandmarkOverlay ? "Included" : "Excluded"),
-                    ("Measurements", request.IncludesMeasurements ? "Included" : "Excluded"),
-                    ("Treatment plan", request.IncludesTreatmentPlan ? "Included" : "Excluded"),
+                    ("X-ray image",    request.IncludesXray            ? "Included" : "Excluded"),
+                    ("Overlay",        request.IncludesLandmarkOverlay ? "Included" : "Excluded"),
+                    ("Measurements",   request.IncludesMeasurements    ? "Included" : "Excluded"),
+                    ("Treatment plan", request.IncludesTreatmentPlan   ? "Included" : "Excluded"),
                 }));
 
-                row.RelativeItem().PaddingLeft(9).Element(c => ComposeInfoCard(c, "Clinical safety", new[]
+                row.RelativeItem().PaddingLeft(9).Element(c => InfoCard(c, "Clinical Safety", new[]
                 {
-                    ("Status", session.Status.ToString()),
-                    ("Diagnosis", session.Diagnosis is null ? "Pending" : "Available"),
-                    ("Landmarks", session.Landmarks.Count.ToString()),
-                    ("Manual edits", session.Landmarks.Count(l => l.IsManuallyAdjusted).ToString()),
+                    ("Status",        session.Status.ToString()),
+                    ("Diagnosis",     session.Diagnosis is null ? "Pending" : "Available"),
+                    ("Landmarks",     session.Landmarks.Count.ToString()),
+                    ("Manual edits",  session.Landmarks.Count(l => l.IsManuallyAdjusted).ToString()),
                 }));
             });
 
-            column.Item()
-                .Background("#FFFBEB")
-                .Border(0.5f)
-                .BorderColor("#FCD34D")
-                .Padding(9)
-                .Text("This report is AI-assisted decision support. It must be reviewed by a licensed clinician with the original radiograph, medical/dental history, clinical examination, and local standard of care before treatment decisions.")
-                .FontSize(8.1f)
-                .LineHeight(1.35f)
-                .FontColor(Palette.InkSoft);
+            // Disclaimer
+            col.Item()
+                .Background(T.AmberLight)
+                .BorderLeft(3).BorderColor(T.Amber)
+                .PaddingLeft(12).PaddingRight(10).PaddingVertical(9)
+                .Text("This report is AI-assisted decision support only. It must be reviewed by a licensed clinician " +
+                      "together with the original radiograph, full medical and dental history, clinical examination, " +
+                      "and local standard of care before any treatment decisions are made.")
+                .FontSize(Scale.Body)
+                .LineHeight(1.45f)
+                .FontColor(T.InkSoft);
 
-            column.Item().Row(row =>
+            // Sign-off block
+            col.Item().Row(row =>
             {
                 row.RelativeItem();
-                row.ConstantItem(230)
-                    .Background(Palette.Paper)
-                    .Border(0.6f)
-                    .BorderColor(Palette.Border)
-                    .Padding(12)
-                    .Column(signature =>
+                row.ConstantItem(240)
+                    .Background(T.Surface)
+                    .Border(0.7f).BorderColor(T.Border)
+                    .Padding(14)
+                    .Column(sig =>
                     {
-                        signature.Item().Text("Authorized clinician")
-                            .FontSize(7.2f)
+                        sig.Item()
+                            .Text("AUTHORISED CLINICIAN")
+                            .FontSize(Scale.Tiny)
                             .Bold()
-                            .FontColor(Palette.Muted)
-                            .LetterSpacing(0.05f);
+                            .FontColor(T.Teal)
+                            .LetterSpacing(0.08f);
 
-                        signature.Item().PaddingTop(30).LineHorizontal(0.7f).LineColor(Palette.Border);
-                        signature.Item().PaddingTop(4).Row(line =>
+                        sig.Item().PaddingTop(28).LineHorizontal(0.7f).LineColor(T.Border);
+
+                        sig.Item().PaddingTop(5).Row(line =>
                         {
-                            line.RelativeItem().Text("Signature / stamp").FontSize(7.2f).FontColor(Palette.Faint);
-                            line.AutoItem().Text($"Date: {DateTime.UtcNow:dd MMM yyyy}").FontSize(7.2f).FontColor(Palette.Faint);
+                            line.RelativeItem()
+                                .Text("Signature / stamp")
+                                .FontSize(Scale.Caption)
+                                .FontColor(T.Faint);
+
+                            line.AutoItem()
+                                .Text($"Date: {DateTime.UtcNow:dd MMM yyyy}")
+                                .FontSize(Scale.Caption)
+                                .FontColor(T.Faint);
                         });
                     });
             });
         });
     }
 
-    private static void ComposeFooter(IContainer container, AnalysisSession session, bool isDraft)
-    {
-        container.Background(Palette.Navy).PaddingHorizontal(22).PaddingVertical(7).Row(row =>
-        {
-            row.RelativeItem().Column(left =>
-            {
-                left.Item().Text("CephAI Advanced Imaging - Professional cephalometric analysis report")
-                    .FontSize(7.4f)
-                    .FontColor("#CBD5E1");
+    // ─── Normative references ─────────────────────────────────────────────────
 
-                if (isDraft)
+    private static void ComposeNormativeReferences(IContainer container, IReadOnlyList<string> usedCategories)
+    {
+        container.Column(col =>
+        {
+            col.Spacing(6);
+
+            col.Item()
+                .Text("All norms referenced in this report are derived from the peer-reviewed literature listed below.")
+                .FontSize(Scale.Small)
+                .FontColor(T.Muted)
+                .LineHeight(1.4f);
+
+            col.Item().PaddingTop(4).Column(refs =>
+            {
+                refs.Spacing(5);
+
+                foreach (var cat in usedCategories.OrderBy(c => c, StringComparer.OrdinalIgnoreCase))
                 {
-                    left.Item().Text("Draft report - not valid until reviewed and finalized by the treating clinician.")
-                        .FontSize(7.2f)
-                        .Bold()
-                        .FontColor("#FCD34D");
+                    if (!CategoryReferences.TryGetValue(cat, out var citation)) continue;
+
+                    refs.Item().Row(row =>
+                    {
+                        row.ConstantItem(3).Background(T.Teal);
+
+                        row.RelativeItem().PaddingLeft(9).Column(entry =>
+                        {
+                            entry.Item()
+                                .Text(cat)
+                                .FontSize(Scale.Small)
+                                .Bold()
+                                .FontColor(T.Ink);
+
+                            entry.Item().PaddingTop(1)
+                                .Text(citation)
+                                .FontSize(Scale.Small)
+                                .Italic()
+                                .FontColor(T.InkSoft)
+                                .LineHeight(1.35f);
+                        });
+                    });
                 }
             });
 
-            row.ConstantItem(155).AlignRight().Column(right =>
-            {
-                right.Item().AlignRight().Text($"Session {session.Id.ToString("N")[..8].ToUpperInvariant()}")
-                    .FontSize(7.2f)
-                    .FontColor("#94A3B8");
-
-                right.Item().PaddingTop(2).AlignRight().Text(text =>
-                {
-                    text.DefaultTextStyle(x => x.FontSize(7.2f).FontColor("#CBD5E1"));
-                    text.Span("Page ");
-                    text.CurrentPageNumber().Bold().FontColor(Palette.White);
-                    text.Span(" of ");
-                    text.TotalPages();
-                });
-            });
+            col.Item().PaddingTop(7)
+                .Background(T.SurfaceAlt)
+                .Border(0.5f).BorderColor(T.BorderSoft)
+                .Padding(9)
+                .Text("This report was generated by the CephAI automated cephalometric analysis platform. " +
+                      "All measurements and classifications are produced by AI-assisted analysis and must be " +
+                      "reviewed and validated by a licensed clinician prior to use in diagnosis or treatment planning.")
+                .FontSize(Scale.Small)
+                .FontColor(T.Muted)
+                .LineHeight(1.4f);
         });
     }
 
-    private static void ComposeInfoCard(IContainer container, string title, IEnumerable<(string Label, string Value)> rows)
+    // ─── Footer ───────────────────────────────────────────────────────────────
+
+    private static void ComposeFooter(IContainer container, AnalysisSession session, bool isDraft)
     {
         container
-            .Background(Palette.Panel)
-            .Border(0.5f)
-            .BorderColor(Palette.BorderSoft)
-            .Padding(9)
-            .Column(column =>
+            .Background(T.HeaderBg)
+            .PaddingHorizontal(24)
+            .PaddingVertical(7)
+            .Row(row =>
             {
-                column.Item().Text(title.ToUpperInvariant())
-                    .FontSize(7.1f)
+                row.RelativeItem().Column(left =>
+                {
+                    left.Item()
+                        .Text("CephAI Advanced Imaging  —  Professional Cephalometric Analysis Report")
+                        .FontSize(Scale.Caption)
+                        .FontColor(T.HeaderDim);
+
+                    if (isDraft)
+                    {
+                        left.Item()
+                            .Text("DRAFT — Not valid until reviewed and finalised by the treating clinician.")
+                            .FontSize(Scale.Caption)
+                            .Bold()
+                            .FontColor(T.Amber);
+                    }
+                });
+
+                row.ConstantItem(160).AlignRight().Column(right =>
+                {
+                    right.Item().AlignRight()
+                        .Text($"Session {session.Id.ToString("N")[..8].ToUpperInvariant()}")
+                        .FontSize(Scale.Caption)
+                        .FontColor(T.HeaderDim);
+
+                    right.Item().PaddingTop(3).AlignRight().Text(txt =>
+                    {
+                        txt.DefaultTextStyle(x => x.FontSize(Scale.Caption).FontColor(T.HeaderText));
+                        txt.Span("Page ");
+                        txt.CurrentPageNumber().Bold().FontColor(T.White);
+                        txt.Span(" of ");
+                        txt.TotalPages();
+                    });
+                });
+            });
+    }
+
+    // ─── Atomic UI components ─────────────────────────────────────────────────
+
+    /// <summary>Pill-shaped status badge with distinct foreground/background colours.</summary>
+    private static void ComposePill(
+        IContainer container,
+        string text,
+        string fgColor,
+        string bgColor,
+        bool light = true)
+    {
+        container
+            .Background(bgColor)
+            .PaddingHorizontal(8)
+            .PaddingVertical(3)
+            .Text(text)
+            .FontFamily("Arial")
+            .FontSize(Scale.Tiny)
+            .Bold()
+            .FontColor(light ? fgColor : T.White);
+    }
+
+    /// <summary>KPI metric card for the executive summary strip.</summary>
+    private static void KpiCard(
+        IContainer container,
+        string label,
+        string value,
+        string valueColor,
+        string helper)
+    {
+        container
+            .PaddingHorizontal(12)
+            .PaddingVertical(10)
+            .Column(col =>
+            {
+                col.Item()
+                    .Text(label.ToUpperInvariant())
+                    .FontSize(Scale.Tiny)
                     .Bold()
-                    .FontColor(Palette.Brand)
+                    .FontColor(T.Muted)
+                    .LetterSpacing(0.07f);
+
+                col.Item().PaddingTop(4)
+                    .Text(value)
+                    .FontFamily("Arial")
+                    .FontSize(13f)
+                    .Bold()
+                    .FontColor(valueColor);
+
+                col.Item().PaddingTop(2)
+                    .Text(helper)
+                    .FontSize(Scale.Tiny)
+                    .FontColor(T.Faint);
+            });
+    }
+
+    private static void KpiDivider(RowDescriptor row)
+    {
+        row.ConstantItem(1)
+            .Padding(8)
+            .Background(T.Border);
+    }
+
+    /// <summary>Compact stat for the executive summary right column.</summary>
+    private static void MiniStat(ColumnDescriptor column, string label, string value, string helper)
+    {
+        column.Item()
+            .Background(T.SurfaceAlt)
+            .PaddingHorizontal(9)
+            .PaddingVertical(6)
+            .Column(card =>
+            {
+                card.Item()
+                    .Text(label.ToUpperInvariant())
+                    .FontSize(Scale.Tiny)
+                    .Bold()
+                    .FontColor(T.Muted)
                     .LetterSpacing(0.06f);
+
+                card.Item()
+                    .Text(value)
+                    .FontSize(Scale.Body)
+                    .Bold()
+                    .FontColor(T.Ink);
+
+                card.Item()
+                    .Text(helper)
+                    .FontSize(Scale.Tiny)
+                    .FontColor(T.Faint);
+            });
+    }
+
+    /// <summary>Labelled data card with key-value rows.</summary>
+    private static void InfoCard(
+        IContainer container,
+        string title,
+        IEnumerable<(string Label, string Value)> rows)
+    {
+        container
+            .Background(T.SurfaceAlt)
+            .Border(0.5f).BorderColor(T.BorderSoft)
+            .Padding(10)
+            .Column(col =>
+            {
+                col.Item()
+                    .Text(title.ToUpperInvariant())
+                    .FontSize(Scale.Tiny)
+                    .Bold()
+                    .FontColor(T.Teal)
+                    .LetterSpacing(0.08f);
 
                 foreach (var (label, value) in rows)
                 {
-                    column.Item().PaddingTop(5).Row(row =>
+                    col.Item().PaddingTop(6).Row(row =>
                     {
-                        row.ConstantItem(65).Text(label)
-                            .FontSize(7.2f)
-                            .FontColor(Palette.Muted);
+                        row.ConstantItem(70)
+                            .Text(label)
+                            .FontSize(Scale.Caption)
+                            .FontColor(T.Muted);
 
-                        row.RelativeItem().Text(EmptyToDash(value))
-                            .FontSize(7.9f)
-                            .SemiBold()
-                            .FontColor(Palette.Ink);
+                        row.RelativeItem()
+                            .Text(EmptyToDash(value))
+                            .FontSize(Scale.Small)
+                            .Bold()
+                            .FontColor(T.Ink);
                     });
                 }
             });
     }
 
-    private static void ComposeImageCard(IContainer container, string title, byte[] bytes, int height = 235)
+    /// <summary>Framed radiograph with dark letterbox background.</summary>
+    private static void ImageCard(IContainer container, string title, byte[] bytes, int height = 240)
     {
         container
-            .Background(Palette.White)
-            .Border(0.6f)
-            .BorderColor(Palette.Border)
-            .Padding(8)
-            .Column(column =>
+            .Background(T.Surface)
+            .Border(0.7f).BorderColor(T.Border)
+            .Padding(9)
+            .Column(col =>
             {
-                column.Item().Text(title)
-                    .FontSize(8.2f)
+                col.Item()
+                    .Text(title)
+                    .FontFamily("Arial")
+                    .FontSize(Scale.Small)
                     .Bold()
-                    .FontColor(Palette.Navy);
+                    .FontColor(T.Ink);
 
-                column.Item().PaddingTop(6)
+                col.Item().PaddingTop(7)
                     .Height(height)
-                    .Background("#0F172A")
+                    .Background("#0B1220")
                     .Padding(5)
                     .Image(bytes)
                     .FitArea();
             });
     }
 
-    private static void ComposeSmallNarrative(IContainer container, string title, string? text)
-    {
-        container.Background(Palette.White).Border(0.4f).BorderColor(Palette.BorderSoft).Padding(7).Column(column =>
-        {
-            column.Item().Text(title)
-                .FontSize(7.2f)
-                .Bold()
-                .FontColor(Palette.Muted);
-
-            column.Item().PaddingTop(3).Text(EmptyToDash(text))
-                .FontSize(7.7f)
-                .LineHeight(1.3f)
-                .FontColor(Palette.InkSoft);
-        });
-    }
-
-    private static void ComposeEmptyState(IContainer container, string message)
+    /// <summary>Compact two-field narrative panel used inside treatment plan cards.</summary>
+    private static void SmallNarrative(IContainer container, string title, string? text)
     {
         container
-            .Background(Palette.Panel)
-            .Border(0.5f)
-            .BorderColor(Palette.BorderSoft)
-            .Padding(10)
+            .Background(T.SurfaceAlt)
+            .Border(0.4f).BorderColor(T.BorderSoft)
+            .Padding(8)
+            .Column(col =>
+            {
+                col.Item()
+                    .Text(title.ToUpperInvariant())
+                    .FontSize(Scale.Tiny)
+                    .Bold()
+                    .FontColor(T.Muted)
+                    .LetterSpacing(0.06f);
+
+                col.Item().PaddingTop(4)
+                    .Text(EmptyToDash(text))
+                    .FontSize(Scale.Small)
+                    .LineHeight(1.35f)
+                    .FontColor(T.InkSoft);
+            });
+    }
+
+    /// <summary>Empty-state placeholder panel.</summary>
+    private static void EmptyState(IContainer container, string message)
+    {
+        container
+            .Background(T.SurfaceAlt)
+            .Border(0.5f).BorderColor(T.BorderSoft)
+            .Padding(11)
             .Text(message)
-            .FontSize(8.2f)
-            .LineHeight(1.35f)
-            .FontColor(Palette.Muted);
+            .FontSize(Scale.Body)
+            .LineHeight(1.4f)
+            .FontColor(T.Muted);
     }
 
-    private static void ComposeBadge(IContainer container, string text, string color)
-    {
-        container
-            .Background(color)
-            .PaddingHorizontal(7)
-            .PaddingVertical(3)
-            .Text(text)
-            .FontSize(6.8f)
-            .Bold()
-            .FontColor(Palette.White);
-    }
-
-    private static void MetricCard(IContainer container, string label, string value, string color, string helper)
+    /// <summary>Diagnostic category card with top accent bar.</summary>
+    private static void DiagCard(
+        IContainer container,
+        string label,
+        string value,
+        string accentColor,
+        string helper)
     {
         container
             .PaddingLeft(5)
-            .Background(Palette.Panel)
-            .Border(0.5f)
-            .BorderColor(Palette.BorderSoft)
-            .Padding(9)
-            .Column(column =>
+            .Background(T.SurfaceAlt)
+            .BorderTop(3).BorderColor(accentColor)
+            .Padding(10)
+            .Column(col =>
             {
-                column.Item().Text(label)
-                    .FontSize(7.2f)
+                col.Item()
+                    .Text(label.ToUpperInvariant())
+                    .FontSize(Scale.Tiny)
                     .Bold()
-                    .FontColor(Palette.Muted);
+                    .FontColor(T.Muted)
+                    .LetterSpacing(0.07f);
 
-                column.Item().PaddingTop(3).Text(value)
-                    .FontSize(12.2f)
+                col.Item().PaddingTop(4)
+                    .Text(value)
+                    .FontFamily("Arial")
+                    .FontSize(Scale.Sub)
                     .Bold()
-                    .FontColor(color);
+                    .FontColor(T.Ink);
 
-                column.Item().PaddingTop(2).Text(helper)
-                    .FontSize(6.8f)
-                    .FontColor(Palette.Faint);
+                col.Item().PaddingTop(3)
+                    .Text(helper)
+                    .FontSize(Scale.Caption)
+                    .FontColor(T.Faint);
             });
     }
 
-    private static void DiagnosticCard(IContainer container, string label, string value, string color, string helper)
+    // ─── Table helpers ────────────────────────────────────────────────────────
+
+    private static void TableRow(TableDescriptor table, IReadOnlyList<string> headers, bool header = false)
     {
-        container
-            .PaddingLeft(5)
-            .Background(Palette.Panel)
-            .BorderTop(3)
-            .BorderColor(color)
-            .Padding(9)
-            .Column(column =>
-            {
-                column.Item().Text(label)
-                    .FontSize(7.1f)
-                    .Bold()
-                    .FontColor(Palette.Muted);
-
-                column.Item().PaddingTop(3).Text(value)
-                    .FontSize(10.4f)
-                    .Bold()
-                    .FontColor(Palette.Navy);
-
-                column.Item().PaddingTop(2).Text(helper)
-                    .FontSize(6.9f)
-                    .FontColor(Palette.Faint);
-            });
-    }
-
-    private static void ComposeMiniStat(ColumnDescriptor column, string label, string value, string helper)
-    {
-        column.Item()
-            .Background(Palette.Panel)
-            .PaddingHorizontal(8)
-            .PaddingVertical(6)
-            .Column(card =>
-            {
-                card.Item().Text(label)
-                    .FontSize(6.8f)
-                    .Bold()
-                    .FontColor(Palette.Muted);
-
-                card.Item().Text(value)
-                    .FontSize(8.6f)
-                    .Bold()
-                    .FontColor(Palette.Ink);
-
-                card.Item().Text(helper)
-                    .FontSize(6.7f)
-                    .FontColor(Palette.Faint);
-            });
-    }
-
-    private static void HeaderMeta(RowDescriptor row, string label, string value)
-    {
-        row.RelativeItem().Row(item =>
+        foreach (var h in headers)
         {
-            item.AutoItem().Text(label + ": ")
-                .FontSize(7)
-                .FontColor("#94A3B8");
+            var cell = table.Cell()
+                .Background(header ? T.Ink : T.SurfaceAlt)
+                .PaddingHorizontal(6)
+                .PaddingVertical(header ? 6 : 4);
 
-            item.RelativeItem().Text(EmptyToDash(value))
-                .FontSize(7.4f)
-                .SemiBold()
-                .FontColor(Palette.White);
-        });
-    }
-
-    private static void TableHeader(TableDescriptor table, IReadOnlyList<string> headers)
-    {
-        foreach (var header in headers)
-        {
-            table.Cell()
-                .Background(Palette.Navy)
-                .PaddingHorizontal(5)
-                .PaddingVertical(5)
-                .Text(header)
-                .FontSize(7.2f)
+            cell.Text(h)
+                .FontSize(header ? Scale.Caption : Scale.Small)
                 .Bold()
-                .FontColor(Palette.White);
+                .FontColor(header ? T.White : T.InkSoft);
         }
     }
 
-    private static void TableCell(
+    private static void Cell(
         TableDescriptor table,
         string text,
         string background,
@@ -1346,40 +1596,38 @@ public sealed class QuestPdfReportGenerator(
     {
         var cell = table.Cell()
             .Background(background)
-            .PaddingHorizontal(5)
+            .PaddingHorizontal(6)
             .PaddingVertical(4);
 
-        if (alignRight)
-        {
-            cell = cell.AlignRight();
-        }
-        else if (alignCenter)
-        {
-            cell = cell.AlignCenter();
-        }
+        if (alignRight) cell = cell.AlignRight();
+        else if (alignCenter) cell = cell.AlignCenter();
 
-        var descriptor = cell.Text(EmptyToDash(text)).FontSize(7.5f).FontColor(color ?? Palette.InkSoft);
-        if (bold)
-        {
-            descriptor.Bold();
-        }
+        var descriptor = cell.Text(EmptyToDash(text))
+            .FontSize(Scale.Small)
+            .FontColor(color ?? T.InkSoft);
+
+        if (bold) descriptor.Bold();
     }
 
-    private static void ComposeDeviationBar(IContainer container, Measurement measurement)
+    // ─── Deviation bar ────────────────────────────────────────────────────────
+
+    private static void DeviationBar(IContainer container, Measurement measurement)
     {
-        var zScore = GetZScore(measurement);
-        var magnitude = Math.Clamp((float)Math.Abs(zScore) / 3f, 0f, 1f);
+        var z = GetZScore(measurement);
+        var magnitude = Math.Clamp((float)Math.Abs(z) / 3f, 0f, 1f);
         var color = ToneForMeasurement(measurement);
         const float eps = 0.001f;
 
-        container.Column(column =>
+        container.Column(col =>
         {
-            column.Item().Height(8).Background(Palette.BorderSoft).Layers(layers =>
+            col.Item().Height(7).Background(T.BorderSoft).Layers(layers =>
             {
-                layers.Layer().AlignCenter().Width(1).Background(Palette.Faint);
+                // Centre reference line
+                layers.Layer().AlignCenter().Width(0.8f).Background(T.Faint);
+
                 layers.PrimaryLayer().Row(row =>
                 {
-                    if (zScore < 0)
+                    if (z < 0)
                     {
                         row.RelativeItem(Math.Max(eps, 50f * (1f - magnitude)));
                         row.RelativeItem(Math.Max(eps, 50f * magnitude)).Background(color);
@@ -1394,201 +1642,177 @@ public sealed class QuestPdfReportGenerator(
                 });
             });
 
-            column.Item().PaddingTop(2).Text($"{zScore:+0.0;-0.0;0.0} SD")
-                .FontSize(6.5f)
-                .FontColor(Palette.Faint);
+            col.Item().PaddingTop(2)
+                .Text($"{z:+0.0;-0.0;0.0} SD")
+                .FontSize(Scale.Tiny)
+                .FontColor(T.Faint);
         });
     }
+
+    // ─── Header row helper ────────────────────────────────────────────────────
+
+    private static void HeaderMeta(RowDescriptor row, string label, string value)
+    {
+        row.RelativeItem().Row(item =>
+        {
+            item.AutoItem()
+                .Text(label + " ")
+                .FontSize(Scale.Caption)
+                .FontColor(T.HeaderDim);
+
+            item.RelativeItem()
+                .Text(EmptyToDash(value))
+                .FontSize(Scale.Small)
+                .SemiBold()
+                .FontColor(T.HeaderText);
+        });
+    }
+
+    // ─── String / logic helpers ───────────────────────────────────────────────
 
     private static string ComposeSummarySentence(AnalysisSession session)
     {
         if (session.Diagnosis is null)
-        {
-            return "The analysis session has been prepared, but a complete diagnosis is not yet available. Review image quality, landmarks, and AI service status before generating a final clinical interpretation.";
-        }
+            return "The analysis session has been prepared but a complete diagnosis is not yet available. " +
+                   "Review image quality, landmarks, and AI service status before generating a final clinical interpretation.";
 
-        var diagnosis = session.Diagnosis;
-        var confidence = FormatPercent(diagnosis.ConfidenceScore, "pending confidence");
-        return $"AI-assisted analysis suggests {diagnosis.SkeletalClass} skeletal relationship with a {diagnosis.VerticalPattern} vertical pattern and {diagnosis.SoftTissueProfile} soft-tissue profile. Diagnostic confidence is {confidence}.";
+        var d = session.Diagnosis;
+        var confidence = FormatPercent(d.ConfidenceScore, "pending confidence");
+        return $"AI-assisted analysis suggests {d.SkeletalClass} skeletal relationship with a " +
+               $"{d.VerticalPattern} vertical pattern and {d.SoftTissueProfile} soft-tissue profile. " +
+               $"Diagnostic confidence: {confidence}.";
     }
 
-    private static string BuildFallbackDiagnosisSummary(Diagnosis diagnosis)
+    private static string BuildFallbackDiagnosisSummary(Diagnosis d) =>
+        $"Skeletal class {d.SkeletalClass};  vertical {d.VerticalPattern};  " +
+        $"maxilla {d.MaxillaryPosition};  mandible {d.MandibularPosition};  " +
+        $"upper incisors {d.UpperIncisorInclination};  lower incisors {d.LowerIncisorInclination}.";
+
+    private static bool IsRiskSignal(Measurement m) =>
+        m.Status != MeasurementStatus.Normal || Math.Abs(GetZScore(m)) >= 1.5m;
+
+    private static decimal GetZScore(Measurement m)
     {
-        return $"Skeletal class {diagnosis.SkeletalClass}; vertical pattern {diagnosis.VerticalPattern}; maxilla {diagnosis.MaxillaryPosition}; mandible {diagnosis.MandibularPosition}; upper incisors {diagnosis.UpperIncisorInclination}; lower incisors {diagnosis.LowerIncisorInclination}.";
+        var norm = ResolveNorm(m);
+        return norm.Sd <= 0 ? 0m : (m.Value - norm.Mean) / norm.Sd;
     }
 
-    private static bool IsRiskSignal(Measurement measurement)
+    private static NormReference ResolveNorm(Measurement m)
     {
-        if (measurement.Status != MeasurementStatus.Normal)
+        if (Norms.TryGetValue(m.MeasurementCode, out var ref_)) return ref_;
+        if (m.NormSD > 0) return new(m.NormMean, m.NormSD, "Stored norm");
+
+        if (m.NormalMin != 0 || m.NormalMax != 0)
         {
-            return true;
+            var mean = (m.NormalMin + m.NormalMax) / 2m;
+            var sd = Math.Max(Math.Abs(m.NormalMax - m.NormalMin) / 4m, 1m);
+            return new(mean, sd, "Stored range");
         }
 
-        return Math.Abs(GetZScore(measurement)) >= 1.5m;
+        return new(m.Value, 1m, "Unavailable");
     }
 
-    private static decimal GetZScore(Measurement measurement)
+    private static string FormatNorm(Measurement m)
     {
-        var norm = ResolveNorm(measurement);
-        if (norm.Sd <= 0)
-        {
-            return 0m;
-        }
-
-        return (measurement.Value - norm.Mean) / norm.Sd;
-    }
-
-    private static NormReference ResolveNorm(Measurement measurement)
-    {
-        if (Norms.TryGetValue(measurement.MeasurementCode, out var reference))
-        {
-            return reference;
-        }
-
-        if (measurement.NormSD > 0)
-        {
-            return new NormReference(measurement.NormMean, measurement.NormSD, "Stored norm");
-        }
-
-        if (measurement.NormalMin != 0 || measurement.NormalMax != 0)
-        {
-            var mean = (measurement.NormalMin + measurement.NormalMax) / 2m;
-            var sd = Math.Max(Math.Abs(measurement.NormalMax - measurement.NormalMin) / 4m, 1m);
-            return new NormReference(mean, sd, "Stored range");
-        }
-
-        return new NormReference(measurement.Value, 1m, "Unavailable");
-    }
-
-    private static string FormatNorm(Measurement measurement)
-    {
-        var norm = ResolveNorm(measurement);
+        var norm = ResolveNorm(m);
         return norm.Source == "Stored range"
-            ? $"{measurement.NormalMin:0.0}-{measurement.NormalMax:0.0}"
-            : $"{norm.Mean:0.0} +/- {norm.Sd:0.0}";
+            ? $"{m.NormalMin:0.0}–{m.NormalMax:0.0}"
+            : $"{norm.Mean:0.0} ±{norm.Sd:0.0}";
     }
 
-    private static string FormatMeasurementValue(Measurement measurement)
+    private static string FormatMeasurementValue(Measurement m) => m.Unit switch
     {
-        return measurement.Unit switch
-        {
-            MeasurementUnit.Degrees => $"{measurement.Value:0.0} deg",
-            MeasurementUnit.Percent => $"{measurement.Value:0.0}%",
-            _ => $"{measurement.Value:0.0} mm",
-        };
-    }
+        MeasurementUnit.Degrees => $"{m.Value:0.0}°",
+        MeasurementUnit.Percent => $"{m.Value:0.0}%",
+        _ => $"{m.Value:0.0} mm",
+    };
 
-    private static string ComputeSeverity(Measurement measurement)
+    private static string ComputeSeverity(Measurement m)
     {
-        if (measurement.Severity != DeviationSeverity.Normal)
-        {
-            return measurement.Severity.ToString();
-        }
-
-        var z = Math.Abs(GetZScore(measurement));
-        return z <= 1m ? "Normal"
-            : z <= 2m ? "Mild"
-            : z <= 3m ? "Moderate"
-            : "Severe";
+        if (m.Severity != DeviationSeverity.Normal) return m.Severity.ToString();
+        var z = Math.Abs(GetZScore(m));
+        return z <= 1m ? "Normal" : z <= 2m ? "Mild" : z <= 3m ? "Moderate" : "Severe";
     }
 
-    private static string FormatDuration(int? milliseconds)
-    {
-        if (!milliseconds.HasValue || milliseconds.Value <= 0)
-        {
-            return "-";
-        }
+    private static string FormatDuration(int? ms) =>
+        ms is null or <= 0 ? "-" :
+        ms.Value < 1000 ? $"{ms.Value} ms" :
+                             $"{ms.Value / 1000m:0.0} s";
 
-        return milliseconds.Value < 1000
-            ? $"{milliseconds.Value} ms"
-            : $"{milliseconds.Value / 1000m:0.0} s";
-    }
-
-    private static string FormatDimensions(XRayImage? image)
-    {
-        if (image?.WidthPx is null || image.HeightPx is null)
-        {
-            return "-";
-        }
-
-        return $"{image.WidthPx} x {image.HeightPx}px";
-    }
+    private static string FormatDimensions(XRayImage? img) =>
+        img?.WidthPx is null || img.HeightPx is null ? "-" : $"{img.WidthPx} × {img.HeightPx} px";
 
     private static string FormatPercent(decimal? value, string fallback)
     {
-        if (!value.HasValue)
-        {
-            return fallback;
-        }
-
-        var normalized = value.Value > 1m ? value.Value / 100m : value.Value;
-        return $"{normalized:P0}";
+        if (!value.HasValue) return fallback;
+        var n = value.Value > 1m ? value.Value / 100m : value.Value;
+        return $"{n:P0}";
     }
 
-    private static string EmptyToDash(string? value)
-    {
-        return string.IsNullOrWhiteSpace(value) ? "-" : value.Trim();
-    }
+    private static string EmptyToDash(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? "—" : value.Trim();
 
-    private static string ToneForMeasurement(Measurement measurement) => measurement.Status switch
+    // ─── Colour semantics ─────────────────────────────────────────────────────
+
+    private static string ToneForMeasurement(Measurement m) => m.Status switch
     {
-        MeasurementStatus.Normal => Palette.Green,
-        MeasurementStatus.Increased => Palette.Amber,
-        MeasurementStatus.Decreased => Palette.Red,
-        _ => Palette.Muted,
+        MeasurementStatus.Normal => T.Green,
+        MeasurementStatus.Increased => T.Amber,
+        MeasurementStatus.Decreased => T.Red,
+        _ => T.Muted,
     };
 
-    private static string SeverityTone(Measurement measurement)
+    private static string SeverityTone(Measurement m) => ComputeSeverity(m) switch
     {
-        return ComputeSeverity(measurement) switch
-        {
-            "Normal" => Palette.Green,
-            "Mild" => Palette.Amber,
-            "Moderate" => Palette.Amber,
-            "Severe" => Palette.Red,
-            _ => ToneForMeasurement(measurement),
-        };
-    }
+        "Normal" => T.Green,
+        "Mild" => T.Amber,
+        "Moderate" => T.Amber,
+        "Severe" => T.Red,
+        _ => ToneForMeasurement(m),
+    };
 
     private static string ConfidenceTone(decimal? confidence)
     {
-        if (!confidence.HasValue)
-        {
-            return Palette.Muted;
-        }
-
-        var normalized = confidence.Value > 1m ? confidence.Value / 100m : confidence.Value;
-        return normalized >= 0.85m ? Palette.Green
-            : normalized >= 0.65m ? Palette.Cyan
-            : normalized >= 0.45m ? Palette.Amber
-            : Palette.Red;
+        if (!confidence.HasValue) return T.Muted;
+        var n = confidence.Value > 1m ? confidence.Value / 100m : confidence.Value;
+        return n >= 0.85m ? T.Green :
+               n >= 0.65m ? T.Cyan :
+               n >= 0.45m ? T.Amber : T.Red;
     }
 
-    private static string ToneForSkeletal(SkeletalClass? skeletalClass) => skeletalClass switch
+    private static string ToneForSkeletal(SkeletalClass? s) => s switch
     {
-        SkeletalClass.ClassI => Palette.Green,
-        SkeletalClass.ClassII => Palette.Amber,
-        SkeletalClass.ClassIII => Palette.Red,
-        _ => Palette.Muted,
+        SkeletalClass.ClassI => T.Green,
+        SkeletalClass.ClassII => T.Amber,
+        SkeletalClass.ClassIII => T.Red,
+        _ => T.Muted,
     };
 
-    private static string ToneForVertical(VerticalPattern? verticalPattern) => verticalPattern switch
+    private static string ToneLightForSkeletal(SkeletalClass? s) => s switch
     {
-        VerticalPattern.Normal => Palette.Green,
-        VerticalPattern.LowAngle => Palette.Cyan,
-        VerticalPattern.HighAngle => Palette.Amber,
-        _ => Palette.Muted,
+        SkeletalClass.ClassI => T.GreenLight,
+        SkeletalClass.ClassII => T.AmberLight,
+        SkeletalClass.ClassIII => T.RedLight,
+        _ => T.SurfaceAlt,
     };
 
-    private static string BoltonTone(string? finding)
+    private static string ToneForVertical(VerticalPattern? v) => v switch
     {
-        if (string.IsNullOrWhiteSpace(finding))
-        {
-            return Palette.Muted;
-        }
+        VerticalPattern.Normal => T.Green,
+        VerticalPattern.LowAngle => T.Cyan,
+        VerticalPattern.HighAngle => T.Amber,
+        _ => T.Muted,
+    };
 
-        return finding.Contains("normal", StringComparison.OrdinalIgnoreCase)
-            ? Palette.Green
-            : Palette.Amber;
-    }
+    private static string ToneLightForVertical(VerticalPattern? v) => v switch
+    {
+        VerticalPattern.Normal => T.GreenLight,
+        VerticalPattern.LowAngle => T.CyanLight,
+        VerticalPattern.HighAngle => T.AmberLight,
+        _ => T.SurfaceAlt,
+    };
+
+    private static string BoltonTone(string? finding) =>
+        string.IsNullOrWhiteSpace(finding) ? T.Muted :
+        finding.Contains("normal", StringComparison.OrdinalIgnoreCase) ? T.Green : T.Amber;
 }

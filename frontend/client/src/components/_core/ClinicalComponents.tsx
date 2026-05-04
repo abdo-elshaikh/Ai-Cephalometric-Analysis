@@ -4,6 +4,7 @@ import {
   ArrowDownRight,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Loader2,
   Moon,
   Search as SearchIcon,
@@ -264,14 +265,16 @@ export function PageHeader({
   title,
   description,
   actions,
+  className,
 }: {
   eyebrow: string;
   title: string;
   description: string;
   actions?: ReactNode;
+  className?: string;
 }) {
   return (
-    <div className="flex flex-col gap-4 pb-2 lg:flex-row lg:items-end lg:justify-between">
+    <div className={cn("flex flex-col gap-4 pb-2 lg:flex-row lg:items-end lg:justify-between", className)}>
       <div className="max-w-2xl space-y-1.5">
         <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-primary">{eyebrow}</p>
         <h1 className="text-2xl font-bold leading-tight tracking-tight text-foreground sm:text-[1.9rem]">{title}</h1>
@@ -430,9 +433,9 @@ export function DangerBtn({
 }
 
 /** Styled field label wrapper */
-export function Field({ label, children }: { label: string; children: ReactNode }) {
+export function Field({ label, children, className }: { label: string; children: ReactNode; className?: string }) {
   return (
-    <div className="space-y-1.5">
+    <div className={cn("space-y-1.5", className)}>
       <label className="block text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
         {label}
       </label>
@@ -446,11 +449,13 @@ export function Select({
   value,
   onChange,
   children,
+  options,
   className,
 }: {
   value: string;
   onChange: (value: string) => void;
-  children: ReactNode;
+  children?: ReactNode;
+  options?: { value: string; label: string }[];
   className?: string;
 }) {
   return (
@@ -463,10 +468,13 @@ export function Select({
           className
         )}
       >
-        {children}
+        {options 
+          ? options.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)
+          : children
+        }
       </select>
       <div className="pointer-events-none absolute inset-y-0 right-2.5 flex items-center">
-        <Activity className="h-3.5 w-3.5 text-muted-foreground/60 rotate-90" />
+        <ChevronDown className="h-4 w-4 text-muted-foreground/60" />
       </div>
     </div>
   );
@@ -756,14 +764,16 @@ export function Switch({
   onChange,
   label,
   disabled,
+  className,
 }: {
   checked: boolean;
   onChange: (v: boolean) => void;
   label?: string;
   disabled?: boolean;
+  className?: string;
 }) {
   return (
-    <label className={cn("flex cursor-pointer items-center gap-2.5", disabled && "cursor-not-allowed opacity-50")}>
+    <label className={cn("flex cursor-pointer items-center gap-2.5", disabled && "cursor-not-allowed opacity-50", className)}>
       <button
         type="button"
         role="switch"
