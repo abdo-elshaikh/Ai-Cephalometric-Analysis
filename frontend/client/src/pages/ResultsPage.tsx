@@ -693,7 +693,7 @@ function TreatmentCard({ treatment, rank }: { treatment: TreatmentOption; rank: 
 }
 
 function GrowthPanel({ activeCase, cvmStaging }: { activeCase?: CaseRecord; cvmStaging?: any }) {
-  const age = activeCase?.patientAge;
+  const age: number | undefined = undefined;
   const stages = [
     { cs: "CS 1", label: "Pre-Peak", color: "bg-emerald-500", detail: "C2, C3, C4 lower borders are flat. C3, C4 are wedge-shaped." },
     { cs: "CS 2", label: "Pre-Peak", color: "bg-emerald-500", detail: "Concavity at C2 lower border. C3, C4 still wedge-shaped." },
@@ -942,7 +942,7 @@ export default function ResultsPage({
             <div className="flex flex-wrap items-center gap-4 text-muted-foreground font-medium">
               <div className="flex items-center gap-2 bg-card/40 px-4 py-1.5 rounded-full border border-border/40 shadow-sm">
                 <span className="text-xs font-black uppercase opacity-40">Patient</span>
-                <span className="text-sm text-foreground">{activeCase.patientName}</span>
+                <span className="text-sm text-foreground">{activeCase.title}</span>
               </div>
               <div className="flex items-center gap-2 bg-card/40 px-4 py-1.5 rounded-full border border-border/40 shadow-sm">
                 <span className="text-xs font-black uppercase opacity-40">Case</span>

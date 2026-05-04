@@ -139,6 +139,14 @@ export type BackendDiagnosisDto = {
     dental_markers: string[];
     interpretation: string;
   } | null;
+  cvmStaging?: {
+    stage?: string | null;
+    classification?: string | null;
+    label?: string | null;
+    description?: string | null;
+    growth_status?: string | null;
+    maturation_status?: string | null;
+  } | null;
 };
 
 export type BackendTreatmentDto = {

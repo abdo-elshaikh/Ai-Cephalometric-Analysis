@@ -201,7 +201,8 @@ export default function ReportsPage({
               const FormatIcon = fmt.icon;
 
               return (
-                <Card key={r.id} className="group p-0 overflow-hidden glass-premium hover-glow transition-all duration-700 hover-lift shadow-lg-professional border-border/40 flex flex-col animate-in fade-in slide-in-from-bottom-4" style={{ animationDelay: `${idx * 50}ms` }}>
+                <div key={r.id} style={{ animationDelay: `${idx * 50}ms` }}>
+                <Card className="group p-0 overflow-hidden glass-premium hover-glow transition-all duration-700 hover-lift shadow-lg-professional border-border/40 flex flex-col animate-in fade-in slide-in-from-bottom-4">
                   <div className="p-8 space-y-6">
                     <div className="flex items-start justify-between">
                       <div className="flex items-center gap-5">
@@ -251,6 +252,7 @@ export default function ReportsPage({
                     </button>
                   </div>
                 </Card>
+                </div>
               );
             })}
           </div>

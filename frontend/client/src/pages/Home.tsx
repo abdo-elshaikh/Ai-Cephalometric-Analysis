@@ -2,8 +2,9 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity, ArrowRight, BrainCircuit, CheckCircle2, ChevronDown, DatabaseZap,
   FileCheck2, Loader2, LockKeyhole, ScanLine, ShieldCheck, Sparkles, Stethoscope,
-  Zap, BarChart3, Clock, Users, Globe, ShieldAlert, Cpu, HardDrive, Layers,
+  Zap, BarChart3, Clock, Users, Globe, ShieldAlert, Cpu, HardDrive, Layers, Target,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { useLocation } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
