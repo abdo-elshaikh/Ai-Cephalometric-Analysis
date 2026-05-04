@@ -495,7 +495,8 @@ export default function App() {
     if (apiMode !== "live" || !isGuid(data.patientId)) { toast.error("Connect to backend first."); return; }
     const res = await cephApi.createStudy({ patientId: data.patientId, studyType: data.type, title: data.title, studyDate: data.date });
     if (!res.ok) { toast.error(`Create failed: ${res.error}`); return; }
-    const created: CaseRecord = { id: res.data.id, patientId: res.data.patientId, title: res.data.title || data.title, type: toStudyType(res.data.studyType), date: res.data.studyDate, status: "Draft", calibrated: false, aiStatus: "not_started", reportStatus: "pending", updatedAt: res.data.createdAt.slice(0, 10) };
+    const pt = patients.find(p => p.id === res.data.patientId);
+    const created: CaseRecord = { id: res.data.id, patientId: res.data.patientId, patientName: pt ? `${pt.firstName} ${pt.lastName}`.trim() : undefined, patientAge: pt?.age, title: res.data.title || data.title, type: toStudyType(res.data.studyType), date: res.data.studyDate, status: "Draft", calibrated: false, aiStatus: "not_started", reportStatus: "pending", updatedAt: res.data.createdAt.slice(0, 10) };
     setCases(prev => [created, ...prev]); setActivePatientId(data.patientId); setActiveCaseId(created.id);
     addHistory({ type: "Case", title: "Case created", detail: `${created.title} added.`, caseId: created.id, patientId: created.patientId });
     addNotification("success", "Case Created", `${created.title} case ready for analysis.`);
