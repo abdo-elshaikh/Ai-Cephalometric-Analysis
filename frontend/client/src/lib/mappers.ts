@@ -57,6 +57,8 @@ export type Patient = {
 export type CaseRecord = {
   id: string;
   patientId: string;
+  patientName?: string;
+  patientAge?: number;
   title: string;
   type: "Lateral" | "PA" | "CBCT";
   date: string;
@@ -475,6 +477,7 @@ export function mapHistoryItem(dto: BackendHistoryItemDto): TimelineItem {
 
 export function mapWorkspace(workspace: BackendWorkspace) {
   const patients = workspace.patients.map(mapPatient);
+  const patientDtoMap = new Map(workspace.patients.map(p => [p.id, p]));
   const reportsBySession = new Map(workspace.reports.map(report => [report.sessionId, report]));
 
   const cases = workspace.studies.map(study => {
@@ -482,10 +485,17 @@ export function mapWorkspace(workspace: BackendWorkspace) {
     const image = images[0];
     const session = image ? workspace.sessionsByImage[image.id] : null;
     const report = session ? reportsBySession.get(session.id) : undefined;
+    const patientDto = patientDtoMap.get(study.patientId);
+    const patientName = patientDto
+      ? `${patientDto.firstName} ${patientDto.lastName}`.trim()
+      : undefined;
+    const patientAge = calculateAge(patientDto?.dateOfBirth);
 
     return {
       id: study.id,
       patientId: study.patientId,
+      patientName,
+      patientAge,
       title: study.title || `${study.studyType} cephalometric study`,
       type: toStudyType(study.studyType),
       date: study.studyDate,
