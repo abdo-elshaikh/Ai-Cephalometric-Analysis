@@ -212,7 +212,7 @@ function AppRoutes({
       </Route>
       <Route path="/cases">
         <ProtectedRoute authUser={authUser}>
-          <CasesPage patients={patients} cases={cases} activeCaseId={activeCaseId} setActiveCaseId={setActiveCaseId} onCreateCase={openCaseCreate} />
+          <CasesPage cases={cases} activeCaseId={activeCaseId} setActiveCaseId={setActiveCaseId} onCreateCase={openCaseCreate} />
         </ProtectedRoute>
       </Route>
       <Route path="/analysis">

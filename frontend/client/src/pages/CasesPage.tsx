@@ -9,7 +9,7 @@ import {
   Card, Pill, PrimaryBtn, SecondaryBtn, IconBtn, PageHeader, SearchInput, Divider, TextInput,
 } from "@/components/_core/ClinicalComponents";
 import { statusTone, completionForCase } from "@/lib/clinical-utils";
-import { type CaseRecord, type Patient } from "@/lib/mappers";
+import { type CaseRecord } from "@/lib/mappers";
 import { useLocation } from "wouter";
 import { cn } from "@/lib/utils";
 
@@ -48,7 +48,6 @@ function getSmartAction(c: CaseRecord): { label: string; href: string; icon: any
 // ─── Component ────────────────────────────────────────────────────────────────
 
 interface CasesPageProps {
-  patients: Patient[];
   cases: CaseRecord[];
   activeCaseId: string;
   setActiveCaseId: (id: string) => void;
@@ -56,7 +55,7 @@ interface CasesPageProps {
 }
 
 export default function CasesPage({
-  patients, cases, activeCaseId, setActiveCaseId, onCreateCase,
+  cases, activeCaseId, setActiveCaseId, onCreateCase,
 }: CasesPageProps) {
   const [, navigate] = useLocation();
   const [query, setQuery] = useState("");
@@ -81,8 +80,10 @@ export default function CasesPage({
 
   const currentGroup = FILTER_GROUPS.find(g => g.label === filterGroup);
   const filtered = sortedCases.filter(c => {
-    const matchQuery = c.title.toLowerCase().includes(query.toLowerCase()) ||
-      patients.find(p => p.id === c.patientId && (`${p.firstName} ${p.lastName}`).toLowerCase().includes(query.toLowerCase()));
+    const q = query.toLowerCase();
+    const matchQuery = !q ||
+      c.title.toLowerCase().includes(q) ||
+      Boolean(c.patientName?.toLowerCase().includes(q));
     const matchFilter = !currentGroup?.statuses || currentGroup.statuses.includes(c.status);
     return matchQuery && matchFilter;
   });
@@ -203,7 +204,6 @@ export default function CasesPage({
         {view === "grid" ? (
           <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {filtered.map(c => {
-              const p = patients.find(x => x.id === c.patientId);
               const progress = completionForCase(c);
               const isActive = activeCaseId === c.id;
               const ai = aiStatusDisplay(c.aiStatus);
@@ -233,7 +233,7 @@ export default function CasesPage({
 
                     <div className="space-y-1">
                       <h3 className="text-xl font-black tracking-tight leading-tight group-hover:text-primary transition-colors">{c.title}</h3>
-                      <p className="text-sm text-muted-foreground font-medium">{p ? `${p.firstName} ${p.lastName}` : "Unassigned Patient"}</p>
+                      <p className="text-sm text-muted-foreground font-medium">{c.patientName ?? "Unassigned Patient"}</p>
                     </div>
 
                     <Divider className="opacity-10" />
@@ -320,7 +320,6 @@ export default function CasesPage({
                 </thead>
                 <tbody className="divide-y divide-border/10">
                   {filtered.map(c => {
-                    const p = patients.find(x => x.id === c.patientId);
                     const isActive = activeCaseId === c.id;
                     const smartAction = getSmartAction(c);
                     return (
@@ -348,7 +347,7 @@ export default function CasesPage({
                           </div>
                         </td>
                         <td className="px-8 py-6">
-                           <p className="text-sm font-bold text-foreground/80">{p ? `${p.firstName} ${p.lastName}` : "---"}</p>
+                           <p className="text-sm font-bold text-foreground/80">{c.patientName ?? "---"}</p>
                            <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/40 mt-1">Surgical Record</p>
                         </td>
                         <td className="px-8 py-6">
